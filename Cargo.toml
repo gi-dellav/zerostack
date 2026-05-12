@@ -1,0 +1,21 @@
+[package]
+name = "zerostack"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rig = "0.36"
+clap = { version = "4", features = ["derive", "env"] }
+crossterm = "0.29"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+thiserror = "2"
+futures = "0.3"
+reqwest = "0.12"
+dirs = "6"
