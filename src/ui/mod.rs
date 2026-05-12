@@ -5,6 +5,9 @@ mod status;
 use std::io::Write;
 
 use chrono::Datelike;
+use crossterm::event::{
+    DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers, MouseEventKind,
+};
 use crossterm::style::Color;
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{ExecutableCommand, event};
@@ -27,6 +30,7 @@ const C_AGENT: Color = Color::White;
 const C_TOOL: Color = Color::Yellow;
 const C_RESULT: Color = Color::DarkGrey;
 const C_ERROR: Color = Color::Red;
+const C_REASONING: Color = Color::DarkMagenta;
 
 struct TerminalGuard;
 
@@ -35,6 +39,7 @@ impl TerminalGuard {
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(Clear(ClearType::All))?;
+        stdout.execute(EnableMouseCapture)?;
         terminal::enable_raw_mode()?;
         Ok(TerminalGuard)
     }
@@ -44,6 +49,7 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = terminal::disable_raw_mode();
         let mut stdout = std::io::stdout();
+        let _ = stdout.execute(DisableMouseCapture);
         let _ = stdout.execute(LeaveAlternateScreen);
         let _ = stdout.flush();
     }
@@ -133,6 +139,7 @@ fn handle_slash(
     cli: &Cli,
     cfg: &Config,
     context: &ContextFiles,
+    show_reasoning: &mut bool,
 ) -> anyhow::Result<()> {
     let parts: Vec<&str> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
@@ -221,12 +228,20 @@ fn handle_slash(
                 }
             }
         }
+        "/reasoning" => {
+            *show_reasoning = !*show_reasoning;
+            renderer.write_line(
+                &format!("reasoning visibility: {}", if *show_reasoning { "on" } else { "off" }),
+                C_AGENT,
+            )?;
+        }
         "/help" => {
             renderer.write_line("commands:", C_AGENT)?;
             renderer.write_line("  /model [name]          show or switch model", C_RESULT)?;
             renderer.write_line("  /sessions              list recent sessions", C_RESULT)?;
             renderer.write_line("  /sessions <id>         load a session (by ID prefix)", C_RESULT)?;
             renderer.write_line("  /sessions delete <id>  delete a session", C_RESULT)?;
+            renderer.write_line("  /reasoning             toggle reasoning visibility", C_RESULT)?;
             renderer.write_line("  /help                  show this message", C_RESULT)?;
         }
         _ => {
@@ -251,6 +266,8 @@ pub async fn run_interactive(
     let mut is_running = false;
     let mut agent_rx: Option<mpsc::Receiver<AgentEvent>> = None;
     let mut agent_line_started = false;
+    let mut show_reasoning = true;
+    let mut was_reasoning = false;
 
     render_session(&mut renderer, session, cli, cfg, context)?;
     renderer.draw_bottom("", 0, &StatusLine::render(session, false), false)?;
@@ -258,17 +275,35 @@ pub async fn run_interactive(
     let (user_tx, mut user_rx) = mpsc::channel::<UserEvent>(64);
     let user_tx_clone = user_tx.clone();
     std::thread::spawn(move || loop {
-        if let Ok(event::Event::Key(key)) = event::read() {
-            let is_ctrl_c = key.code == event::KeyCode::Char('c')
-                && key.modifiers.contains(event::KeyModifiers::CONTROL);
-            let ev = if is_ctrl_c {
-                UserEvent::Quit
-            } else {
-                UserEvent::Key(key)
-            };
-            if user_tx_clone.blocking_send(ev).is_err() {
-                break;
+        match event::read() {
+            Ok(event::Event::Key(key)) => {
+                let is_ctrl_c = key.code == KeyCode::Char('c')
+                    && key.modifiers.contains(KeyModifiers::CONTROL);
+                let ev = if is_ctrl_c {
+                    UserEvent::Quit
+                } else {
+                    UserEvent::Key(key)
+                };
+                if user_tx_clone.blocking_send(ev).is_err() {
+                    break;
+                }
             }
+            Ok(event::Event::Mouse(m)) => match m.kind {
+                MouseEventKind::ScrollUp => {
+                    if user_tx_clone.blocking_send(UserEvent::ScrollUp).is_err() {
+                        break;
+                    }
+                }
+                MouseEventKind::ScrollDown => {
+                    if user_tx_clone.blocking_send(UserEvent::ScrollDown).is_err() {
+                        break;
+                    }
+                }
+                _ => {}
+            },
+            Ok(event::Event::Resize(_, _)) => {}
+            Err(_) => break,
+            _ => {}
         }
     });
 
@@ -277,15 +312,104 @@ pub async fn run_interactive(
             Some(ev) = user_rx.recv() => {
                 match ev {
                     UserEvent::Quit => break,
+                    UserEvent::ScrollUp => {
+                        renderer.scroll_line_up();
+                        renderer.render_viewport()?;
+                        renderer.draw_bottom(
+                            &input.buffer,
+                            input.cursor,
+                            &StatusLine::render(session, is_running),
+                            is_running,
+                        )?;
+                        continue;
+                    }
+                    UserEvent::ScrollDown => {
+                        renderer.scroll_line_down();
+                        renderer.render_viewport()?;
+                        renderer.draw_bottom(
+                            &input.buffer,
+                            input.cursor,
+                            &StatusLine::render(session, is_running),
+                            is_running,
+                        )?;
+                        continue;
+                    }
                     UserEvent::Key(key) => {
+                        let ctrl_r = key.code == KeyCode::Char('r')
+                            && key.modifiers.contains(KeyModifiers::CONTROL);
+                        if ctrl_r {
+                            show_reasoning = !show_reasoning;
+                            renderer.write_line(
+                                &format!("reasoning visibility: {}", if show_reasoning { "on" } else { "off" }),
+                                C_AGENT,
+                            )?;
+                            renderer.draw_bottom(
+                                &input.buffer,
+                                input.cursor,
+                                &StatusLine::render(session, is_running),
+                                is_running,
+                            )?;
+                            continue;
+                        }
+
+                        match key.code {
+                            KeyCode::PageUp => {
+                                renderer.scroll_page_up();
+                                renderer.render_viewport()?;
+                                renderer.draw_bottom(
+                                    &input.buffer,
+                                    input.cursor,
+                                    &StatusLine::render(session, is_running),
+                                    is_running,
+                                )?;
+                                continue;
+                            }
+                            KeyCode::PageDown => {
+                                renderer.scroll_page_down();
+                                renderer.render_viewport()?;
+                                renderer.draw_bottom(
+                                    &input.buffer,
+                                    input.cursor,
+                                    &StatusLine::render(session, is_running),
+                                    is_running,
+                                )?;
+                                continue;
+                            }
+                            KeyCode::Home => {
+                                renderer.scroll_to_top();
+                                renderer.render_viewport()?;
+                                renderer.draw_bottom(
+                                    &input.buffer,
+                                    input.cursor,
+                                    &StatusLine::render(session, is_running),
+                                    is_running,
+                                )?;
+                                continue;
+                            }
+                            KeyCode::End => {
+                                renderer.scroll_to_bottom()?;
+                                renderer.draw_bottom(
+                                    &input.buffer,
+                                    input.cursor,
+                                    &StatusLine::render(session, is_running),
+                                    is_running,
+                                )?;
+                                continue;
+                            }
+                            _ => {}
+                        }
+
                         if let Some(text) = input.handle_key(key) {
+                            if renderer.is_scrolling() {
+                                renderer.scroll_to_bottom()?;
+                            }
                             if text.starts_with('/') {
                                 for line in text.lines() {
                                     let safe_line = sanitize_output(line);
                                     renderer.write_line(&format!("> {}", safe_line), C_USER)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context)?;
+                                handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning)?;
                                 if !cli.no_session {
                                     let _ = crate::session::storage::save_session(session);
                                 }
@@ -326,7 +450,24 @@ pub async fn run_interactive(
                 }
             } => {
                 match event {
+                    AgentEvent::Reasoning(text) => {
+                        if !show_reasoning {
+                            continue;
+                        }
+                        if !agent_line_started {
+                            renderer.write("< ", C_REASONING)?;
+                            agent_line_started = true;
+                        }
+                        let safe = sanitize_output(&text);
+                        renderer.write(&safe, C_REASONING)?;
+                        was_reasoning = true;
+                    }
                     AgentEvent::Token(text) => {
+                        if was_reasoning {
+                            renderer.write_line("", Color::White)?;
+                            agent_line_started = false;
+                            was_reasoning = false;
+                        }
                         if !agent_line_started {
                             renderer.write("< ", C_AGENT)?;
                             agent_line_started = true;
@@ -335,6 +476,7 @@ pub async fn run_interactive(
                         renderer.write(&safe, C_AGENT)?;
                     }
                     AgentEvent::ToolCall { name, args } => {
+                        was_reasoning = false;
                         if agent_line_started {
                             renderer.write_line("", Color::White)?;
                             agent_line_started = false;
@@ -353,6 +495,7 @@ pub async fn run_interactive(
                         renderer.write_line("", Color::White)?;
                     }
                     AgentEvent::Done { response } => {
+                        was_reasoning = false;
                         if !agent_line_started {
                             renderer.write("< ", C_AGENT)?;
                         }
@@ -372,6 +515,7 @@ pub async fn run_interactive(
                         agent_rx = None;
                     }
                     AgentEvent::Error(e) => {
+                        was_reasoning = false;
                         let safe = sanitize_output(&e);
                         renderer.write_line(&format!("error: {}", safe), C_ERROR)?;
                         is_running = false;

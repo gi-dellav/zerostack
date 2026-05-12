@@ -126,6 +126,11 @@ where
                     let _ = event_tx.send(AgentEvent::Token(text.text)).await;
                 }
                 Ok(MultiTurnStreamItem::StreamAssistantItem(
+                    StreamedAssistantContent::Reasoning(r),
+                )) => {
+                    let _ = event_tx.send(AgentEvent::Reasoning(r.display_text())).await;
+                }
+                Ok(MultiTurnStreamItem::StreamAssistantItem(
                     StreamedAssistantContent::ToolCall { tool_call, .. },
                 )) => {
                     let _ = event_tx
