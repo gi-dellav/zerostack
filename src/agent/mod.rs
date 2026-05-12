@@ -31,9 +31,11 @@ Available tools:
 - bash: Execute bash commands
 - edit: Make surgical edits to files
 - write: Create or overwrite files
+- search: Search file contents with regex
 
 Guidelines:
-- Use bash for file operations like ls, grep, find
+- Use search to find files by content
+- Use bash for other file operations like ls, find
 - Use read to examine files before editing
 - Use edit for precise changes (old text must match exactly)
 - Use write only for new files or complete rewrites
@@ -67,6 +69,7 @@ pub fn build_agent<M: CompletionModel + 'static>(
             .tool(tools::WriteTool)
             .tool(tools::EditTool)
             .tool(tools::BashTool)
+            .tool(tools::SearchTool)
             .build()
     }
 }

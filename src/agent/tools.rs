@@ -225,3 +225,92 @@ impl Tool for BashTool {
         Ok(result)
     }
 }
+
+#[derive(Deserialize)]
+pub struct SearchArgs {
+    pub pattern: String,
+    pub path: Option<String>,
+    pub include: Option<String>,
+}
+
+pub struct SearchTool;
+
+impl Tool for SearchTool {
+    const NAME: &'static str = "search";
+
+    type Error = ToolError;
+    type Args = SearchArgs;
+    type Output = String;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "search".to_string(),
+            description: "Search file contents using a regex pattern. Uses ripgrep for fast searching. Supports filtering by file glob and directory.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Regex pattern to search for (supports full regex syntax)"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to search in (defaults to current working directory)"
+                    },
+                    "include": {
+                        "type": "string",
+                        "description": "Optional file glob pattern to filter (e.g. '*.rs', '*.{ts,tsx}')"
+                    }
+                },
+                "required": ["pattern"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: SearchArgs) -> Result<String, ToolError> {
+        let search_path = args.path.unwrap_or_else(|| ".".to_string());
+        let mut cmd = Command::new("rg");
+        cmd.arg("--line-number")
+           .arg("--color=never")
+           .arg("--no-heading")
+           .arg(&args.pattern)
+           .arg(&search_path);
+
+        if let Some(include) = &args.include {
+            cmd.arg("--glob").arg(include);
+        }
+
+        let output = cmd.output().await.map_err(|e| {
+            ToolError::Msg(format!("Failed to run rg (ripgrep): {}. Is ripgrep installed?", e))
+        })?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+        if !output.status.success() && stdout.is_empty() {
+            if stderr.contains("not found") || stderr.contains("no such") {
+                return Ok("No matches found.".to_string());
+            }
+            return Err(ToolError::Msg(format!("rg error: {}", stderr)));
+        }
+
+        if stdout.is_empty() {
+            return Ok("No matches found.".to_string());
+        }
+
+        let lines: Vec<&str> = stdout.lines().collect();
+        let total = lines.len();
+        let max_lines = 200;
+        if total > max_lines {
+            Ok(format!(
+                "{} results (showing first {}):\n{}\n\n... and {} more matches",
+                total,
+                max_lines,
+                lines[..max_lines].join("\n"),
+                total - max_lines
+            ))
+        } else {
+            Ok(format!("{} results:\n{}", total, stdout.trim_end()))
+        }
+    }
+}
