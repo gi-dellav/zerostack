@@ -1,7 +1,7 @@
 pub mod tools;
 
 use rig::agent::{Agent, AgentBuilder, MultiTurnStreamItem};
-use rig::client::{CompletionClient, ProviderClient};
+use rig::client::ProviderClient;
 use rig::completion::{CompletionModel, Message};
 use rig::message::ToolResultContent;
 use rig::providers::openrouter;
@@ -42,9 +42,12 @@ Guidelines:
 - Be concise
 - Show file paths clearly";
 
+pub type ZAgent = Agent<openrouter::CompletionModel>;
+
 pub fn build_agent<M: CompletionModel + 'static>(
     model: M,
     cli: &Cli,
+    cfg: &crate::config::Config,
     context: &ContextFiles,
 ) -> Agent<M> {
     let mut preamble = SYSTEM_PROMPT.to_string();
@@ -53,15 +56,16 @@ pub fn build_agent<M: CompletionModel + 'static>(
         preamble.push_str(agents);
     }
 
-    let mut builder = AgentBuilder::new(model)
-        .preamble(&preamble)
-        .max_tokens(cli.max_tokens);
+    let mut builder = AgentBuilder::new(model).preamble(&preamble);
+
+    let max_tokens = cli.resolve_max_tokens(cfg);
+    builder = builder.max_tokens(max_tokens);
 
     if let Some(temp) = cli.temperature {
         builder = builder.temperature(temp);
     }
 
-    if cli.no_tools {
+    if cli.resolve_no_tools(cfg) {
         builder.build()
     } else {
         builder
@@ -74,13 +78,12 @@ pub fn build_agent<M: CompletionModel + 'static>(
     }
 }
 
-pub fn create_model(cli: &Cli) -> anyhow::Result<openrouter::CompletionModel> {
-    let client = if let Some(key) = &cli.api_key {
-        openrouter::Client::new(key)?
+pub fn create_client(api_key: Option<&str>) -> anyhow::Result<openrouter::Client> {
+    if let Some(key) = api_key {
+        Ok(openrouter::Client::new(key)?)
     } else {
-        openrouter::Client::from_env()?
-    };
-    Ok(client.completion_model(&cli.model))
+        Ok(openrouter::Client::from_env()?)
+    }
 }
 
 pub struct AgentRunner {

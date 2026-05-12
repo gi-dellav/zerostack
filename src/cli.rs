@@ -1,5 +1,7 @@
 use clap::Parser;
 
+use crate::config;
+
 #[derive(Parser, Debug)]
 #[command(name = "zerostack", version, about = "Minimal coding agent")]
 pub struct Cli {
@@ -18,27 +20,19 @@ pub struct Cli {
     #[arg(long = "no-session", help = "Ephemeral mode, do not save")]
     pub no_session: bool,
 
-    #[arg(long = "provider", env = "ZS_PROVIDER", default_value = "openrouter")]
-    pub provider: String,
+    #[arg(long = "provider", env = "ZS_PROVIDER", help = "API provider")]
+    pub provider: Option<String>,
 
-    #[arg(
-        long = "model",
-        env = "ZS_MODEL",
-        default_value = "deepseek/deepseek-v4-flash"
-    )]
-    pub model: String,
+    #[arg(long = "model", env = "ZS_MODEL", help = "Model name")]
+    pub model: Option<String>,
 
-    #[arg(
-        long = "api-key",
-        env = "ZS_API_KEY",
-        help = "API key for the provider"
-    )]
+    #[arg(long = "api-key", env = "ZS_API_KEY", help = "API key for the provider")]
     pub api_key: Option<String>,
 
-    #[arg(long = "max-tokens", default_value = "8192")]
-    pub max_tokens: u64,
+    #[arg(long = "max-tokens", help = "Maximum tokens in response")]
+    pub max_tokens: Option<u64>,
 
-    #[arg(long = "temperature")]
+    #[arg(long = "temperature", help = "Model temperature (0.0 to 2.0)")]
     pub temperature: Option<f64>,
 
     #[arg(short = 't', long = "tools", help = "Allowlist specific tools")]
@@ -52,4 +46,32 @@ pub struct Cli {
 
     #[arg(help = "Prompt message(s)")]
     pub message: Vec<String>,
+}
+
+impl Cli {
+    pub fn resolve_model(&self, cfg: &config::Config) -> String {
+        self.model
+            .clone()
+            .or_else(|| cfg.model.clone())
+            .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string())
+    }
+
+    pub fn resolve_provider(&self, cfg: &config::Config) -> String {
+        self.provider
+            .clone()
+            .or_else(|| cfg.provider.clone())
+            .unwrap_or_else(|| "openrouter".to_string())
+    }
+
+    pub fn resolve_max_tokens(&self, cfg: &config::Config) -> u64 {
+        self.max_tokens.or(cfg.max_tokens).unwrap_or(8192)
+    }
+
+    pub fn resolve_no_context_files(&self, cfg: &config::Config) -> bool {
+        self.no_context_files || cfg.no_context_files.unwrap_or(false)
+    }
+
+    pub fn resolve_no_tools(&self, cfg: &config::Config) -> bool {
+        self.no_tools || cfg.no_tools.unwrap_or(false)
+    }
 }

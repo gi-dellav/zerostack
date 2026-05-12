@@ -7,10 +7,13 @@ use std::io::Write;
 use crossterm::style::Color;
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{ExecutableCommand, event};
+use rig::client::CompletionClient;
+use rig::providers::openrouter;
 use tokio::sync::mpsc;
 
 use crate::agent;
 use crate::cli::Cli;
+use crate::config::Config;
 use crate::context::ContextFiles;
 use crate::event::{AgentEvent, UserEvent};
 use crate::session::Session;
@@ -70,17 +73,93 @@ fn sanitize_output(text: &str) -> String {
     result
 }
 
-pub async fn run_interactive<M, P>(
-    agent: &rig::agent::Agent<M, P>,
+fn handle_slash(
+    text: &str,
+    agent: &mut agent::ZAgent,
+    client: &openrouter::Client,
+    renderer: &mut Renderer,
+    session: &mut Session,
     cli: &Cli,
+    cfg: &Config,
+    context: &ContextFiles,
+) -> anyhow::Result<()> {
+    let parts: Vec<&str> = text.trim().splitn(2, ' ').collect();
+    match parts[0] {
+        "/model" => {
+            if parts.len() < 2 {
+                renderer.write_line(&format!("current model: {}", session.model), C_AGENT)?;
+            } else {
+                let new_model = parts[1].trim().to_string();
+                let model = client.completion_model(&new_model);
+                *agent = agent::build_agent(model, cli, cfg, context);
+                session.model = new_model.clone();
+                session.provider = cli.resolve_provider(cfg);
+                renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
+            }
+        }
+        "/sessions" => {
+            let parts: Vec<&str> = text.trim().splitn(2, ' ').collect();
+            if parts.len() < 2 {
+                let sessions = crate::session::storage::find_recent_sessions(20)?;
+                if sessions.is_empty() {
+                    renderer.write_line("no saved sessions", C_AGENT)?;
+                } else {
+                    renderer.write_line(&format!("recent sessions ({}):", sessions.len()), C_AGENT)?;
+                    for s in &sessions {
+                        let last = s.messages.last()
+                            .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
+                            .unwrap_or_default();
+                        renderer.write_line(
+                            &format!("  {}  {}  {}msgs  {}", &s.id[..8], s.model, s.messages.len(), last),
+                            C_RESULT,
+                        )?;
+                    }
+                }
+            } else {
+                let prefix = parts[1].trim();
+                let sessions = crate::session::storage::find_sessions_by_prefix(prefix)?;
+                if sessions.is_empty() {
+                    renderer.write_line(&format!("no session matching '{}'", prefix), C_AGENT)?;
+                } else if sessions.len() == 1 {
+                    let s = sessions.into_iter().next().unwrap();
+                    let msg_count = s.messages.len();
+                    *session = s;
+                    renderer.write_line(&format!("loaded session ({} msgs)", msg_count), C_AGENT)?;
+                } else {
+                    renderer.write_line(&format!("multiple sessions match '{}':", prefix), C_AGENT)?;
+                    for s in &sessions {
+                        let last = s.messages.last()
+                            .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
+                            .unwrap_or_default();
+                        renderer.write_line(
+                            &format!("  {}  {}  {}msgs  {}", &s.id[..8], s.model, s.messages.len(), last),
+                            C_RESULT,
+                        )?;
+                    }
+                }
+            }
+        }
+        "/help" => {
+            renderer.write_line("commands:", C_AGENT)?;
+            renderer.write_line("  /model [name]       show or switch model", C_RESULT)?;
+            renderer.write_line("  /sessions [id]      list or load a session", C_RESULT)?;
+            renderer.write_line("  /help               show this message", C_RESULT)?;
+        }
+        _ => {
+            renderer.write_line(&format!("unknown command: {} (try /help)", parts[0]), C_ERROR)?;
+        }
+    }
+    Ok(())
+}
+
+pub async fn run_interactive(
+    client: openrouter::Client,
+    mut agent: agent::ZAgent,
+    cli: &Cli,
+    cfg: &Config,
     session: &mut Session,
     context: &ContextFiles,
-) -> anyhow::Result<()>
-where
-    M: rig::completion::CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-    P: rig::agent::PromptHook<M> + 'static,
-{
+) -> anyhow::Result<()> {
     let _guard = TerminalGuard::new()?;
 
     let mut renderer = Renderer::new()?;
@@ -91,7 +170,9 @@ where
 
     let welcome = format!(
         "zerostack {}  {}  {}",
-        cli.provider, cli.model, env!("CARGO_PKG_VERSION")
+        cli.resolve_provider(cfg),
+        cli.resolve_model(cfg),
+        env!("CARGO_PKG_VERSION")
     );
     renderer.write_line(&welcome, Color::Cyan)?;
     renderer.write_line("", Color::White)?;
@@ -138,23 +219,35 @@ where
                     UserEvent::Quit => break,
                     UserEvent::Key(key) => {
                         if let Some(text) = input.handle_key(key) {
-                            for line in text.lines() {
-                                let safe_line = sanitize_output(line);
-                                renderer.write_line(&format!("> {}", safe_line), C_USER)?;
+                            if text.starts_with('/') {
+                                for line in text.lines() {
+                                    let safe_line = sanitize_output(line);
+                                    renderer.write_line(&format!("> {}", safe_line), C_USER)?;
+                                }
+                                renderer.write_line("", Color::White)?;
+                                handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context)?;
+                                if !cli.no_session {
+                                    let _ = crate::session::storage::save_session(session);
+                                }
+                            } else {
+                                for line in text.lines() {
+                                    let safe_line = sanitize_output(line);
+                                    renderer.write_line(&format!("> {}", safe_line), C_USER)?;
+                                }
+                                renderer.write_line("", Color::White)?;
+
+                                let history = agent::convert_history(&session.messages);
+
+                                let runner = agent::spawn_agent(
+                                    agent.clone(),
+                                    text.clone(),
+                                    history,
+                                );
+                                agent_rx = Some(runner.event_rx);
+                                is_running = true;
+
+                                session.add_message("user", &text);
                             }
-                            renderer.write_line("", Color::White)?;
-
-                            let history = agent::convert_history(&session.messages);
-
-                            let runner = agent::spawn_agent(
-                                agent.clone(),
-                                text.clone(),
-                                history,
-                            );
-                            agent_rx = Some(runner.event_rx);
-                            is_running = true;
-
-                            session.add_message("user", &text);
                         }
                         renderer.draw_bottom(
                             &input.buffer,

@@ -20,7 +20,7 @@ fn dirs_path() -> PathBuf {
     base.join("zerostack")
 }
 
-fn config_path() -> PathBuf {
+pub(crate) fn config_path() -> PathBuf {
     if let Some(dir) = std::env::var_os("ZS_CONFIG_DIR") {
         return PathBuf::from(dir);
     }
@@ -42,6 +42,38 @@ pub fn load_session(id: &str) -> anyhow::Result<Session> {
     let path = dir.join(format!("{}.json", id));
     let json = std::fs::read_to_string(path)?;
     Ok(serde_json::from_str(&json)?)
+}
+
+#[allow(dead_code)]
+pub fn delete_session(id: &str) -> anyhow::Result<()> {
+    let dir = session_dir();
+    let path = dir.join(format!("{}.json", id));
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+    Ok(())
+}
+
+pub fn find_sessions_by_prefix(prefix: &str) -> anyhow::Result<Vec<Session>> {
+    let dir = session_dir();
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut sessions: Vec<Session> = Vec::new();
+    for entry in std::fs::read_dir(&dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().is_some_and(|e| e == "json")
+            && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
+            && stem.starts_with(prefix)
+            && let Ok(json) = std::fs::read_to_string(&path)
+            && let Ok(session) = serde_json::from_str::<Session>(&json)
+        {
+            sessions.push(session);
+        }
+    }
+    sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(sessions)
 }
 
 pub fn find_recent_sessions(limit: usize) -> anyhow::Result<Vec<Session>> {

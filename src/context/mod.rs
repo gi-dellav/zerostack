@@ -6,8 +6,12 @@ pub struct ContextFiles {
     pub agents: Option<String>,
 }
 
-pub fn load() -> ContextFiles {
-    let agents = load_agents();
+pub fn load(no_context_files: bool) -> ContextFiles {
+    let agents = if no_context_files {
+        None
+    } else {
+        load_agents()
+    };
     ContextFiles { agents }
 }
 
