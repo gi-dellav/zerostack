@@ -44,7 +44,6 @@ pub fn load_session(id: &str) -> anyhow::Result<Session> {
     Ok(serde_json::from_str(&json)?)
 }
 
-#[allow(dead_code)]
 pub fn delete_session(id: &str) -> anyhow::Result<()> {
     let dir = session_dir();
     let path = dir.join(format!("{}.json", id));

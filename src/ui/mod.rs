@@ -130,6 +130,7 @@ fn sanitize_output(text: &str) -> String {
     result
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_slash(
     text: &str,
     agent: &mut agent::ZAgent,
@@ -140,6 +141,8 @@ fn handle_slash(
     cfg: &Config,
     context: &ContextFiles,
     show_reasoning: &mut bool,
+    is_running: &mut bool,
+    input: &mut InputEditor,
 ) -> anyhow::Result<()> {
     let parts: Vec<&str> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
@@ -180,13 +183,17 @@ fn handle_slash(
                 if sessions.is_empty() {
                     renderer.write_line(&format!("no session matching '{}'", prefix), C_AGENT)?;
                 } else if sessions.len() == 1 {
-                    let s = sessions.into_iter().next().unwrap();
-                    let id = s.id.clone();
-                    let preview = s.messages.last()
-                        .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
-                        .unwrap_or_default();
-                    crate::session::storage::delete_session(&id)?;
-                    renderer.write_line(&format!("deleted session {} {}", &id[..8], preview), C_AGENT)?;
+                    if let Some(s) = sessions.into_iter().next() {
+                        let id = s.id.clone();
+                        let preview = s.messages.last()
+                            .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
+                            .unwrap_or_default();
+                        if let Err(e) = crate::session::storage::delete_session(&id) {
+                            renderer.write_line(&format!("failed to delete: {}", e), C_ERROR)?;
+                        } else {
+                            renderer.write_line(&format!("deleted session {} {}", &id[..8], preview), C_AGENT)?;
+                        }
+                    }
                 } else {
                     renderer.write_line(&format!("multiple sessions match '{}', be more specific", prefix), C_AGENT)?;
                     for s in &sessions {
@@ -207,11 +214,12 @@ fn handle_slash(
                 if sessions.is_empty() {
                     renderer.write_line(&format!("no session matching '{}'", prefix), C_AGENT)?;
                 } else if sessions.len() == 1 {
-                    let s = sessions.into_iter().next().unwrap();
-                    let msg_count = s.messages.len();
-                    *session = s;
-                    render_session(renderer, session, cli, cfg, context)?;
-                    renderer.write_line(&format!("loaded session ({} msgs)", msg_count), C_AGENT)?;
+                    if let Some(s) = sessions.into_iter().next() {
+                        let msg_count = s.messages.len();
+                        *session = s;
+                        render_session(renderer, session, cli, cfg, context)?;
+                        renderer.write_line(&format!("loaded session ({} msgs)", msg_count), C_AGENT)?;
+                    }
                 } else {
                     renderer.write_line(&format!("multiple sessions match '{}':", prefix), C_AGENT)?;
                     for s in &sessions {
@@ -235,6 +243,35 @@ fn handle_slash(
                 C_AGENT,
             )?;
         }
+        "/quit" => {
+            *is_running = false;
+            return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "quit").into());
+        }
+        "/clear" => {
+            render_session(renderer, session, cli, cfg, context)?;
+        }
+        "/undo" => {
+            let removed = undo_last(session);
+            if removed > 0 {
+                render_session(renderer, session, cli, cfg, context)?;
+                renderer.write_line(&format!("removed {} message(s)", removed), C_AGENT)?;
+            } else {
+                renderer.write_line("nothing to undo", C_AGENT)?;
+            }
+        }
+        "/retry" => {
+            let last_user = session.messages.iter().rev().find(|m| m.role == "user").cloned();
+            match last_user {
+                Some(msg) => {
+                    input.buffer = msg.content.clone();
+                    input.cursor = msg.content.len();
+                    renderer.write_line("edit last message and press Enter to retry", C_AGENT)?;
+                }
+                None => {
+                    renderer.write_line("no previous message to retry", C_AGENT)?;
+                }
+            }
+        }
         "/help" => {
             renderer.write_line("commands:", C_AGENT)?;
             renderer.write_line("  /model [name]          show or switch model", C_RESULT)?;
@@ -242,13 +279,44 @@ fn handle_slash(
             renderer.write_line("  /sessions <id>         load a session (by ID prefix)", C_RESULT)?;
             renderer.write_line("  /sessions delete <id>  delete a session", C_RESULT)?;
             renderer.write_line("  /reasoning             toggle reasoning visibility", C_RESULT)?;
+            renderer.write_line("  /clear                 clear screen", C_RESULT)?;
+            renderer.write_line("  /undo                  undo last exchange", C_RESULT)?;
+            renderer.write_line("  /retry                 retry last prompt", C_RESULT)?;
+            renderer.write_line("  /quit                  exit zerostack", C_RESULT)?;
             renderer.write_line("  /help                  show this message", C_RESULT)?;
+            renderer.write_line("", C_AGENT)?;
+            renderer.write_line("keys:", C_AGENT)?;
+            renderer.write_line("  PgUp/PgDn             scroll chat history", C_RESULT)?;
+            renderer.write_line("  Home/End               jump to top/bottom", C_RESULT)?;
+            renderer.write_line("  Ctrl+R                 toggle reasoning", C_RESULT)?;
+            renderer.write_line("  Ctrl+C                 interrupt/quit", C_RESULT)?;
+            renderer.write_line("  mouse scroll           scroll chat", C_RESULT)?;
         }
         _ => {
             renderer.write_line(&format!("unknown command: {} (try /help)", parts[0]), C_ERROR)?;
         }
     }
     Ok(())
+}
+
+fn undo_last(session: &mut Session) -> usize {
+    let len = session.messages.len();
+    if len == 0 {
+        return 0;
+    }
+    if session.messages[len - 1].role == "assistant" {
+        session.messages.pop();
+        if session.messages.last().is_some_and(|m| m.role == "user") {
+            session.messages.pop();
+            return 2;
+        }
+        return 1;
+    }
+    if session.messages[len - 1].role == "user" {
+        session.messages.pop();
+        return 1;
+    }
+    0
 }
 
 pub async fn run_interactive(
@@ -277,14 +345,7 @@ pub async fn run_interactive(
     std::thread::spawn(move || loop {
         match event::read() {
             Ok(event::Event::Key(key)) => {
-                let is_ctrl_c = key.code == KeyCode::Char('c')
-                    && key.modifiers.contains(KeyModifiers::CONTROL);
-                let ev = if is_ctrl_c {
-                    UserEvent::Quit
-                } else {
-                    UserEvent::Key(key)
-                };
-                if user_tx_clone.blocking_send(ev).is_err() {
+                if user_tx_clone.blocking_send(UserEvent::Key(key)).is_err() {
                     break;
                 }
             }
@@ -311,7 +372,6 @@ pub async fn run_interactive(
         tokio::select! {
             Some(ev) = user_rx.recv() => {
                 match ev {
-                    UserEvent::Quit => break,
                     UserEvent::ScrollUp => {
                         renderer.scroll_line_up();
                         renderer.render_viewport()?;
@@ -335,6 +395,25 @@ pub async fn run_interactive(
                         continue;
                     }
                     UserEvent::Key(key) => {
+                        let is_ctrl_c = key.code == KeyCode::Char('c')
+                            && key.modifiers.contains(KeyModifiers::CONTROL);
+                        if is_ctrl_c {
+                            if is_running {
+                                is_running = false;
+                                agent_rx = None;
+                                renderer.write_line("interrupted", C_ERROR)?;
+                                renderer.draw_bottom(
+                                    &input.buffer,
+                                    input.cursor,
+                                    &StatusLine::render(session, is_running),
+                                    is_running,
+                                )?;
+                            } else {
+                                break;
+                            }
+                            continue;
+                        }
+
                         let ctrl_r = key.code == KeyCode::Char('r')
                             && key.modifiers.contains(KeyModifiers::CONTROL);
                         if ctrl_r {
@@ -409,7 +488,13 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), C_USER)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning)?;
+                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input);
+                                if let Err(e) = result {
+                                    if e.downcast_ref::<std::io::Error>().is_some_and(|e: &std::io::Error| e.kind() == std::io::ErrorKind::Interrupted) {
+                                        break;
+                                    }
+                                    renderer.write_line(&format!("error: {}", e), C_ERROR)?;
+                                }
                                 if !cli.no_session {
                                     let _ = crate::session::storage::save_session(session);
                                 }
@@ -490,11 +575,11 @@ pub async fn run_interactive(
                     AgentEvent::ToolResult { output } => {
                         renderer.write_line("", Color::White)?;
                         let sanitized = sanitize_output(&output);
-                        let preview: String = sanitized.chars().take(200).collect();
+                        let preview: String = sanitized.chars().take(2000).collect();
                         renderer.write_line(&preview, C_RESULT)?;
                         renderer.write_line("", Color::White)?;
                     }
-                    AgentEvent::Done { response } => {
+                    AgentEvent::Done { response, tokens, cost } => {
                         was_reasoning = false;
                         if !agent_line_started {
                             renderer.write("< ", C_AGENT)?;
@@ -502,6 +587,8 @@ pub async fn run_interactive(
                         renderer.write_line("", Color::White)?;
                         renderer.write_line("", Color::White)?;
                         session.add_message("assistant", &response);
+                        session.total_tokens = session.total_tokens.saturating_add(tokens);
+                        session.total_cost += cost;
                         agent_line_started = false;
                         if !cli.no_session
                             && let Err(e) = crate::session::storage::save_session(session)

@@ -12,6 +12,8 @@ pub enum AgentEvent {
     Error(String),
     Done {
         response: String,
+        tokens: u64,
+        cost: f64,
     },
 }
 
@@ -20,5 +22,4 @@ pub enum UserEvent {
     Key(crossterm::event::KeyEvent),
     ScrollUp,
     ScrollDown,
-    Quit,
 }

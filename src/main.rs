@@ -41,23 +41,25 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("  {}. {}  [{} msgs] {}",
                     i + 1, &s.id[..8], s.messages.len(), preview);
             }
-            session = sessions.into_iter().next().unwrap();
-        }
-    }
-
-    if cli.continue_session && cli.session.is_none() {
-        if let Ok(sessions) = session::storage::find_recent_sessions(1) {
             if let Some(s) = sessions.into_iter().next() {
                 session = s;
             }
         }
     }
 
+    if cli.continue_session
+        && cli.session.is_none()
+        && let Ok(sessions) = session::storage::find_recent_sessions(1)
+        && let Some(s) = sessions.into_iter().next()
+    {
+        session = s;
+    }
+
     if let Some(session_id) = &cli.session {
         session = session::storage::load_session(session_id)?;
     }
 
-    let client = agent::create_client(cli.api_key.as_deref().or(cfg.api_key.as_deref()))?;
+    let client = agent::create_client(cli.api_key.as_deref())?;
     let completion_model = client.completion_model(&model);
     let agent = agent::build_agent(completion_model, &cli, &cfg, &context);
 

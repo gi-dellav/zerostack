@@ -1,7 +1,6 @@
 pub mod tools;
 
 use rig::agent::{Agent, AgentBuilder, MultiTurnStreamItem};
-use rig::client::ProviderClient;
 use rig::completion::{CompletionModel, Message};
 use rig::message::ToolResultContent;
 use rig::providers::openrouter;
@@ -31,10 +30,12 @@ Available tools:
 - bash: Execute bash commands
 - edit: Make surgical edits to files
 - write: Create or overwrite files
-- search: Search file contents with regex
+- grep: Search file contents with a regex pattern
+- find_files: Find files matching a regex pattern under a directory
 
 Guidelines:
-- Use search to find files by content
+- Use grep to find files by content
+- Use find_files to locate files by name pattern
 - Use bash for other file operations like ls, find
 - Use read to examine files before editing
 - Use edit for precise changes (old text must match exactly)
@@ -62,7 +63,8 @@ pub fn build_agent<M: CompletionModel + 'static>(
     builder = builder.max_tokens(max_tokens);
 
     if let Some(temp) = cli.temperature {
-        builder = builder.temperature(temp);
+        let clamped = temp.clamp(0.0, 2.0);
+        builder = builder.temperature(clamped);
     }
 
     if cli.resolve_no_tools(cfg) {
@@ -73,17 +75,20 @@ pub fn build_agent<M: CompletionModel + 'static>(
             .tool(tools::WriteTool)
             .tool(tools::EditTool)
             .tool(tools::BashTool)
-            .tool(tools::SearchTool)
+            .tool(tools::GrepTool)
+            .tool(tools::FindFilesTool)
             .build()
     }
 }
 
 pub fn create_client(api_key: Option<&str>) -> anyhow::Result<openrouter::Client> {
-    if let Some(key) = api_key {
-        Ok(openrouter::Client::new(key)?)
-    } else {
-        Ok(openrouter::Client::from_env()?)
-    }
+    let key = api_key
+        .map(|k| k.to_string())
+        .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
+        .ok_or_else(|| anyhow::anyhow!(
+            "No API key found. Set ZS_API_KEY environment variable or pass --api-key."
+        ))?;
+    Ok(openrouter::Client::new(key)?)
 }
 
 pub struct AgentRunner {
@@ -153,12 +158,16 @@ where
                         .collect::<Vec<_>>()
                         .join("\n");
                     let _ = event_tx
-                        .send(AgentEvent::ToolResult { output })
+                        .send( AgentEvent::ToolResult { output })
                         .await;
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     let response = res.response().to_string();
-                    let _ = event_tx.send(AgentEvent::Done { response }).await;
+                    let _ = event_tx.send(AgentEvent::Done {
+                        response,
+                        tokens: 0,
+                        cost: 0.0,
+                    }).await;
                     break;
                 }
                 Err(e) => {

@@ -9,7 +9,6 @@ use crate::session::storage;
 pub struct Config {
     pub model: Option<String>,
     pub provider: Option<String>,
-    pub api_key: Option<String>,
     pub max_tokens: Option<u64>,
     pub temperature: Option<f64>,
     pub no_tools: Option<bool>,
@@ -27,7 +26,13 @@ pub fn load() -> Config {
     }
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
-        Err(_) => return Config::default(),
+        Err(e) => {
+            eprintln!("warning: failed to read config ({}): {}", path.display(), e);
+            return Config::default();
+        }
     };
-    serde_json::from_str(&content).unwrap_or_default()
+    serde_json::from_str(&content).unwrap_or_else(|e| {
+        eprintln!("warning: invalid config JSON ({}): {}", path.display(), e);
+        Config::default()
+    })
 }

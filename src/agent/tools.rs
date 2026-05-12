@@ -26,6 +26,8 @@ impl From<serde_json::Error> for ToolError {
     }
 }
 
+// --- ReadTool ---
+
 #[derive(Deserialize)]
 pub struct ReadArgs {
     pub path: String,
@@ -59,6 +61,14 @@ impl Tool for ReadTool {
     }
 
     async fn call(&self, args: ReadArgs) -> Result<String, ToolError> {
+        let metadata = tokio::fs::metadata(&args.path).await?;
+        let file_size = metadata.len();
+        if file_size > 10 * 1024 * 1024 {
+            return Err(ToolError::Msg(format!(
+                "File too large ({} bytes). Max 10MB.",
+                file_size
+            )));
+        }
         let content = tokio::fs::read_to_string(&args.path).await?;
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
@@ -79,6 +89,8 @@ impl Tool for ReadTool {
         Ok(info)
     }
 }
+
+// --- WriteTool ---
 
 #[derive(Deserialize)]
 pub struct WriteArgs {
@@ -121,6 +133,8 @@ impl Tool for WriteTool {
     }
 }
 
+// --- EditTool ---
+
 #[derive(Deserialize)]
 pub struct EditArgs {
     pub path: String,
@@ -140,12 +154,12 @@ impl Tool for EditTool {
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
             name: "edit".to_string(),
-            description: "Edit a file by replacing exact text. The old_text must match exactly (including whitespace). Use for precise surgical edits.".to_string(),
+            description: "Edit a file by replacing exact text. Only the FIRST occurrence is replaced. The old_text must match exactly (including whitespace). Use for precise surgical edits.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "Path to the file (relative or absolute)" },
-                    "old_text": { "type": "string", "description": "Exact text to find and replace" },
+                    "old_text": { "type": "string", "description": "Exact text to find and replace (first occurrence only)" },
                     "new_text": { "type": "string", "description": "New text to replace the old text with" }
                 },
                 "required": ["path", "old_text", "new_text"]
@@ -161,11 +175,25 @@ impl Tool for EditTool {
                     .to_string(),
             ));
         }
-        let new_content = content.replace(&args.old_text, &args.new_text);
+        let new_content = content.replacen(&args.old_text, &args.new_text, 1);
         tokio::fs::write(&args.path, &new_content).await?;
-        Ok(format!("Applied edit to {}", args.path))
+
+        let mut result = format!("Applied edit to {}", args.path);
+        if args.old_text.lines().count() <= 20 && args.new_text.lines().count() <= 20 {
+            result.push_str("\n--- diff ---\n");
+            for line in args.old_text.lines() {
+                result.push_str(&format!("-{}\n", line));
+            }
+            for line in args.new_text.lines() {
+                result.push_str(&format!("+{}\n", line));
+            }
+            result.push_str("---");
+        }
+        Ok(result)
     }
 }
+
+// --- BashTool ---
 
 #[derive(Deserialize)]
 pub struct BashArgs {
@@ -226,25 +254,27 @@ impl Tool for BashTool {
     }
 }
 
+// --- GrepTool (renamed from SearchTool) ---
+
 #[derive(Deserialize)]
-pub struct SearchArgs {
+pub struct GrepArgs {
     pub pattern: String,
     pub path: Option<String>,
     pub include: Option<String>,
 }
 
-pub struct SearchTool;
+pub struct GrepTool;
 
-impl Tool for SearchTool {
-    const NAME: &'static str = "search";
+impl Tool for GrepTool {
+    const NAME: &'static str = "grep";
 
     type Error = ToolError;
-    type Args = SearchArgs;
+    type Args = GrepArgs;
     type Output = String;
 
     async fn definition(&self, _prompt: String) -> ToolDefinition {
         ToolDefinition {
-            name: "search".to_string(),
+            name: "grep".to_string(),
             description: "Search file contents using a regex pattern. Uses ripgrep for fast searching. Supports filtering by file glob and directory.".to_string(),
             parameters: serde_json::json!({
                 "type": "object",
@@ -267,7 +297,7 @@ impl Tool for SearchTool {
         }
     }
 
-    async fn call(&self, args: SearchArgs) -> Result<String, ToolError> {
+    async fn call(&self, args: GrepArgs) -> Result<String, ToolError> {
         let search_path = args.path.unwrap_or_else(|| ".".to_string());
         let mut cmd = Command::new("rg");
         cmd.arg("--line-number")
@@ -311,6 +341,80 @@ impl Tool for SearchTool {
             ))
         } else {
             Ok(format!("{} results:\n{}", total, stdout.trim_end()))
+        }
+    }
+}
+
+// --- FindFilesTool ---
+
+#[derive(Deserialize)]
+pub struct FindFilesArgs {
+    pub pattern: String,
+    pub path: Option<String>,
+}
+
+pub struct FindFilesTool;
+
+impl Tool for FindFilesTool {
+    const NAME: &'static str = "find_files";
+
+    type Error = ToolError;
+    type Args = FindFilesArgs;
+    type Output = String;
+
+    async fn definition(&self, _prompt: String) -> ToolDefinition {
+        ToolDefinition {
+            name: "find_files".to_string(),
+            description: "Find files matching a regex pattern under a directory (recursive). Uses fd or find under the hood.".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "pattern": {
+                        "type": "string",
+                        "description": "Regex pattern to match file names against"
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Directory to search in (defaults to current working directory)"
+                    }
+                },
+                "required": ["pattern"]
+            }),
+        }
+    }
+
+    async fn call(&self, args: FindFilesArgs) -> Result<String, ToolError> {
+        let search_path = args.path.unwrap_or_else(|| ".".to_string());
+
+        let output = Command::new("find")
+            .arg(&search_path)
+            .arg("-type")
+            .arg("f")
+            .arg("-regex")
+            .arg(&args.pattern)
+            .output()
+            .await
+            .map_err(|e| ToolError::Msg(format!("Failed to run find: {}", e)))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+
+        if stdout.is_empty() {
+            return Ok("No files found matching the pattern.".to_string());
+        }
+
+        let lines: Vec<&str> = stdout.lines().collect();
+        let total = lines.len();
+        let max_lines = 200;
+        if total > max_lines {
+            Ok(format!(
+                "{} files found (showing first {}):\n{}\n\n... and {} more",
+                total,
+                max_lines,
+                lines[..max_lines].join("\n"),
+                total - max_lines
+            ))
+        } else {
+            Ok(format!("{} files found:\n{}", total, stdout.trim_end()))
         }
     }
 }
