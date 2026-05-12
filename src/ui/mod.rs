@@ -4,6 +4,7 @@ mod status;
 
 use std::io::Write;
 
+use chrono::Datelike;
 use crossterm::style::Color;
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::{ExecutableCommand, event};
@@ -48,6 +49,56 @@ impl Drop for TerminalGuard {
     }
 }
 
+fn format_time(rfc3339: &str) -> String {
+    let dt = chrono::DateTime::parse_from_rfc3339(rfc3339).ok();
+    let dt = match dt {
+        Some(dt) => dt,
+        None => return rfc3339.to_string(),
+    };
+    let local = dt.with_timezone(&chrono::Local);
+    let now = chrono::Local::now();
+    if local.date_naive() == now.date_naive() {
+        local.format("%H:%M").to_string()
+    } else if local.year() == now.year() {
+        local.format("%b %d %H:%M").to_string()
+    } else {
+        local.format("%Y-%m-%d %H:%M").to_string()
+    }
+}
+
+fn render_session(
+    renderer: &mut Renderer,
+    session: &Session,
+    cli: &Cli,
+    cfg: &Config,
+    context: &ContextFiles,
+) -> anyhow::Result<()> {
+    renderer.clear_content()?;
+    let welcome = format!(
+        "zerostack {}  {}  {}",
+        cli.resolve_provider(cfg),
+        cli.resolve_model(cfg),
+        env!("CARGO_PKG_VERSION")
+    );
+    renderer.write_line(&welcome, Color::Cyan)?;
+    renderer.write_line("", Color::White)?;
+    if context.agents.is_some() {
+        renderer.write_line("loaded AGENTS.md", Color::DarkGrey)?;
+        renderer.write_line("", Color::White)?;
+    }
+    for msg in &session.messages {
+        let (prefix, c) = match msg.role.as_str() {
+            "user" => (">", C_USER),
+            _ => ("<", C_AGENT),
+        };
+        for line in msg.content.lines() {
+            renderer.write_line(&format!("{} {}", prefix, line), c)?;
+        }
+        renderer.write_line("", Color::White)?;
+    }
+    Ok(())
+}
+
 fn sanitize_output(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars();
@@ -83,7 +134,7 @@ fn handle_slash(
     cfg: &Config,
     context: &ContextFiles,
 ) -> anyhow::Result<()> {
-    let parts: Vec<&str> = text.trim().splitn(2, ' ').collect();
+    let parts: Vec<&str> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
         "/model" => {
             if parts.len() < 2 {
@@ -98,7 +149,6 @@ fn handle_slash(
             }
         }
         "/sessions" => {
-            let parts: Vec<&str> = text.trim().splitn(2, ' ').collect();
             if parts.len() < 2 {
                 let sessions = crate::session::storage::find_recent_sessions(20)?;
                 if sessions.is_empty() {
@@ -107,10 +157,39 @@ fn handle_slash(
                     renderer.write_line(&format!("recent sessions ({}):", sessions.len()), C_AGENT)?;
                     for s in &sessions {
                         let last = s.messages.last()
-                            .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
+                            .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
                             .unwrap_or_default();
+                        let time = format_time(&s.updated_at);
                         renderer.write_line(
-                            &format!("  {}  {}  {}msgs  {}", &s.id[..8], s.model, s.messages.len(), last),
+                            &format!("  {}  {}  {}msgs  {}  {}",
+                                &s.id[..8], time, s.messages.len(), s.model, last),
+                            C_RESULT,
+                        )?;
+                    }
+                }
+            } else if parts[1] == "delete" && parts.len() >= 3 {
+                let prefix = parts[2].trim();
+                let sessions = crate::session::storage::find_sessions_by_prefix(prefix)?;
+                if sessions.is_empty() {
+                    renderer.write_line(&format!("no session matching '{}'", prefix), C_AGENT)?;
+                } else if sessions.len() == 1 {
+                    let s = sessions.into_iter().next().unwrap();
+                    let id = s.id.clone();
+                    let preview = s.messages.last()
+                        .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
+                        .unwrap_or_default();
+                    crate::session::storage::delete_session(&id)?;
+                    renderer.write_line(&format!("deleted session {} {}", &id[..8], preview), C_AGENT)?;
+                } else {
+                    renderer.write_line(&format!("multiple sessions match '{}', be more specific", prefix), C_AGENT)?;
+                    for s in &sessions {
+                        let last = s.messages.last()
+                            .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
+                            .unwrap_or_default();
+                        let time = format_time(&s.updated_at);
+                        renderer.write_line(
+                            &format!("  {}  {}  {}msgs  {}  {}",
+                                &s.id[..8], time, s.messages.len(), s.model, last),
                             C_RESULT,
                         )?;
                     }
@@ -124,15 +203,18 @@ fn handle_slash(
                     let s = sessions.into_iter().next().unwrap();
                     let msg_count = s.messages.len();
                     *session = s;
+                    render_session(renderer, session, cli, cfg, context)?;
                     renderer.write_line(&format!("loaded session ({} msgs)", msg_count), C_AGENT)?;
                 } else {
                     renderer.write_line(&format!("multiple sessions match '{}':", prefix), C_AGENT)?;
                     for s in &sessions {
                         let last = s.messages.last()
-                            .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
+                            .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
                             .unwrap_or_default();
+                        let time = format_time(&s.updated_at);
                         renderer.write_line(
-                            &format!("  {}  {}  {}msgs  {}", &s.id[..8], s.model, s.messages.len(), last),
+                            &format!("  {}  {}  {}msgs  {}  {}",
+                                &s.id[..8], time, s.messages.len(), s.model, last),
                             C_RESULT,
                         )?;
                     }
@@ -141,9 +223,11 @@ fn handle_slash(
         }
         "/help" => {
             renderer.write_line("commands:", C_AGENT)?;
-            renderer.write_line("  /model [name]       show or switch model", C_RESULT)?;
-            renderer.write_line("  /sessions [id]      list or load a session", C_RESULT)?;
-            renderer.write_line("  /help               show this message", C_RESULT)?;
+            renderer.write_line("  /model [name]          show or switch model", C_RESULT)?;
+            renderer.write_line("  /sessions              list recent sessions", C_RESULT)?;
+            renderer.write_line("  /sessions <id>         load a session (by ID prefix)", C_RESULT)?;
+            renderer.write_line("  /sessions delete <id>  delete a session", C_RESULT)?;
+            renderer.write_line("  /help                  show this message", C_RESULT)?;
         }
         _ => {
             renderer.write_line(&format!("unknown command: {} (try /help)", parts[0]), C_ERROR)?;
@@ -168,31 +252,7 @@ pub async fn run_interactive(
     let mut agent_rx: Option<mpsc::Receiver<AgentEvent>> = None;
     let mut agent_line_started = false;
 
-    let welcome = format!(
-        "zerostack {}  {}  {}",
-        cli.resolve_provider(cfg),
-        cli.resolve_model(cfg),
-        env!("CARGO_PKG_VERSION")
-    );
-    renderer.write_line(&welcome, Color::Cyan)?;
-    renderer.write_line("", Color::White)?;
-
-    if context.agents.is_some() {
-        renderer.write_line("loaded AGENTS.md", Color::DarkGrey)?;
-        renderer.write_line("", Color::White)?;
-    }
-
-    for msg in &session.messages {
-        let (prefix, c) = match msg.role.as_str() {
-            "user" => (">", C_USER),
-            _ => ("<", C_AGENT),
-        };
-        for line in msg.content.lines() {
-            renderer.write_line(&format!("{} {}", prefix, line), c)?;
-        }
-        renderer.write_line("", Color::White)?;
-    }
-
+    render_session(&mut renderer, session, cli, cfg, context)?;
     renderer.draw_bottom("", 0, &StatusLine::render(session, false), false)?;
 
     let (user_tx, mut user_rx) = mpsc::channel::<UserEvent>(64);

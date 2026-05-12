@@ -98,6 +98,16 @@ impl Renderer {
         Ok(())
     }
 
+    pub fn clear_content(&mut self) -> io::Result<()> {
+        let mut stdout = io::stdout();
+        stdout.execute(Clear(ClearType::All))?;
+        stdout.execute(MoveTo(0, 0))?;
+        stdout.flush()?;
+        self.lines = 0;
+        self.col = 0;
+        Ok(())
+    }
+
     pub fn draw_bottom(&mut self, input_line: &str, cursor_pos: usize, status: &str, is_running: bool) -> io::Result<()> {
         let (cols, rows) = crossterm::terminal::size()?;
         let mut stdout = io::stdout();
