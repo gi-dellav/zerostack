@@ -48,13 +48,22 @@ Guidelines:
 
 pub type ZAgent = Agent<openrouter::CompletionModel>;
 
+const TODO_TOOLS_PROMPT: &str = "\
+- write_todo_list: Create or update a structured task list to track progress in the current coding session. Use this for complex multi-step tasks. Replaces any existing todo list.
+- ask_user_question: Ask the user a question and get their response. Use when you need user input, clarification, or a decision.";
+
 pub fn build_agent<M: CompletionModel + 'static>(
     model: M,
     cli: &Cli,
     cfg: &crate::config::Config,
     context: &ContextFiles,
+    todo_tools_enabled: bool,
 ) -> Agent<M> {
     let mut preamble = SYSTEM_PROMPT.to_string();
+    if todo_tools_enabled {
+        preamble.push('\n');
+        preamble.push_str(TODO_TOOLS_PROMPT);
+    }
     if let Some(agents) = &context.agents {
         preamble.push_str("\n\n");
         preamble.push_str(agents);
@@ -73,15 +82,24 @@ pub fn build_agent<M: CompletionModel + 'static>(
     if cli.resolve_no_tools(cfg) {
         builder.build()
     } else {
-        builder
+        let builder = builder
             .tool(tools::ReadTool)
             .tool(tools::WriteTool)
             .tool(tools::EditTool)
             .tool(tools::BashTool)
             .tool(tools::GrepTool)
             .tool(tools::FindFilesTool)
-            .tool(tools::ListDirTool)
-            .build()
+            .tool(tools::ListDirTool);
+
+        let builder = if todo_tools_enabled {
+            builder
+                .tool(tools::WriteTodoList)
+                .tool(tools::AskUserQuestion)
+        } else {
+            builder
+        };
+
+        builder.build()
     }
 }
 

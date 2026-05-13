@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
 
     let client = agent::create_client(cli.api_key.as_deref())?;
     let completion_model = client.completion_model(model.to_string());
-    let agent = agent::build_agent(completion_model, &cli, &cfg, &context);
+    let agent = agent::build_agent(completion_model, &cli, &cfg, &context, false);
 
     if cli.print {
         let msg = cli.message.join(" ");

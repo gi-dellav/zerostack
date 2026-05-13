@@ -146,6 +146,7 @@ fn handle_slash(
     show_reasoning: &mut bool,
     is_running: &mut bool,
     input: &mut InputEditor,
+    todo_tools_enabled: &mut bool,
 ) -> anyhow::Result<()> {
     let parts: SmallVec<[&str; 3]> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
@@ -155,7 +156,7 @@ fn handle_slash(
             } else {
                 let new_model = CompactString::new(parts[1].trim());
                 let model = client.completion_model(new_model.to_string());
-                *agent = agent::build_agent(model, cli, cfg, context);
+                *agent = agent::build_agent(model, cli, cfg, context, *todo_tools_enabled);
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
                 renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
@@ -246,6 +247,36 @@ fn handle_slash(
                 C_AGENT,
             )?;
         }
+        "/toggle" => {
+            if parts.len() < 2 {
+                renderer.write_line("usage: /toggle <feature> [on|off]", C_AGENT)?;
+                renderer.write_line("features:", C_AGENT)?;
+                renderer.write_line(&format!("  todo  {}", if *todo_tools_enabled { "on" } else { "off" }), C_RESULT)?;
+            } else if parts[1] == "todo" {
+                if parts.len() < 3 {
+                    renderer.write_line(&format!("todo tools: {}", if *todo_tools_enabled { "on" } else { "off" }), C_AGENT)?;
+                } else {
+                    let new_state = match parts[2] {
+                        "on" => true,
+                        "off" => false,
+                        other => {
+                            renderer.write_line(&format!("invalid: '{}', use on or off", other), C_ERROR)?;
+                            return Ok(());
+                        }
+                    };
+                    if new_state == *todo_tools_enabled {
+                        renderer.write_line(&format!("todo tools already {}", if new_state { "on" } else { "off" }), C_AGENT)?;
+                    } else {
+                        *todo_tools_enabled = new_state;
+                        let model = client.completion_model(session.model.to_string());
+                        *agent = agent::build_agent(model, cli, cfg, context, *todo_tools_enabled);
+                        renderer.write_line(&format!("todo tools: {}", if *todo_tools_enabled { "on" } else { "off" }), C_AGENT)?;
+                    }
+                }
+            } else {
+                renderer.write_line(&format!("unknown feature: {}", parts[1]), C_ERROR)?;
+            }
+        }
         "/quit" => {
             *is_running = false;
             return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "quit").into());
@@ -282,6 +313,7 @@ fn handle_slash(
             renderer.write_line("  /sessions <id>         load a session (by ID prefix)", C_RESULT)?;
             renderer.write_line("  /sessions delete <id>  delete a session", C_RESULT)?;
             renderer.write_line("  /reasoning             toggle reasoning visibility", C_RESULT)?;
+            renderer.write_line("  /toggle <f> [on|off]  toggle features (todo)", C_RESULT)?;
             renderer.write_line("  /clear                 clear screen", C_RESULT)?;
             renderer.write_line("  /undo                  undo last exchange", C_RESULT)?;
             renderer.write_line("  /retry                 retry last prompt", C_RESULT)?;
@@ -339,6 +371,8 @@ pub async fn run_interactive(
     let mut agent_line_started = false;
     let mut show_reasoning = true;
     let mut was_reasoning = false;
+    let mut todo_tools_enabled = false;
+    let mut answer_tx: Option<tokio::sync::oneshot::Sender<String>> = None;
 
     render_session(&mut renderer, session, cli, cfg, context)?;
     renderer.draw_bottom("", 0, &StatusLine::render(session, false), false)?;
@@ -404,6 +438,8 @@ pub async fn run_interactive(
                             if is_running {
                                 is_running = false;
                                 agent_rx = None;
+                                answer_tx.take();
+                                let _ = crate::agent::tools::PENDING_QUESTION.lock().unwrap().take();
                                 renderer.write_line("interrupted", C_ERROR)?;
                                 renderer.draw_bottom(
                                     &input.buffer,
@@ -414,6 +450,57 @@ pub async fn run_interactive(
                             } else {
                                 break;
                             }
+                            continue;
+                        }
+
+                        if answer_tx.is_some() {
+                            match key.code {
+                                KeyCode::Enter => {
+                                    let answer = input.buffer.clone();
+                                    if !answer.is_empty() {
+                                        if let Some(tx) = answer_tx.take() {
+                                            let _ = tx.send(answer.to_string());
+                                        }
+                                        input.buffer.clear();
+                                        input.cursor = 0;
+                                        renderer.write_line(&format!("[Answer] {}", answer), C_USER)?;
+                                        renderer.write_line("", Color::White)?;
+                                    }
+                                }
+                                KeyCode::Esc => {
+                                    answer_tx.take();
+                                    let _ = crate::agent::tools::PENDING_QUESTION.lock().unwrap().take();
+                                    renderer.write_line("[Cancelled]", C_ERROR)?;
+                                    input.buffer.clear();
+                                    input.cursor = 0;
+                                }
+                                KeyCode::Char(c) => {
+                                    input.buffer.insert(input.cursor, c);
+                                    input.cursor += 1;
+                                }
+                                KeyCode::Backspace if input.cursor > 0 => {
+                                    input.cursor -= 1;
+                                    input.buffer.remove(input.cursor);
+                                }
+                                KeyCode::Delete if input.cursor < input.buffer.len() => {
+                                    input.buffer.remove(input.cursor);
+                                }
+                                KeyCode::Left if input.cursor > 0 => {
+                                    input.cursor -= 1;
+                                }
+                                KeyCode::Right if input.cursor < input.buffer.len() => {
+                                    input.cursor += 1;
+                                }
+                                KeyCode::Home => input.cursor = 0,
+                                KeyCode::End => input.cursor = input.buffer.len(),
+                                _ => {}
+                            }
+                            renderer.draw_bottom(
+                                &input.buffer,
+                                input.cursor,
+                                &StatusLine::render(session, is_running),
+                                is_running,
+                            )?;
                             continue;
                         }
 
@@ -491,7 +578,7 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), C_USER)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input);
+                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &mut todo_tools_enabled);
                                 if let Err(e) = result {
                                     if e.downcast_ref::<std::io::Error>().is_some_and(|e: &std::io::Error| e.kind() == std::io::ErrorKind::Interrupted) {
                                         break;
@@ -621,6 +708,16 @@ pub async fn run_interactive(
                 )?;
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(200)), if is_running => {
+                if answer_tx.is_none() {
+                    let mut pq = crate::agent::tools::PENDING_QUESTION.lock().unwrap();
+                    if let Some(req) = pq.take() {
+                        renderer.write_line(&format!("[Question] {}", req.question), C_TOOL)?;
+                        renderer.write_line("", Color::White)?;
+                        input.buffer.clear();
+                        input.cursor = 0;
+                        answer_tx = Some(req.answer_tx);
+                    }
+                }
                 renderer.draw_bottom(
                     &input.buffer,
                     input.cursor,
