@@ -33,6 +33,12 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
         preamble.push_str(agents);
     }
 
+    // Inject current working directory so the agent knows where it is
+    if let Ok(cwd) = std::env::current_dir() {
+        let cwd_str = cwd.display();
+        preamble.push_str(&format!("\n\nCurrent working directory: {}", cwd_str));
+    }
+
     let mut builder = AgentBuilder::new(model).preamble(&preamble);
 
     let max_tokens = cli.resolve_max_tokens(cfg);
