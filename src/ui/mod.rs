@@ -5,6 +5,7 @@ mod status;
 use std::io::Write;
 
 use chrono::Datelike;
+use compact_str::CompactString;
 use crossterm::event::{
     DisableMouseCapture, EnableMouseCapture, KeyCode, KeyModifiers, MouseEventKind,
 };
@@ -13,6 +14,7 @@ use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlt
 use crossterm::{ExecutableCommand, event};
 use rig::client::CompletionClient;
 use rig::providers::openrouter;
+use smallvec::SmallVec;
 use tokio::sync::mpsc;
 
 use crate::agent;
@@ -55,20 +57,20 @@ impl Drop for TerminalGuard {
     }
 }
 
-fn format_time(rfc3339: &str) -> String {
+fn format_time(rfc3339: &str) -> CompactString {
     let dt = chrono::DateTime::parse_from_rfc3339(rfc3339).ok();
     let dt = match dt {
         Some(dt) => dt,
-        None => return rfc3339.to_string(),
+        None => return CompactString::new(rfc3339),
     };
     let local = dt.with_timezone(&chrono::Local);
     let now = chrono::Local::now();
     if local.date_naive() == now.date_naive() {
-        local.format("%H:%M").to_string()
+        CompactString::new(local.format("%H:%M").to_string())
     } else if local.year() == now.year() {
-        local.format("%b %d %H:%M").to_string()
+        CompactString::new(local.format("%b %d %H:%M").to_string())
     } else {
-        local.format("%Y-%m-%d %H:%M").to_string()
+        CompactString::new(local.format("%Y-%m-%d %H:%M").to_string())
     }
 }
 
@@ -93,9 +95,9 @@ fn render_session(
         renderer.write_line("", Color::White)?;
     }
     for msg in &session.messages {
-        let (prefix, c) = match msg.role.as_str() {
-            "user" => (">", C_USER),
-            _ => ("<", C_AGENT),
+        let (prefix, c) = match msg.role {
+            crate::session::MessageRole::User => (">", C_USER),
+            crate::session::MessageRole::Assistant => ("<", C_AGENT),
         };
         for line in msg.content.lines() {
             renderer.write_line(&format!("{} {}", prefix, line), c)?;
@@ -105,7 +107,7 @@ fn render_session(
     Ok(())
 }
 
-fn sanitize_output(text: &str) -> String {
+fn sanitize_output(text: &str) -> CompactString {
     let mut result = String::with_capacity(text.len());
     let mut chars = text.chars();
     while let Some(c) = chars.next() {
@@ -127,8 +129,9 @@ fn sanitize_output(text: &str) -> String {
             result.push(c);
         }
     }
-    result
+    CompactString::from(result)
 }
+
 
 #[allow(clippy::too_many_arguments)]
 fn handle_slash(
@@ -144,14 +147,14 @@ fn handle_slash(
     is_running: &mut bool,
     input: &mut InputEditor,
 ) -> anyhow::Result<()> {
-    let parts: Vec<&str> = text.trim().splitn(3, ' ').collect();
+    let parts: SmallVec<[&str; 3]> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
         "/model" => {
             if parts.len() < 2 {
                 renderer.write_line(&format!("current model: {}", session.model), C_AGENT)?;
             } else {
-                let new_model = parts[1].trim().to_string();
-                let model = client.completion_model(&new_model);
+                let new_model = CompactString::new(parts[1].trim());
+                let model = client.completion_model(new_model.to_string());
                 *agent = agent::build_agent(model, cli, cfg, context);
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
@@ -260,7 +263,7 @@ fn handle_slash(
             }
         }
         "/retry" => {
-            let last_user = session.messages.iter().rev().find(|m| m.role == "user").cloned();
+            let last_user = session.messages.iter().rev().find(|m| m.role == crate::session::MessageRole::User).cloned();
             match last_user {
                 Some(msg) => {
                     input.buffer = msg.content.clone();
@@ -304,15 +307,15 @@ fn undo_last(session: &mut Session) -> usize {
     if len == 0 {
         return 0;
     }
-    if session.messages[len - 1].role == "assistant" {
+    if session.messages[len - 1].role == crate::session::MessageRole::Assistant {
         session.messages.pop();
-        if session.messages.last().is_some_and(|m| m.role == "user") {
+        if session.messages.last().is_some_and(|m| m.role == crate::session::MessageRole::User) {
             session.messages.pop();
             return 2;
         }
         return 1;
     }
-    if session.messages[len - 1].role == "user" {
+    if session.messages[len - 1].role == crate::session::MessageRole::User {
         session.messages.pop();
         return 1;
     }
@@ -509,13 +512,13 @@ pub async fn run_interactive(
 
                                 let runner = agent::spawn_agent(
                                     agent.clone(),
-                                    text.clone(),
+                                    text.to_string(),
                                     history,
                                 );
                                 agent_rx = Some(runner.event_rx);
                                 is_running = true;
 
-                                session.add_message("user", &text);
+                                session.add_message(crate::session::MessageRole::User, &text);
                             }
                         }
                         renderer.draw_bottom(
@@ -586,7 +589,7 @@ pub async fn run_interactive(
                         }
                         renderer.write_line("", Color::White)?;
                         renderer.write_line("", Color::White)?;
-                        session.add_message("assistant", &response);
+                        session.add_message(crate::session::MessageRole::Assistant, &response);
                         session.total_tokens = session.total_tokens.saturating_add(tokens);
                         session.total_cost += cost;
                         agent_line_started = false;

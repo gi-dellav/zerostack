@@ -8,8 +8,9 @@ mod ui;
 
 use clap::Parser;
 use rig::client::CompletionClient;
+use session::MessageRole;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -60,21 +61,21 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let client = agent::create_client(cli.api_key.as_deref())?;
-    let completion_model = client.completion_model(&model);
+    let completion_model = client.completion_model(model.to_string());
     let agent = agent::build_agent(completion_model, &cli, &cfg, &context);
 
     if cli.print {
         let msg = cli.message.join(" ");
         let response = agent::run_print(&agent, &msg).await?;
         if !cli.no_session {
-            session.add_message("user", &msg);
-            session.add_message("assistant", &response);
+            session.add_message(MessageRole::User, &msg);
+            session.add_message(MessageRole::Assistant, &response);
             session::storage::save_session(&session)?;
         }
     } else {
         let initial_msg = cli.message.join(" ");
         if !initial_msg.is_empty() {
-            session.add_message("user", &initial_msg);
+            session.add_message(MessageRole::User, &initial_msg);
         }
         ui::run_interactive(client, agent, &cli, &cfg, &mut session, &context).await?;
     }

@@ -9,7 +9,7 @@ clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "macros", "sync", "time", "process", "fs"] }
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -19,3 +19,12 @@ thiserror = "2"
 futures = "0.3"
 reqwest = "0.12"
 dirs = "6"
+compact_str = { version = "0.8", features = ["serde"] }
+smallvec = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

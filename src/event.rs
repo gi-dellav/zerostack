@@ -1,17 +1,19 @@
+use compact_str::CompactString;
+
 #[derive(Debug, Clone)]
 pub enum AgentEvent {
-    Token(String),
-    Reasoning(String),
+    Token(CompactString),
+    Reasoning(CompactString),
     ToolCall {
-        name: String,
+        name: CompactString,
         args: serde_json::Value,
     },
     ToolResult {
-        output: String,
+        output: CompactString,
     },
-    Error(String),
+    Error(CompactString),
     Done {
-        response: String,
+        response: CompactString,
         tokens: u64,
         cost: f64,
     },

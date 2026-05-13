@@ -1,5 +1,6 @@
 use std::io::{self, Write};
 
+use compact_str::CompactString;
 use crossterm::cursor::MoveTo;
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType, ScrollUp};
@@ -7,7 +8,7 @@ use crossterm::ExecutableCommand;
 
 #[derive(Clone)]
 struct LineEntry {
-    text: String,
+    text: CompactString,
     color: Color,
 }
 
@@ -16,7 +17,7 @@ pub struct Renderer {
     col: u16,
     spinner_tick: bool,
     buffer: Vec<LineEntry>,
-    partial: String,
+    partial: CompactString,
     partial_color: Color,
     scroll_offset: usize,
 }
@@ -28,7 +29,7 @@ impl Renderer {
             col: 0,
             spinner_tick: false,
             buffer: Vec::new(),
-            partial: String::new(),
+            partial: CompactString::new(""),
             partial_color: Color::White,
             scroll_offset: 0,
         })
@@ -48,12 +49,12 @@ impl Renderer {
         rows.saturating_sub(2) as usize
     }
 
-    fn wrap_line(&self, line: &str, max_width: usize) -> Vec<String> {
+    fn wrap_line(&self, line: &str, max_width: usize) -> Vec<CompactString> {
         let chars: Vec<char> = line.chars().collect();
         if chars.len() <= max_width {
-            return vec![line.to_string()];
+            return vec![CompactString::new(line)];
         }
-        chars.chunks(max_width).map(|c| c.iter().collect()).collect()
+        chars.chunks(max_width).map(|c| CompactString::new(c.iter().collect::<String>())).collect()
     }
 
     fn commit_partial(&mut self) {
@@ -240,7 +241,7 @@ impl Renderer {
                     self.partial.push_str(segment);
                     self.commit_partial();
                 } else if !had_content {
-                    self.buffer.push(LineEntry { text: String::new(), color });
+                    self.buffer.push(LineEntry { text: CompactString::new(""), color });
                 }
                 if self.scroll_offset == 0 {
                     self.ensure_room();

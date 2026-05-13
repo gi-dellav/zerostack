@@ -70,14 +70,17 @@ impl Tool for ReadTool {
             )));
         }
         let content = tokio::fs::read_to_string(&args.path).await?;
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
+        let total_lines = content.lines().count();
 
         let offset = args.offset.unwrap_or(1).max(1) - 1;
         let limit = args.limit.unwrap_or(2000);
         let end = (offset + limit).min(total_lines);
 
-        let excerpt = lines[offset..end].join("\n");
+        let excerpt: String = content.lines()
+            .skip(offset)
+            .take(end - offset)
+            .collect::<Vec<_>>()
+            .join("\n");
         let info = format!(
             "File: {} ({} lines total, showing lines {}-{})\n\n{}",
             args.path,
@@ -237,8 +240,8 @@ impl Tool for BashTool {
                 .output().await
         }?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
         let exit_code = output.status.code().unwrap_or(-1);
 
         let mut result = String::new();
@@ -314,8 +317,8 @@ impl Tool for GrepTool {
             ToolError::Msg(format!("Failed to run rg (ripgrep): {}. Is ripgrep installed?", e))
         })?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
 
         if !output.status.success() && stdout.is_empty() {
             if stderr.contains("not found") || stderr.contains("no such") {
@@ -396,7 +399,7 @@ impl Tool for FindFilesTool {
             .await
             .map_err(|e| ToolError::Msg(format!("Failed to run find: {}", e)))?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout);
 
         if stdout.is_empty() {
             return Ok("No files found matching the pattern.".to_string());

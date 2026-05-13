@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use smallvec::SmallVec;
+
 use crate::session::storage;
 
 pub struct ContextFiles {
@@ -24,7 +26,7 @@ fn load_file(path: &PathBuf) -> Option<String> {
 }
 
 fn load_agents() -> Option<String> {
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: SmallVec<[String; 4]> = SmallVec::new();
 
     let global = storage::agents_path();
     if let Some(content) = load_file(&global)

@@ -1,23 +1,24 @@
+use compact_str::CompactString;
 use crossterm::event::{KeyCode, KeyEvent};
 
 pub struct InputEditor {
-    pub buffer: String,
+    pub buffer: CompactString,
     pub cursor: usize,
-    history: Vec<String>,
+    history: Vec<CompactString>,
     history_pos: Option<usize>,
 }
 
 impl InputEditor {
     pub fn new() -> Self {
         InputEditor {
-            buffer: String::new(),
+            buffer: CompactString::new(""),
             cursor: 0,
             history: Vec::new(),
             history_pos: None,
         }
     }
 
-    pub fn handle_key(&mut self, key: KeyEvent) -> Option<String> {
+    pub fn handle_key(&mut self, key: KeyEvent) -> Option<CompactString> {
         match key.code {
             KeyCode::Enter => {
                 let text = self.buffer.clone();

@@ -1,4 +1,5 @@
 use clap::Parser;
+use compact_str::CompactString;
 
 use crate::config;
 
@@ -49,18 +50,20 @@ pub struct Cli {
 }
 
 impl Cli {
-    pub fn resolve_model(&self, cfg: &config::Config) -> String {
+    pub fn resolve_model(&self, cfg: &config::Config) -> CompactString {
         self.model
-            .clone()
-            .or_else(|| cfg.model.clone())
-            .unwrap_or_else(|| "deepseek/deepseek-v4-flash".to_string())
+            .as_deref()
+            .or(cfg.model.as_deref())
+            .map(CompactString::new)
+            .unwrap_or_else(|| CompactString::new("deepseek/deepseek-v4-flash"))
     }
 
-    pub fn resolve_provider(&self, cfg: &config::Config) -> String {
+    pub fn resolve_provider(&self, cfg: &config::Config) -> CompactString {
         self.provider
-            .clone()
-            .or_else(|| cfg.provider.clone())
-            .unwrap_or_else(|| "openrouter".to_string())
+            .as_deref()
+            .or(cfg.provider.as_deref())
+            .map(CompactString::new)
+            .unwrap_or_else(|| CompactString::new("openrouter"))
     }
 
     pub fn resolve_max_tokens(&self, cfg: &config::Config) -> u64 {

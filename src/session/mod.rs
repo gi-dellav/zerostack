@@ -1,52 +1,60 @@
 pub mod storage;
 
+use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MessageRole {
+    User,
+    Assistant,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMessage {
-    pub role: String,
-    pub content: String,
+    pub role: MessageRole,
+    pub content: CompactString,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
-    pub id: String,
-    pub name: String,
+    pub id: CompactString,
+    pub name: CompactString,
     pub messages: Vec<SessionMessage>,
-    pub created_at: String,
-    pub updated_at: String,
+    pub created_at: CompactString,
+    pub updated_at: CompactString,
     pub total_tokens: u64,
     pub total_cost: f64,
-    pub model: String,
-    pub provider: String,
-    pub working_dir: String,
+    pub model: CompactString,
+    pub provider: CompactString,
+    pub working_dir: CompactString,
 }
 
 impl Session {
     pub fn new(provider: &str, model: &str) -> Self {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = CompactString::new(chrono::Utc::now().to_rfc3339());
         Session {
-            id: Uuid::new_v4().to_string(),
-            name: String::new(),
+            id: CompactString::new(Uuid::new_v4().to_string()),
+            name: CompactString::new(""),
             messages: Vec::new(),
             created_at: now.clone(),
             updated_at: now,
             total_tokens: 0,
             total_cost: 0.0,
-            model: model.to_string(),
-            provider: provider.to_string(),
+            model: CompactString::new(model),
+            provider: CompactString::new(provider),
             working_dir: std::env::current_dir()
-                .map(|p| p.to_string_lossy().to_string())
+                .map(|p| CompactString::new(p.to_string_lossy()))
                 .unwrap_or_default(),
         }
     }
 
-    pub fn add_message(&mut self, role: &str, content: &str) {
+    pub fn add_message(&mut self, role: MessageRole, content: &str) {
         self.messages.push(SessionMessage {
-            role: role.to_string(),
-            content: content.to_string(),
+            role,
+            content: CompactString::new(content),
         });
-        self.updated_at = chrono::Utc::now().to_rfc3339();
+        self.updated_at = CompactString::new(chrono::Utc::now().to_rfc3339());
     }
 }

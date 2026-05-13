@@ -1,5 +1,6 @@
 pub mod tools;
 
+use compact_str::CompactString;
 use rig::agent::{Agent, AgentBuilder, MultiTurnStreamItem};
 use rig::completion::{CompletionModel, Message};
 use rig::message::ToolResultContent;
@@ -83,12 +84,12 @@ pub fn build_agent<M: CompletionModel + 'static>(
 
 pub fn create_client(api_key: Option<&str>) -> anyhow::Result<openrouter::Client> {
     let key = api_key
-        .map(|k| k.to_string())
-        .or_else(|| std::env::var("OPENROUTER_API_KEY").ok())
+        .map(CompactString::new)
+        .or_else(|| std::env::var("OPENROUTER_API_KEY").ok().map(CompactString::new))
         .ok_or_else(|| anyhow::anyhow!(
-            "No API key found. Set ZS_API_KEY environment variable or pass --api-key."
+            "No API key found. Set OPENROUTER_API_KEY environment variable or pass --api-key."
         ))?;
-    Ok(openrouter::Client::new(key)?)
+    Ok(openrouter::Client::new(String::from(key))?)
 }
 
 pub struct AgentRunner {
@@ -98,9 +99,9 @@ pub struct AgentRunner {
 pub fn convert_history(messages: &[crate::session::SessionMessage]) -> Vec<Message> {
     messages
         .iter()
-        .map(|m| match m.role.as_str() {
-            "assistant" => Message::assistant(&m.content),
-            _ => Message::user(&m.content),
+        .map(|m| match m.role {
+            crate::session::MessageRole::Assistant => Message::assistant(m.content.to_string()),
+            crate::session::MessageRole::User => Message::user(m.content.to_string()),
         })
         .collect()
 }
@@ -128,19 +129,19 @@ where
                 Ok(MultiTurnStreamItem::StreamAssistantItem(
                     StreamedAssistantContent::Text(text),
                 )) => {
-                    let _ = event_tx.send(AgentEvent::Token(text.text)).await;
+                    let _ = event_tx.send(AgentEvent::Token(CompactString::from(text.text))).await;
                 }
                 Ok(MultiTurnStreamItem::StreamAssistantItem(
                     StreamedAssistantContent::Reasoning(r),
                 )) => {
-                    let _ = event_tx.send(AgentEvent::Reasoning(r.display_text())).await;
+                    let _ = event_tx.send(AgentEvent::Reasoning(CompactString::new(r.display_text()))).await;
                 }
                 Ok(MultiTurnStreamItem::StreamAssistantItem(
                     StreamedAssistantContent::ToolCall { tool_call, .. },
                 )) => {
                     let _ = event_tx
                         .send(AgentEvent::ToolCall {
-                            name: tool_call.function.name,
+                            name: CompactString::from(tool_call.function.name),
                             args: tool_call.function.arguments,
                         })
                         .await;
@@ -148,31 +149,29 @@ where
                 Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                     tool_result, ..
                 })) => {
-                    let output = tool_result
-                        .content
-                        .iter()
-                        .filter_map(|c| match c {
-                            ToolResultContent::Text(t) => Some(t.text.clone()),
-                            _ => None,
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
+                    let mut output = String::new();
+                    for c in tool_result.content.iter() {
+                        if let ToolResultContent::Text(t) = c {
+                            if !output.is_empty() {
+                                output.push('\n');
+                            }
+                            output.push_str(&t.text);
+                        }
+                    }
                     let _ = event_tx
-                        .send( AgentEvent::ToolResult { output })
+                        .send(AgentEvent::ToolResult { output: CompactString::from(output) })
                         .await;
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
-                    let response = res.response().to_string();
                     let _ = event_tx.send(AgentEvent::Done {
-                        response,
+                        response: CompactString::new(res.response()),
                         tokens: 0,
                         cost: 0.0,
                     }).await;
                     break;
                 }
                 Err(e) => {
-                    let msg = e.to_string();
-                    let _ = event_tx.send(AgentEvent::Error(msg)).await;
+                    let _ = event_tx.send(AgentEvent::Error(CompactString::new(e.to_string()))).await;
                     break;
                 }
                 _ => {}
