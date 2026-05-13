@@ -30,6 +30,7 @@ pub struct Config {
     pub restrictive: Option<bool>,
     pub accept_all: Option<bool>,
     pub yolo: Option<bool>,
+    pub show_tool_details: Option<bool>,
 }
 
 impl Config {

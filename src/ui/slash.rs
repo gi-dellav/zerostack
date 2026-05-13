@@ -629,14 +629,10 @@ pub fn handle_slash(
                 C_RESULT,
             )?;
             renderer.write_line(
-                "  mouse drag             select text from scrollback",
+                "  mouse drag             select text (copies to clipboard on release)",
                 C_RESULT,
             )?;
-            renderer.write_line(
-                "  y (while selected)     copy selected text to clipboard",
-                C_RESULT,
-            )?;
-            renderer.write_line("  Esc (while selected)   clear selection", C_RESULT)?;
+            renderer.write_line("  Esc (while selected)   clear selection (no copy)", C_RESULT)?;
             renderer.write_line("  Ctrl+R                 toggle reasoning", C_RESULT)?;
             renderer.write_line("  Ctrl+C                 interrupt/quit", C_RESULT)?;
             renderer.write_line("  mouse scroll           scroll chat", C_RESULT)?;

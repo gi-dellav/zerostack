@@ -31,6 +31,57 @@ const C_ERROR: Color = Color::Red;
 const C_TOOL: Color = Color::Yellow;
 const C_PERM: Color = Color::Magenta;
 
+/// Formats a tool call showing only the primary file/command parameter.
+/// - read/write/edit → path
+/// - grep → pattern (and path if both present)
+/// - find_files → pattern
+/// - list_dir → path
+/// - bash → command (truncated to 60 chars)
+/// - others → first string arg or nothing
+fn format_tool_call_summary(name: &str, args: &serde_json::Value) -> String {
+    let obj = match args {
+        serde_json::Value::Object(map) => map,
+        _ => return name.to_string(),
+    };
+
+    // Determine which key(s) to show based on tool name
+    let primary_keys: &[&str] = match name {
+        "read" | "write" | "edit" | "list_dir" => &["path"],
+        "grep" => &["pattern", "path"],
+        "find_files" => &["pattern"],
+        "bash" => &["command"],
+        _ => &[],
+    };
+
+    let mut shown = Vec::new();
+    for key in primary_keys {
+        if let Some(serde_json::Value::String(val)) = obj.get(*key) {
+            let truncated = if val.len() > 60 {
+                format!("\"{}...\"", &val[..57])
+            } else {
+                format!("\"{}\"", val)
+            };
+            shown.push(truncated);
+        }
+    }
+
+    if shown.is_empty() {
+        // fallback: show first string value if any
+        if let Some((_, serde_json::Value::String(val))) = obj.iter().next() {
+            let truncated = if val.len() > 60 {
+                format!("\"{}...\"", &val[..57])
+            } else {
+                format!("\"{}\"", val)
+            };
+            format!("{} {}", name, truncated)
+        } else {
+            name.to_string()
+        }
+    } else {
+        format!("{} {}", name, shown.join(" "))
+    }
+}
+
 pub async fn run_interactive(
     client: AnyClient,
     mut agent: AnyAgent,
@@ -169,6 +220,10 @@ pub async fn run_interactive(
                             if let Some(idx) = renderer.buffer_line_at_row(row) {
                                 renderer.selection_end = Some(idx);
                             }
+                            if let Some(text) = renderer.selected_text() {
+                                copy_to_clipboard(&text);
+                            }
+                            renderer.clear_selection();
                             renderer.render_viewport()?;
                             renderer.draw_bottom(
                                 &input.buffer, input.cursor,
@@ -439,14 +494,32 @@ pub async fn run_interactive(
                             renderer.write_line("", Color::White)?;
                             agent_line_started = false;
                         }
-                        let args_str = serde_json::to_string(&args).unwrap_or_default();
-                        let safe = sanitize_output(&format!("[{} {}]", name, args_str));
-                        renderer.write_line(&safe, C_TOOL)?;
+                        let show_details = cfg.show_tool_details.unwrap_or(false);
+                        let line = if show_details {
+                            format_tool_call_summary(&name, &args)
+                        } else {
+                            format!("◈ {}", name)
+                        };
+                        renderer.write_line(&sanitize_output(&line), C_TOOL)?;
                     }
                     AgentEvent::ToolResult { output } => {
-                        let sanitized = sanitize_output(&output);
-                        let preview: String = sanitized.chars().take(2000).collect();
-                        renderer.write_line(&preview, Color::DarkGrey)?;
+                        let show_details = cfg.show_tool_details.unwrap_or(false);
+                        if show_details {
+                            let sanitized = sanitize_output(&output);
+                            let char_count = sanitized.chars().count();
+                            let preview: String = sanitized.chars().take(120).collect();
+                            let preview_trimmed = if char_count > 120 {
+                                format!("{}...", preview)
+                            } else {
+                                preview
+                            };
+                            let summary = if char_count > 120 {
+                                format!("◈ result ({} chars): {}", char_count, preview_trimmed)
+                            } else {
+                                preview_trimmed
+                            };
+                            renderer.write_line(&summary, Color::DarkGrey)?;
+                        }
                     }
                     AgentEvent::Done { response, tokens, cost } => {
                         was_reasoning = false;
