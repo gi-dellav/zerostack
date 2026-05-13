@@ -30,7 +30,11 @@ fn resolve_mode(cli: &cli::Cli, cfg: &config::Config) -> SecurityMode {
 fn build_permission_checker(
     cli: &cli::Cli,
     cfg: &config::Config,
-) -> (Option<PermCheck>, Option<AskSender>, Option<tokio::sync::mpsc::Receiver<crate::permission::ask::AskRequest>>) {
+) -> (
+    Option<PermCheck>,
+    Option<AskSender>,
+    Option<tokio::sync::mpsc::Receiver<crate::permission::ask::AskRequest>>,
+) {
     let no_tools = cli.resolve_no_tools(cfg);
     if no_tools {
         return (None, None, None);
@@ -109,11 +113,7 @@ async fn main() -> anyhow::Result<()> {
         session = session::storage::load_session(session_id)?;
     }
 
-    let client = provider::create_client(
-        &provider,
-        cli.api_key.as_deref(),
-        &Default::default(),
-    )?;
+    let client = provider::create_client(&provider, cli.api_key.as_deref(), &Default::default())?;
 
     let (permission, ask_tx, ask_rx) = build_permission_checker(&cli, &cfg);
 

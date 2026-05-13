@@ -93,7 +93,11 @@ impl Renderer {
                 result.push_str(&entry.text);
             }
         }
-        if result.is_empty() { None } else { Some(result) }
+        if result.is_empty() {
+            None
+        } else {
+            Some(result)
+        }
     }
 
     fn wrap_line(&self, line: &str, max_width: usize) -> Vec<CompactString> {

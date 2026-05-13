@@ -12,7 +12,10 @@ impl Pattern {
         let expanded = expand_home(pattern);
         let regex_str = glob_to_regex(&expanded);
         let regex = Regex::new(&regex_str).unwrap_or_else(|_| Regex::new("^$").unwrap());
-        Pattern { regex, original: pattern.to_string() }
+        Pattern {
+            regex,
+            original: pattern.to_string(),
+        }
     }
 
     pub fn matches(&self, input: &str) -> bool {

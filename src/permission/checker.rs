@@ -135,7 +135,7 @@ impl PermissionChecker {
                     Action::Deny => {
                         return CheckResult::Denied(
                             "Doom loop: repeated identical tool call".to_string(),
-                        )
+                        );
                     }
                     Action::Ask => return CheckResult::Ask,
                     Action::Allow => {}
@@ -199,7 +199,7 @@ impl PermissionChecker {
                     Action::Deny => {
                         return CheckResult::Denied(
                             "Doom loop: repeated identical tool call".to_string(),
-                        )
+                        );
                     }
                     Action::Ask => return CheckResult::Ask,
                     Action::Allow => {}

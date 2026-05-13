@@ -3,7 +3,7 @@ use std::path::Path;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{check_perm_path, AskSender, PermCheck, ToolError, WriteArgs};
+use crate::agent::tools::{AskSender, PermCheck, ToolError, WriteArgs, check_perm_path};
 
 pub struct WriteTool {
     pub permission: Option<PermCheck>,

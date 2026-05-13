@@ -2,10 +2,10 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use crossterm::ExecutableCommand;
 use crossterm::cursor::MoveTo;
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use crossterm::terminal::Clear;
-use crossterm::ExecutableCommand;
 
 #[cfg(test)]
 mod tests {
@@ -244,9 +244,10 @@ impl FilePicker {
                 if !path.is_file() {
                     continue;
                 }
-                if path.components().any(|c| {
-                    c.as_os_str().to_string_lossy().starts_with('.')
-                }) {
+                if path
+                    .components()
+                    .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+                {
                     continue;
                 }
                 let rel = path
@@ -376,7 +377,11 @@ impl FilePicker {
         for i in start_idx..end_idx {
             let render_row = top_row + (i - start_idx) as u16;
             stdout.execute(MoveTo(0, render_row))?;
-            write!(stdout, "{}", Clear(crossterm::terminal::ClearType::CurrentLine))?;
+            write!(
+                stdout,
+                "{}",
+                Clear(crossterm::terminal::ClearType::CurrentLine)
+            )?;
 
             let path = &self.matches[i];
             let display = path.to_string_lossy();

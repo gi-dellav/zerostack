@@ -3,7 +3,7 @@ use rig::tool::Tool;
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
-use crate::agent::tools::{check_perm, AskSender, BashArgs, PermCheck, ToolError};
+use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm};
 
 pub struct BashTool {
     pub permission: Option<PermCheck>,

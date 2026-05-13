@@ -3,7 +3,9 @@ use regex::Regex;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{check_perm, AskSender, GrepArgs, MAX_GREP_RESULTS, PermCheck, ToolError, is_skip_dir};
+use crate::agent::tools::{
+    AskSender, GrepArgs, MAX_GREP_RESULTS, PermCheck, ToolError, check_perm, is_skip_dir,
+};
 
 pub struct GrepTool {
     pub permission: Option<PermCheck>,

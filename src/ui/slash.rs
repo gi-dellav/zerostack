@@ -5,9 +5,9 @@ use smallvec::SmallVec;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
+use crate::permission::SecurityMode;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
-use crate::permission::SecurityMode;
 use crate::provider::{AnyAgent, AnyClient};
 use crate::session::{MessageRole, Session};
 use crate::ui::events::{format_time, render_session};
@@ -103,7 +103,15 @@ pub async fn handle_compress(
     session.compress(summary, cut_idx, tokens_before);
 
     let model = client.completion_model(session.model.to_string());
-    *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled, permission.clone(), ask_tx.clone());
+    *agent = crate::provider::build_agent(
+        model,
+        cli,
+        cfg,
+        context,
+        *todo_tools_enabled,
+        permission.clone(),
+        ask_tx.clone(),
+    );
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
@@ -142,7 +150,15 @@ pub fn handle_slash(
             } else {
                 let new_model = CompactString::new(parts[1].trim());
                 let model = client.completion_model(new_model.to_string());
-                *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled, permission.clone(), ask_tx.clone());
+                *agent = crate::provider::build_agent(
+                    model,
+                    cli,
+                    cfg,
+                    context,
+                    *todo_tools_enabled,
+                    permission.clone(),
+                    ask_tx.clone(),
+                );
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
                 renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
@@ -287,18 +303,19 @@ pub fn handle_slash(
 
             if parts.len() < 2 {
                 renderer.write_line("security mode:", C_AGENT)?;
+                renderer.write_line(&format!("  current: {}", current_mode), C_RESULT)?;
+                renderer.write_line("", C_AGENT)?;
                 renderer.write_line(
-                    &format!(
-                        "  current: {}",
-                        current_mode
-                    ),
+                    "  /mode standard      use configured permission rules",
                     C_RESULT,
                 )?;
-                renderer.write_line("", C_AGENT)?;
-                renderer.write_line("  /mode standard      use configured permission rules", C_RESULT)?;
                 renderer.write_line("  /mode restrictive   default all tools to ask", C_RESULT)?;
-                renderer.write_line("  /mode accept        auto-accept within working directory", C_RESULT)?;
-                renderer.write_line("  /mode yolo          auto-accept ALL operations", C_RESULT)?;
+                renderer.write_line(
+                    "  /mode accept        auto-accept within working directory",
+                    C_RESULT,
+                )?;
+                renderer
+                    .write_line("  /mode yolo          auto-accept ALL operations", C_RESULT)?;
                 renderer.write_line("", C_AGENT)?;
                 renderer.write_line("  /mode todo [on|off] toggle todo tools", C_RESULT)?;
             } else {
@@ -322,7 +339,10 @@ pub fn handle_slash(
                     "accept" => {
                         if let Some(p) = permission {
                             p.lock().unwrap().set_mode(SecurityMode::Accept);
-                            renderer.write_line("security mode: accept (auto-allow within CWD)", C_AGENT)?;
+                            renderer.write_line(
+                                "security mode: accept (auto-allow within CWD)",
+                                C_AGENT,
+                            )?;
                         } else {
                             renderer.write_line("permission system not active", C_ERROR)?;
                         }
@@ -330,7 +350,10 @@ pub fn handle_slash(
                     "yolo" => {
                         if let Some(p) = permission {
                             p.lock().unwrap().set_mode(SecurityMode::Yolo);
-                            renderer.write_line("security mode: YOLO (all operations allowed)", C_AGENT)?;
+                            renderer.write_line(
+                                "security mode: YOLO (all operations allowed)",
+                                C_AGENT,
+                            )?;
                         } else {
                             renderer.write_line("permission system not active", C_ERROR)?;
                         }
@@ -367,7 +390,15 @@ pub fn handle_slash(
                             } else {
                                 *todo_tools_enabled = new_state;
                                 let model = client.completion_model(session.model.to_string());
-                                *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled, permission.clone(), ask_tx.clone());
+                                *agent = crate::provider::build_agent(
+                                    model,
+                                    cli,
+                                    cfg,
+                                    context,
+                                    *todo_tools_enabled,
+                                    permission.clone(),
+                                    ask_tx.clone(),
+                                );
                                 renderer.write_line(
                                     &format!(
                                         "todo tools: {}",
@@ -424,7 +455,15 @@ pub fn handle_slash(
                     } else {
                         *todo_tools_enabled = new_state;
                         let model = client.completion_model(session.model.to_string());
-                        *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled, permission.clone(), ask_tx.clone());
+                        *agent = crate::provider::build_agent(
+                            model,
+                            cli,
+                            cfg,
+                            context,
+                            *todo_tools_enabled,
+                            permission.clone(),
+                            ask_tx.clone(),
+                        );
                         renderer.write_line(
                             &format!(
                                 "todo tools: {}",
@@ -497,8 +536,14 @@ pub fn handle_slash(
                 "  /reasoning             toggle reasoning visibility",
                 C_RESULT,
             )?;
-            renderer.write_line("  /mode                  show/change security mode", C_RESULT)?;
-            renderer.write_line("  /mode <mode>           set mode (standard|restrictive|accept|yolo)", C_RESULT)?;
+            renderer.write_line(
+                "  /mode                  show/change security mode",
+                C_RESULT,
+            )?;
+            renderer.write_line(
+                "  /mode <mode>           set mode (standard|restrictive|accept|yolo)",
+                C_RESULT,
+            )?;
             renderer.write_line("  /toggle <f> [on|off]   toggle features (todo)", C_RESULT)?;
             renderer.write_line("  /clear                 clear screen", C_RESULT)?;
             renderer.write_line("  /undo                  undo last exchange", C_RESULT)?;
@@ -517,9 +562,18 @@ pub fn handle_slash(
             renderer.write_line("keys:", C_AGENT)?;
             renderer.write_line("  PgUp/PgDn             scroll chat history", C_RESULT)?;
             renderer.write_line("  Home/End               jump to top/bottom", C_RESULT)?;
-            renderer.write_line("  @<query>               file picker (Tab/Enter select, Esc cancel)", C_RESULT)?;
-            renderer.write_line("  mouse drag             select text from scrollback", C_RESULT)?;
-            renderer.write_line("  y (while selected)     copy selected text to clipboard", C_RESULT)?;
+            renderer.write_line(
+                "  @<query>               file picker (Tab/Enter select, Esc cancel)",
+                C_RESULT,
+            )?;
+            renderer.write_line(
+                "  mouse drag             select text from scrollback",
+                C_RESULT,
+            )?;
+            renderer.write_line(
+                "  y (while selected)     copy selected text to clipboard",
+                C_RESULT,
+            )?;
             renderer.write_line("  Esc (while selected)   clear selection", C_RESULT)?;
             renderer.write_line("  Ctrl+R                 toggle reasoning", C_RESULT)?;
             renderer.write_line("  Ctrl+C                 interrupt/quit", C_RESULT)?;

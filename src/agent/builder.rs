@@ -52,7 +52,10 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
             .tool(tools::EditTool::new(permission.clone(), ask_tx.clone()))
             .tool(tools::BashTool::new(permission.clone(), ask_tx.clone()))
             .tool(tools::GrepTool::new(permission.clone(), ask_tx.clone()))
-            .tool(tools::FindFilesTool::new(permission.clone(), ask_tx.clone()))
+            .tool(tools::FindFilesTool::new(
+                permission.clone(),
+                ask_tx.clone(),
+            ))
             .tool(tools::ListDirTool::new(permission.clone(), ask_tx.clone()));
 
         let builder = if todo_tools_enabled {

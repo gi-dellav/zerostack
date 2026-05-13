@@ -25,11 +25,18 @@ pub enum UserEvent {
     ScrollUp,
     ScrollDown,
     #[allow(dead_code)]
-    MouseDown { row: u16, col: u16 },
+    MouseDown {
+        row: u16,
+        col: u16,
+    },
     #[allow(dead_code)]
-    MouseDrag { row: u16, col: u16 },
+    MouseDrag {
+        row: u16,
+        col: u16,
+    },
     #[allow(dead_code)]
-    MouseUp { row: u16, col: u16 },
+    MouseUp {
+        row: u16,
+        col: u16,
+    },
 }
-
-

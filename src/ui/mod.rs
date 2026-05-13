@@ -21,7 +21,7 @@ use crate::provider::{AnyAgent, AnyClient};
 use crate::session::{MessageRole, PermissionAllowEntry, Session};
 use crate::ui::events::{render_session, sanitize_output};
 use crate::ui::input::InputEditor;
-use crate::ui::renderer::{copy_to_clipboard, Renderer};
+use crate::ui::renderer::{Renderer, copy_to_clipboard};
 use crate::ui::slash::{handle_compress, handle_slash};
 use crate::ui::status::StatusLine;
 use crate::ui::terminal::TerminalGuard;

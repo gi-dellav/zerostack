@@ -60,7 +60,10 @@ impl InputEditor {
                 }
             }
             KeyCode::Tab => {
-                if key.modifiers.contains(crossterm::event::KeyModifiers::SHIFT) {
+                if key
+                    .modifiers
+                    .contains(crossterm::event::KeyModifiers::SHIFT)
+                {
                     picker.select_prev();
                 } else {
                     picker.select_next();
@@ -87,8 +90,11 @@ impl InputEditor {
                 let at_pos = self.buffer.rfind('@');
                 if let Some(at) = at_pos {
                     let before: String = self.buffer.chars().take(at).collect();
-                    let after: String =
-                        self.buffer.chars().skip(at + 1 + picker.query.len()).collect();
+                    let after: String = self
+                        .buffer
+                        .chars()
+                        .skip(at + 1 + picker.query.len())
+                        .collect();
                     self.buffer = format!("{}{}", before, after).into();
                     self.cursor = at;
                 }
@@ -117,8 +123,8 @@ impl InputEditor {
             }
             KeyCode::Char(c) => {
                 if c == '@' {
-                    let at_word_start = self.cursor == 0
-                        || self.buffer.chars().nth(self.cursor - 1) == Some(' ');
+                    let at_word_start =
+                        self.cursor == 0 || self.buffer.chars().nth(self.cursor - 1) == Some(' ');
                     if at_word_start {
                         self.start_picker();
                     }

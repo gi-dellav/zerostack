@@ -1,7 +1,7 @@
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{check_perm_path, AskSender, PermCheck, ReadArgs, ToolError};
+use crate::agent::tools::{AskSender, PermCheck, ReadArgs, ToolError, check_perm_path};
 
 pub struct ReadTool {
     pub permission: Option<PermCheck>,

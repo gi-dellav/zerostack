@@ -4,7 +4,9 @@ use ignore::WalkBuilder;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{check_perm_path, AskSender, ListDirArgs, PermCheck, ToolError, is_skip_dir};
+use crate::agent::tools::{
+    AskSender, ListDirArgs, PermCheck, ToolError, check_perm_path, is_skip_dir,
+};
 
 fn format_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB"];

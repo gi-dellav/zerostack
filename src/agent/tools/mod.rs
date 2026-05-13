@@ -128,17 +128,23 @@ pub async fn check_perm(
     tool: &str,
     input_key: &str,
 ) -> Result<(), ToolError> {
-    let Some(perm) = permission else { return Ok(()) };
+    let Some(perm) = permission else {
+        return Ok(());
+    };
     let result = {
         let mut guard = perm.lock().unwrap();
         guard.check(tool, input_key)
     };
     match result {
         CheckResult::Allowed => Ok(()),
-        CheckResult::Denied(reason) => Err(ToolError::Msg(format!("Permission denied: {}", reason))),
+        CheckResult::Denied(reason) => {
+            Err(ToolError::Msg(format!("Permission denied: {}", reason)))
+        }
         CheckResult::Ask => {
             let Some(tx) = ask_tx else {
-                return Err(ToolError::Msg("Permission denied (non-interactive mode)".to_string()));
+                return Err(ToolError::Msg(
+                    "Permission denied (non-interactive mode)".to_string(),
+                ));
             };
             handle_ask_inner(tx, perm, tool, input_key).await
         }
@@ -151,17 +157,23 @@ pub async fn check_perm_path(
     tool: &str,
     path: &str,
 ) -> Result<(), ToolError> {
-    let Some(perm) = permission else { return Ok(()) };
+    let Some(perm) = permission else {
+        return Ok(());
+    };
     let result = {
         let mut guard = perm.lock().unwrap();
         guard.check_path(tool, path)
     };
     match result {
         CheckResult::Allowed => Ok(()),
-        CheckResult::Denied(reason) => Err(ToolError::Msg(format!("Permission denied: {}", reason))),
+        CheckResult::Denied(reason) => {
+            Err(ToolError::Msg(format!("Permission denied: {}", reason)))
+        }
         CheckResult::Ask => {
             let Some(tx) = ask_tx else {
-                return Err(ToolError::Msg("Permission denied (non-interactive mode)".to_string()));
+                return Err(ToolError::Msg(
+                    "Permission denied (non-interactive mode)".to_string(),
+                ));
             };
             handle_ask_inner(tx, perm, tool, path).await
         }

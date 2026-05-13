@@ -2,7 +2,7 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 
-use crate::agent::tools::{check_perm, AskSender, PermCheck, ToolError};
+use crate::agent::tools::{AskSender, PermCheck, ToolError, check_perm};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TodoItem {
