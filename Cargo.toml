@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-rig = "0.36"
+rig = "0.37"
 clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }
@@ -17,9 +17,9 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 futures = "0.3"
-reqwest = "0.12"
+reqwest = "0.13"
 dirs = "6"
-compact_str = { version = "0.8", features = ["serde"] }
+compact_str = { version = "0.9", features = ["serde"] }
 smallvec = "1"
 regex = "1"
 ignore = "0.4"
