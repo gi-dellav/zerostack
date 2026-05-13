@@ -1,13 +1,13 @@
+mod events;
 mod input;
 mod renderer;
+mod slash;
 mod status;
 mod terminal;
-mod events;
-mod slash;
 
+use crossterm::event;
 use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
 use crossterm::style::Color;
-use crossterm::event;
 use rig::providers::openrouter;
 use tokio::sync::mpsc;
 
@@ -54,29 +54,31 @@ pub async fn run_interactive(
 
     let (user_tx, mut user_rx) = mpsc::channel::<UserEvent>(64);
     let user_tx_clone = user_tx.clone();
-    std::thread::spawn(move || loop {
-        match event::read() {
-            Ok(event::Event::Key(key)) => {
-                if user_tx_clone.blocking_send(UserEvent::Key(key)).is_err() {
-                    break;
-                }
-            }
-            Ok(event::Event::Mouse(m)) => match m.kind {
-                MouseEventKind::ScrollUp => {
-                    if user_tx_clone.blocking_send(UserEvent::ScrollUp).is_err() {
+    std::thread::spawn(move || {
+        loop {
+            match event::read() {
+                Ok(event::Event::Key(key)) => {
+                    if user_tx_clone.blocking_send(UserEvent::Key(key)).is_err() {
                         break;
                     }
                 }
-                MouseEventKind::ScrollDown => {
-                    if user_tx_clone.blocking_send(UserEvent::ScrollDown).is_err() {
-                        break;
+                Ok(event::Event::Mouse(m)) => match m.kind {
+                    MouseEventKind::ScrollUp => {
+                        if user_tx_clone.blocking_send(UserEvent::ScrollUp).is_err() {
+                            break;
+                        }
                     }
-                }
+                    MouseEventKind::ScrollDown => {
+                        if user_tx_clone.blocking_send(UserEvent::ScrollDown).is_err() {
+                            break;
+                        }
+                    }
+                    _ => {}
+                },
+                Ok(event::Event::Resize(_, _)) => {}
+                Err(_) => break,
                 _ => {}
-            },
-            Ok(event::Event::Resize(_, _)) => {}
-            Err(_) => break,
-            _ => {}
+            }
         }
     });
 

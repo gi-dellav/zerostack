@@ -3,7 +3,7 @@ use regex::Regex;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{is_skip_dir, GrepArgs, ToolError, MAX_GREP_RESULTS};
+use crate::agent::tools::{GrepArgs, MAX_GREP_RESULTS, ToolError, is_skip_dir};
 
 pub struct GrepTool;
 
@@ -95,7 +95,10 @@ impl Tool for GrepTool {
         let mut file_count = 0;
         let mut all_results: Vec<String> = Vec::new();
 
-        for entry in walker.flatten().filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false)) {
+        for entry in walker
+            .flatten()
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        {
             if all_results.len() >= MAX_GREP_RESULTS {
                 break;
             }
@@ -125,7 +128,9 @@ impl Tool for GrepTool {
                     let lines: Vec<&str> = content.lines().collect();
                     let total = lines.len();
 
-                    let match_lines: Vec<usize> = lines.iter().enumerate()
+                    let match_lines: Vec<usize> = lines
+                        .iter()
+                        .enumerate()
                         .filter(|(_, l)| re.is_match(l))
                         .map(|(i, _)| i)
                         .collect();
@@ -165,7 +170,13 @@ impl Tool for GrepTool {
                             while i < total && shown[i] && all_results.len() < MAX_GREP_RESULTS {
                                 let is_match = match_lines.binary_search(&i).is_ok();
                                 let sep = if is_match { ':' } else { '-' };
-                                all_results.push(format!("{}-{}{} {}", path_str, i + 1, sep, lines[i]));
+                                all_results.push(format!(
+                                    "{}-{}{} {}",
+                                    path_str,
+                                    i + 1,
+                                    sep,
+                                    lines[i]
+                                ));
                                 i += 1;
                             }
                         }

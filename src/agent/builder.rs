@@ -65,9 +65,15 @@ pub fn build_agent<M: CompletionModel + 'static>(
 pub fn create_client(api_key: Option<&str>) -> anyhow::Result<openrouter::Client> {
     let key = api_key
         .map(CompactString::new)
-        .or_else(|| std::env::var("OPENROUTER_API_KEY").ok().map(CompactString::new))
-        .ok_or_else(|| anyhow::anyhow!(
-            "No API key found. Set OPENROUTER_API_KEY environment variable or pass --api-key."
-        ))?;
+        .or_else(|| {
+            std::env::var("OPENROUTER_API_KEY")
+                .ok()
+                .map(CompactString::new)
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No API key found. Set OPENROUTER_API_KEY environment variable or pass --api-key."
+            )
+        })?;
     Ok(openrouter::Client::new(String::from(key))?)
 }

@@ -35,12 +35,21 @@ async fn main() -> anyhow::Result<()> {
         } else {
             eprintln!("Recent sessions:");
             for (i, s) in sessions.iter().enumerate() {
-                let preview = s.messages.last().map(|m| {
-                    let truncated: String = m.content.chars().take(60).collect();
-                    truncated
-                }).unwrap_or_default();
-                eprintln!("  {}. {}  [{} msgs] {}",
-                    i + 1, &s.id[..8], s.messages.len(), preview);
+                let preview = s
+                    .messages
+                    .last()
+                    .map(|m| {
+                        let truncated: String = m.content.chars().take(60).collect();
+                        truncated
+                    })
+                    .unwrap_or_default();
+                eprintln!(
+                    "  {}. {}  [{} msgs] {}",
+                    i + 1,
+                    &s.id[..8],
+                    s.messages.len(),
+                    preview
+                );
             }
             if let Some(s) = sessions.into_iter().next() {
                 session = s;

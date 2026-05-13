@@ -44,7 +44,8 @@ impl Tool for ReadTool {
         let limit = args.limit.unwrap_or(2000);
         let end = (offset + limit).min(total_lines);
 
-        let excerpt: String = content.lines()
+        let excerpt: String = content
+            .lines()
             .skip(offset)
             .take(end - offset)
             .collect::<Vec<_>>()

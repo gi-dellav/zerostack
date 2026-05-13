@@ -27,7 +27,11 @@ pub struct Cli {
     #[arg(long = "model", env = "ZS_MODEL", help = "Model name")]
     pub model: Option<String>,
 
-    #[arg(long = "api-key", env = "OPENROUTER_API_KEY", help = "API key for the provider")]
+    #[arg(
+        long = "api-key",
+        env = "OPENROUTER_API_KEY",
+        help = "API key for the provider"
+    )]
     pub api_key: Option<String>,
 
     #[arg(long = "max-tokens", help = "Maximum tokens in response")]
@@ -42,7 +46,11 @@ pub struct Cli {
     #[arg(long = "no-tools", help = "Disable all tools")]
     pub no_tools: bool,
 
-    #[arg(long = "no-context-files", short = 'n', help = "Disable AGENTS.md loading")]
+    #[arg(
+        long = "no-context-files",
+        short = 'n',
+        help = "Disable AGENTS.md loading"
+    )]
     pub no_context_files: bool,
 
     #[arg(help = "Prompt message(s)")]

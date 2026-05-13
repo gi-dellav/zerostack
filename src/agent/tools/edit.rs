@@ -6,7 +6,13 @@ use crate::agent::tools::{EditArgs, ToolError};
 pub struct EditTool;
 
 impl EditTool {
-    fn show_diff(path: &str, content: &str, byte_pos: usize, old_text: &str, new_text: &str) -> String {
+    fn show_diff(
+        path: &str,
+        content: &str,
+        byte_pos: usize,
+        old_text: &str,
+        new_text: &str,
+    ) -> String {
         let lines: Vec<&str> = content.lines().collect();
         let old_line_count = old_text.lines().count();
         let new_line_count = new_text.lines().count();
@@ -146,7 +152,11 @@ impl Tool for EditTool {
         let new_lines = args.new_text.lines().count();
         if old_lines <= 20 && new_lines <= 20 {
             result.push_str(&Self::show_diff(
-                &args.path, &content, byte_pos, &args.old_text, &args.new_text,
+                &args.path,
+                &content,
+                byte_pos,
+                &args.old_text,
+                &args.new_text,
             ));
         }
         Ok(result)

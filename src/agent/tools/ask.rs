@@ -10,7 +10,8 @@ pub struct PendingQuestion {
     pub answer_tx: oneshot::Sender<String>,
 }
 
-pub static PENDING_QUESTION: std::sync::Mutex<Option<PendingQuestion>> = std::sync::Mutex::new(None);
+pub static PENDING_QUESTION: std::sync::Mutex<Option<PendingQuestion>> =
+    std::sync::Mutex::new(None);
 
 #[derive(Deserialize)]
 pub struct AskArgs {

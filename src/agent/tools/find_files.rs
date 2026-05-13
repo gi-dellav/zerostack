@@ -3,7 +3,7 @@ use regex::Regex;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{is_skip_dir, FindFilesArgs, ToolError, MAX_FIND_RESULTS};
+use crate::agent::tools::{FindFilesArgs, MAX_FIND_RESULTS, ToolError, is_skip_dir};
 
 pub struct FindFilesTool;
 
@@ -58,7 +58,10 @@ impl Tool for FindFilesTool {
 
         let mut results: Vec<String> = Vec::new();
 
-        for entry in walker.flatten().filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false)) {
+        for entry in walker
+            .flatten()
+            .filter(|e| e.file_type().map(|t| t.is_file()).unwrap_or(false))
+        {
             let fname = entry.file_name().to_string_lossy();
             if re.is_match(&fname) {
                 results.push(entry.path().to_string_lossy().to_string());

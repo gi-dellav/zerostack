@@ -1,8 +1,8 @@
+use crate::agent::prompt::COMPACTION_PROMPT;
+use crate::session::SessionMessage;
 use rig::agent::AgentBuilder;
 use rig::client::CompletionClient;
 use rig::providers::openrouter;
-use crate::agent::prompt::COMPACTION_PROMPT;
-use crate::session::SessionMessage;
 
 fn serialize_conversation(messages: &[SessionMessage]) -> String {
     let mut result = String::new();
@@ -41,7 +41,9 @@ pub async fn compress_messages(
         .replace("{previous_summary}", previous_summary.unwrap_or("(none)"))
         .replace("{instructions}", instructions.unwrap_or("(none)"));
 
-    let agent = AgentBuilder::new(model).preamble("You are a conversation summarizer.").build();
+    let agent = AgentBuilder::new(model)
+        .preamble("You are a conversation summarizer.")
+        .build();
 
     use rig::completion::Message;
     use rig::streaming::StreamingChat;

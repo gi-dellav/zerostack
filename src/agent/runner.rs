@@ -35,11 +35,7 @@ pub fn convert_history(session: &Session) -> Vec<Message> {
     messages
 }
 
-pub fn spawn_agent<M, P>(
-    agent: Agent<M, P>,
-    prompt: String,
-    history: Vec<Message>,
-) -> AgentRunner
+pub fn spawn_agent<M, P>(agent: Agent<M, P>, prompt: String, history: Vec<Message>) -> AgentRunner
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
@@ -48,22 +44,23 @@ where
     let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(256);
 
     tokio::spawn(async move {
-        let mut stream = agent
-            .stream_chat(prompt, history)
-            .multi_turn(20)
-            .await;
+        let mut stream = agent.stream_chat(prompt, history).multi_turn(20).await;
 
         while let Some(item) = stream.next().await {
             match item {
-                Ok(MultiTurnStreamItem::StreamAssistantItem(
-                    StreamedAssistantContent::Text(text),
-                )) => {
-                    let _ = event_tx.send(AgentEvent::Token(CompactString::from(text.text))).await;
+                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
+                    text,
+                ))) => {
+                    let _ = event_tx
+                        .send(AgentEvent::Token(CompactString::from(text.text)))
+                        .await;
                 }
                 Ok(MultiTurnStreamItem::StreamAssistantItem(
                     StreamedAssistantContent::Reasoning(r),
                 )) => {
-                    let _ = event_tx.send(AgentEvent::Reasoning(CompactString::new(r.display_text()))).await;
+                    let _ = event_tx
+                        .send(AgentEvent::Reasoning(CompactString::new(r.display_text())))
+                        .await;
                 }
                 Ok(MultiTurnStreamItem::StreamAssistantItem(
                     StreamedAssistantContent::ToolCall { tool_call, .. },
@@ -76,7 +73,8 @@ where
                         .await;
                 }
                 Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
-                    tool_result, ..
+                    tool_result,
+                    ..
                 })) => {
                     let mut output = String::new();
                     for c in tool_result.content.iter() {
@@ -88,21 +86,27 @@ where
                         }
                     }
                     let _ = event_tx
-                        .send(AgentEvent::ToolResult { output: CompactString::from(output) })
+                        .send(AgentEvent::ToolResult {
+                            output: CompactString::from(output),
+                        })
                         .await;
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     let response_text = res.response();
                     let estimated_tokens = Session::estimate_tokens(response_text);
-                    let _ = event_tx.send(AgentEvent::Done {
-                        response: CompactString::from(response_text),
-                        tokens: estimated_tokens,
-                        cost: 0.0,
-                    }).await;
+                    let _ = event_tx
+                        .send(AgentEvent::Done {
+                            response: CompactString::from(response_text),
+                            tokens: estimated_tokens,
+                            cost: 0.0,
+                        })
+                        .await;
                     break;
                 }
                 Err(e) => {
-                    let _ = event_tx.send(AgentEvent::Error(CompactString::new(e.to_string()))).await;
+                    let _ = event_tx
+                        .send(AgentEvent::Error(CompactString::new(e.to_string())))
+                        .await;
                     break;
                 }
                 _ => {}
@@ -113,10 +117,7 @@ where
     AgentRunner { event_rx }
 }
 
-pub async fn run_print<M, P>(
-    agent: &Agent<M, P>,
-    prompt: &str,
-) -> anyhow::Result<String>
+pub async fn run_print<M, P>(agent: &Agent<M, P>, prompt: &str) -> anyhow::Result<String>
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
@@ -131,16 +132,14 @@ where
 
     while let Some(item) = stream.next().await {
         match item {
-            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
-                text,
-            ))) => {
+            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) => {
                 full_response.push_str(&text.text);
                 print!("{}", text.text);
                 let _ = std::io::Write::flush(&mut std::io::stdout());
             }
-            Ok(MultiTurnStreamItem::StreamAssistantItem(
-                StreamedAssistantContent::Reasoning(r),
-            )) => {
+            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Reasoning(
+                r,
+            ))) => {
                 eprint!("{}", r.display_text());
                 let _ = std::io::Write::flush(&mut std::io::stderr());
             }

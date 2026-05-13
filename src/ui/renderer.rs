@@ -1,10 +1,10 @@
 use std::io::{self, Write};
 
 use compact_str::CompactString;
+use crossterm::ExecutableCommand;
 use crossterm::cursor::MoveTo;
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType, ScrollUp};
-use crossterm::ExecutableCommand;
 
 #[derive(Clone)]
 struct LineEntry {
@@ -54,7 +54,10 @@ impl Renderer {
         if chars.len() <= max_width {
             return vec![CompactString::new(line)];
         }
-        chars.chunks(max_width).map(|c| CompactString::new(c.iter().collect::<String>())).collect()
+        chars
+            .chunks(max_width)
+            .map(|c| CompactString::new(c.iter().collect::<String>()))
+            .collect()
     }
 
     fn commit_partial(&mut self) {
@@ -62,7 +65,10 @@ impl Renderer {
             let max_width = self.max_line_width();
             let c = self.partial_color;
             for chunk in self.wrap_line(&self.partial, max_width) {
-                self.buffer.push(LineEntry { text: chunk, color: c });
+                self.buffer.push(LineEntry {
+                    text: chunk,
+                    color: c,
+                });
             }
             self.partial.clear();
         }
@@ -200,7 +206,10 @@ impl Renderer {
         for segment in text.split('\n') {
             let wrapped = self.wrap_line(segment, max_width);
             for chunk in &wrapped {
-                self.buffer.push(LineEntry { text: chunk.clone(), color });
+                self.buffer.push(LineEntry {
+                    text: chunk.clone(),
+                    color,
+                });
                 if self.scroll_offset == 0 {
                     self.ensure_room();
                     let mut stdout = io::stdout();
@@ -241,7 +250,10 @@ impl Renderer {
                     self.partial.push_str(segment);
                     self.commit_partial();
                 } else if !had_content {
-                    self.buffer.push(LineEntry { text: CompactString::new(""), color });
+                    self.buffer.push(LineEntry {
+                        text: CompactString::new(""),
+                        color,
+                    });
                 }
                 if self.scroll_offset == 0 {
                     self.ensure_room();
@@ -328,11 +340,7 @@ impl Renderer {
         let status_row = rows.saturating_sub(1);
         let prompt = if is_running {
             self.spinner_tick = !self.spinner_tick;
-            if self.spinner_tick {
-                ". "
-            } else {
-                ": "
-            }
+            if self.spinner_tick { ". " } else { ": " }
         } else {
             "> "
         };

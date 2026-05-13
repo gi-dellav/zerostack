@@ -74,10 +74,18 @@ impl Tool for WriteTodoList {
                 "cancelled" => "[-]",
                 _ => "[ ]",
             };
-            result.push_str(&format!("  {} [{}] {}\n", icon, item.priority, item.content));
+            result.push_str(&format!(
+                "  {} [{}] {}\n",
+                icon, item.priority, item.content
+            ));
         }
-        result.push_str(&format!("\nSummary: {} pending, {} in progress, {} completed, {} cancelled",
-            pending, in_progress, completed, list.iter().filter(|t| t.status == "cancelled").count()));
+        result.push_str(&format!(
+            "\nSummary: {} pending, {} in progress, {} completed, {} cancelled",
+            pending,
+            in_progress,
+            completed,
+            list.iter().filter(|t| t.status == "cancelled").count()
+        ));
         Ok(result)
     }
 }

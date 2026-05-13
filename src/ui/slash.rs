@@ -24,7 +24,11 @@ pub fn undo_last(session: &mut Session) -> usize {
     }
     if session.messages[len - 1].role == MessageRole::Assistant {
         session.messages.pop();
-        if session.messages.last().is_some_and(|m| m.role == MessageRole::User) {
+        if session
+            .messages
+            .last()
+            .is_some_and(|m| m.role == MessageRole::User)
+        {
             session.messages.pop();
             return 2;
         }
@@ -90,7 +94,10 @@ pub async fn handle_compress(
     )
     .await?;
 
-    let tokens_before: u64 = messages_to_summarize.iter().map(|m| m.estimated_tokens).sum();
+    let tokens_before: u64 = messages_to_summarize
+        .iter()
+        .map(|m| m.estimated_tokens)
+        .sum();
 
     // Create compaction entry
     session.compress(summary, cut_idx, tokens_before);
@@ -100,11 +107,13 @@ pub async fn handle_compress(
     *agent = agent::build_agent(model, cli, cfg, context, *todo_tools_enabled);
 
     render_session(renderer, session, cli, cfg, context)?;
-    renderer.write_line(&format!(
-        "compressed {} messages (saved ~{} tokens)",
-        cut_idx,
-        tokens_before,
-    ), C_AGENT)?;
+    renderer.write_line(
+        &format!(
+            "compressed {} messages (saved ~{} tokens)",
+            cut_idx, tokens_before,
+        ),
+        C_AGENT,
+    )?;
 
     Ok(())
 }
@@ -144,15 +153,26 @@ pub fn handle_slash(
                 if sessions.is_empty() {
                     renderer.write_line("no saved sessions", C_AGENT)?;
                 } else {
-                    renderer.write_line(&format!("recent sessions ({}):", sessions.len()), C_AGENT)?;
+                    renderer
+                        .write_line(&format!("recent sessions ({}):", sessions.len()), C_AGENT)?;
                     for s in &sessions {
-                        let last = s.messages.last()
-                            .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
+                        let last = s
+                            .messages
+                            .last()
+                            .map(|m| {
+                                format!("...{}", &m.content.chars().take(30).collect::<String>())
+                            })
                             .unwrap_or_default();
                         let time = format_time(&s.updated_at);
                         renderer.write_line(
-                            &format!("  {}  {}  {}msgs  {}  {}",
-                                &s.id[..8], time, s.messages.len(), s.model, last),
+                            &format!(
+                                "  {}  {}  {}msgs  {}  {}",
+                                &s.id[..8],
+                                time,
+                                s.messages.len(),
+                                s.model,
+                                last
+                            ),
                             C_RESULT,
                         )?;
                     }
@@ -165,25 +185,45 @@ pub fn handle_slash(
                 } else if sessions.len() == 1 {
                     if let Some(s) = sessions.into_iter().next() {
                         let id = s.id.clone();
-                        let preview = s.messages.last()
-                            .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
+                        let preview = s
+                            .messages
+                            .last()
+                            .map(|m| {
+                                format!("...{}", &m.content.chars().take(40).collect::<String>())
+                            })
                             .unwrap_or_default();
                         if let Err(e) = crate::session::storage::delete_session(&id) {
                             renderer.write_line(&format!("failed to delete: {}", e), C_ERROR)?;
                         } else {
-                            renderer.write_line(&format!("deleted session {} {}", &id[..8], preview), C_AGENT)?;
+                            renderer.write_line(
+                                &format!("deleted session {} {}", &id[..8], preview),
+                                C_AGENT,
+                            )?;
                         }
                     }
                 } else {
-                    renderer.write_line(&format!("multiple sessions match '{}', be more specific", prefix), C_AGENT)?;
+                    renderer.write_line(
+                        &format!("multiple sessions match '{}', be more specific", prefix),
+                        C_AGENT,
+                    )?;
                     for s in &sessions {
-                        let last = s.messages.last()
-                            .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
+                        let last = s
+                            .messages
+                            .last()
+                            .map(|m| {
+                                format!("...{}", &m.content.chars().take(30).collect::<String>())
+                            })
                             .unwrap_or_default();
                         let time = format_time(&s.updated_at);
                         renderer.write_line(
-                            &format!("  {}  {}  {}msgs  {}  {}",
-                                &s.id[..8], time, s.messages.len(), s.model, last),
+                            &format!(
+                                "  {}  {}  {}msgs  {}  {}",
+                                &s.id[..8],
+                                time,
+                                s.messages.len(),
+                                s.model,
+                                last
+                            ),
                             C_RESULT,
                         )?;
                     }
@@ -198,18 +238,30 @@ pub fn handle_slash(
                         let msg_count = s.messages.len();
                         *session = s;
                         render_session(renderer, session, cli, cfg, context)?;
-                        renderer.write_line(&format!("loaded session ({} msgs)", msg_count), C_AGENT)?;
+                        renderer
+                            .write_line(&format!("loaded session ({} msgs)", msg_count), C_AGENT)?;
                     }
                 } else {
-                    renderer.write_line(&format!("multiple sessions match '{}':", prefix), C_AGENT)?;
+                    renderer
+                        .write_line(&format!("multiple sessions match '{}':", prefix), C_AGENT)?;
                     for s in &sessions {
-                        let last = s.messages.last()
-                            .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
+                        let last = s
+                            .messages
+                            .last()
+                            .map(|m| {
+                                format!("...{}", &m.content.chars().take(30).collect::<String>())
+                            })
                             .unwrap_or_default();
                         let time = format_time(&s.updated_at);
                         renderer.write_line(
-                            &format!("  {}  {}  {}msgs  {}  {}",
-                                &s.id[..8], time, s.messages.len(), s.model, last),
+                            &format!(
+                                "  {}  {}  {}msgs  {}  {}",
+                                &s.id[..8],
+                                time,
+                                s.messages.len(),
+                                s.model,
+                                last
+                            ),
                             C_RESULT,
                         )?;
                     }
@@ -219,7 +271,10 @@ pub fn handle_slash(
         "/reasoning" => {
             *show_reasoning = !*show_reasoning;
             renderer.write_line(
-                &format!("reasoning visibility: {}", if *show_reasoning { "on" } else { "off" }),
+                &format!(
+                    "reasoning visibility: {}",
+                    if *show_reasoning { "on" } else { "off" }
+                ),
                 C_AGENT,
             )?;
         }
@@ -227,26 +282,50 @@ pub fn handle_slash(
             if parts.len() < 2 {
                 renderer.write_line("usage: /toggle <feature> [on|off]", C_AGENT)?;
                 renderer.write_line("features:", C_AGENT)?;
-                renderer.write_line(&format!("  todo  {}", if *todo_tools_enabled { "on" } else { "off" }), C_RESULT)?;
+                renderer.write_line(
+                    &format!("  todo  {}", if *todo_tools_enabled { "on" } else { "off" }),
+                    C_RESULT,
+                )?;
             } else if parts[1] == "todo" {
                 if parts.len() < 3 {
-                    renderer.write_line(&format!("todo tools: {}", if *todo_tools_enabled { "on" } else { "off" }), C_AGENT)?;
+                    renderer.write_line(
+                        &format!(
+                            "todo tools: {}",
+                            if *todo_tools_enabled { "on" } else { "off" }
+                        ),
+                        C_AGENT,
+                    )?;
                 } else {
                     let new_state = match parts[2] {
                         "on" => true,
                         "off" => false,
                         other => {
-                            renderer.write_line(&format!("invalid: '{}', use on or off", other), C_ERROR)?;
+                            renderer.write_line(
+                                &format!("invalid: '{}', use on or off", other),
+                                C_ERROR,
+                            )?;
                             return Ok(());
                         }
                     };
                     if new_state == *todo_tools_enabled {
-                        renderer.write_line(&format!("todo tools already {}", if new_state { "on" } else { "off" }), C_AGENT)?;
+                        renderer.write_line(
+                            &format!(
+                                "todo tools already {}",
+                                if new_state { "on" } else { "off" }
+                            ),
+                            C_AGENT,
+                        )?;
                     } else {
                         *todo_tools_enabled = new_state;
                         let model = client.completion_model(session.model.to_string());
                         *agent = agent::build_agent(model, cli, cfg, context, *todo_tools_enabled);
-                        renderer.write_line(&format!("todo tools: {}", if *todo_tools_enabled { "on" } else { "off" }), C_AGENT)?;
+                        renderer.write_line(
+                            &format!(
+                                "todo tools: {}",
+                                if *todo_tools_enabled { "on" } else { "off" }
+                            ),
+                            C_AGENT,
+                        )?;
                     }
                 }
             } else {
@@ -279,7 +358,12 @@ pub fn handle_slash(
             }
         }
         "/retry" => {
-            let last_user = session.messages.iter().rev().find(|m| m.role == MessageRole::User).cloned();
+            let last_user = session
+                .messages
+                .iter()
+                .rev()
+                .find(|m| m.role == MessageRole::User)
+                .cloned();
             match last_user {
                 Some(msg) => {
                     input.buffer = msg.content.clone();
@@ -295,15 +379,27 @@ pub fn handle_slash(
             renderer.write_line("commands:", C_AGENT)?;
             renderer.write_line("  /model [name]          show or switch model", C_RESULT)?;
             renderer.write_line("  /sessions              list recent sessions", C_RESULT)?;
-            renderer.write_line("  /sessions <id>         load a session (by ID prefix)", C_RESULT)?;
+            renderer.write_line(
+                "  /sessions <id>         load a session (by ID prefix)",
+                C_RESULT,
+            )?;
             renderer.write_line("  /sessions delete <id>  delete a session", C_RESULT)?;
-            renderer.write_line("  /reasoning             toggle reasoning visibility", C_RESULT)?;
+            renderer.write_line(
+                "  /reasoning             toggle reasoning visibility",
+                C_RESULT,
+            )?;
             renderer.write_line("  /toggle <f> [on|off]  toggle features (todo)", C_RESULT)?;
             renderer.write_line("  /clear                 clear screen", C_RESULT)?;
             renderer.write_line("  /undo                  undo last exchange", C_RESULT)?;
             renderer.write_line("  /retry                 retry last prompt", C_RESULT)?;
-            renderer.write_line("  /compress [/compact]   compress conversation history", C_RESULT)?;
-            renderer.write_line("  /compress [instr]      compress with custom instructions", C_RESULT)?;
+            renderer.write_line(
+                "  /compress [/compact]   compress conversation history",
+                C_RESULT,
+            )?;
+            renderer.write_line(
+                "  /compress [instr]      compress with custom instructions",
+                C_RESULT,
+            )?;
             renderer.write_line("  /quit                  exit zerostack", C_RESULT)?;
             renderer.write_line("  /help                  show this message", C_RESULT)?;
             renderer.write_line("", C_AGENT)?;
@@ -315,7 +411,10 @@ pub fn handle_slash(
             renderer.write_line("  mouse scroll           scroll chat", C_RESULT)?;
         }
         _ => {
-            renderer.write_line(&format!("unknown command: {} (try /help)", parts[0]), C_ERROR)?;
+            renderer.write_line(
+                &format!("unknown command: {} (try /help)", parts[0]),
+                C_ERROR,
+            )?;
         }
     }
     Ok(())

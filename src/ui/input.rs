@@ -28,11 +28,7 @@ impl InputEditor {
                 self.history_pos = None;
                 self.buffer.clear();
                 self.cursor = 0;
-                if text.is_empty() {
-                    None
-                } else {
-                    Some(text)
-                }
+                if text.is_empty() { None } else { Some(text) }
             }
             KeyCode::Char(c) => {
                 self.buffer.insert(self.cursor, c);
@@ -113,5 +109,4 @@ impl InputEditor {
             _ => None,
         }
     }
-
 }

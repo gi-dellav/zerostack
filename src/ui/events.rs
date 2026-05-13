@@ -46,11 +46,18 @@ pub fn render_session(
         renderer.write_line("", Color::White)?;
     }
     if !session.compactions.is_empty() {
-        renderer.write_line(&format!(
-            "compacted {} times (saved ~{} tokens)",
-            session.compactions.len(),
-            session.compactions.last().map(|c| c.token_savings).unwrap_or(0),
-        ), Color::DarkGrey)?;
+        renderer.write_line(
+            &format!(
+                "compacted {} times (saved ~{} tokens)",
+                session.compactions.len(),
+                session
+                    .compactions
+                    .last()
+                    .map(|c| c.token_savings)
+                    .unwrap_or(0),
+            ),
+            Color::DarkGrey,
+        )?;
         renderer.write_line("", Color::White)?;
     }
     for msg in &session.messages {

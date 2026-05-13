@@ -44,12 +44,7 @@ fn load_agents() -> Option<String> {
                 if let Some(content) = load_file(&path)
                     && !content.trim().is_empty()
                 {
-                    parts.push(format!(
-                        "# {} ({})\n{}",
-                        name,
-                        dir.display(),
-                        content
-                    ));
+                    parts.push(format!("# {} ({})\n{}", name, dir.display(), content));
                 }
             }
             current = dir.parent();

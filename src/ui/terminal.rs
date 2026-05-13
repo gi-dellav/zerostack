@@ -1,8 +1,8 @@
 use std::io::Write;
 
+use crossterm::ExecutableCommand;
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
-use crossterm::ExecutableCommand;
 
 pub struct TerminalGuard;
 
