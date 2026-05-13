@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
     let provider = cli.resolve_provider(&cfg);
     let model = cli.resolve_model(&cfg);
 
-    let mut session = session::Session::new(&provider, &model);
+    let mut session = session::Session::new(&provider, &model, cfg.resolve_context_window());
 
     if cli.resume && cli.session.is_none() && !cli.continue_session {
         let sessions = session::storage::find_recent_sessions(10)?;

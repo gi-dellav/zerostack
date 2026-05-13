@@ -13,6 +13,28 @@ pub struct Config {
     pub temperature: Option<f64>,
     pub no_tools: Option<bool>,
     pub no_context_files: Option<bool>,
+    pub context_window: Option<u64>,
+    pub reserve_tokens: Option<u64>,
+    pub keep_recent_tokens: Option<u64>,
+    pub compact_enabled: Option<bool>,
+}
+
+impl Config {
+    pub fn resolve_context_window(&self) -> u64 {
+        self.context_window.unwrap_or(128_000)
+    }
+
+    pub fn resolve_reserve_tokens(&self) -> u64 {
+        self.reserve_tokens.unwrap_or(16_384)
+    }
+
+    pub fn resolve_keep_recent_tokens(&self) -> u64 {
+        self.keep_recent_tokens.unwrap_or(20_000)
+    }
+
+    pub fn resolve_compact_enabled(&self) -> bool {
+        self.compact_enabled.unwrap_or(true)
+    }
 }
 
 pub fn config_file_path() -> PathBuf {
