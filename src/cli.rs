@@ -43,6 +43,25 @@ pub struct Cli {
     pub no_tools: bool,
 
     #[arg(
+        long = "restrictive",
+        short = 'R',
+        help = "Default all tools to ask for approval"
+    )]
+    pub restrictive: bool,
+
+    #[arg(
+        long = "accept-all",
+        help = "Auto-accept all operations within the working directory"
+    )]
+    pub accept_all: bool,
+
+    #[arg(
+        long = "yolo",
+        help = "Auto-accept ALL operations without any restriction"
+    )]
+    pub yolo: bool,
+
+    #[arg(
         long = "no-context-files",
         short = 'n',
         help = "Disable AGENTS.md loading"

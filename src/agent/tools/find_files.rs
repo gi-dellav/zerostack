@@ -3,9 +3,18 @@ use regex::Regex;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{FindFilesArgs, MAX_FIND_RESULTS, ToolError, is_skip_dir};
+use crate::agent::tools::{check_perm, AskSender, FindFilesArgs, MAX_FIND_RESULTS, PermCheck, ToolError, is_skip_dir};
 
-pub struct FindFilesTool;
+pub struct FindFilesTool {
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+}
+
+impl FindFilesTool {
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
+        FindFilesTool { permission, ask_tx }
+    }
+}
 
 impl Tool for FindFilesTool {
     const NAME: &'static str = "find_files";
@@ -36,6 +45,8 @@ impl Tool for FindFilesTool {
     }
 
     async fn call(&self, args: FindFilesArgs) -> Result<String, ToolError> {
+        check_perm(&self.permission, &self.ask_tx, "find_files", &args.pattern).await?;
+
         let re = Regex::new(&args.pattern)
             .map_err(|e| ToolError::Msg(format!("Invalid regex: {}", e)))?;
 

@@ -5,6 +5,9 @@ use smallvec::SmallVec;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
+use crate::permission::ask::AskSender;
+use crate::permission::checker::PermCheck;
+use crate::permission::SecurityMode;
 use crate::provider::{AnyAgent, AnyClient};
 use crate::session::{MessageRole, Session};
 use crate::ui::events::{format_time, render_session};
@@ -50,6 +53,8 @@ pub async fn handle_compress(
     cfg: &Config,
     context: &ContextFiles,
     todo_tools_enabled: &mut bool,
+    permission: &Option<PermCheck>,
+    ask_tx: &Option<AskSender>,
 ) -> anyhow::Result<()> {
     renderer.write_line("compressing...", C_AGENT)?;
     renderer.write_line("", Color::White)?;
@@ -98,7 +103,7 @@ pub async fn handle_compress(
     session.compress(summary, cut_idx, tokens_before);
 
     let model = client.completion_model(session.model.to_string());
-    *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled);
+    *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled, permission.clone(), ask_tx.clone());
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
@@ -126,6 +131,8 @@ pub fn handle_slash(
     is_running: &mut bool,
     input: &mut InputEditor,
     todo_tools_enabled: &mut bool,
+    permission: &Option<PermCheck>,
+    ask_tx: &Option<AskSender>,
 ) -> anyhow::Result<()> {
     let parts: SmallVec<[&str; 3]> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
@@ -135,7 +142,7 @@ pub fn handle_slash(
             } else {
                 let new_model = CompactString::new(parts[1].trim());
                 let model = client.completion_model(new_model.to_string());
-                *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled);
+                *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled, permission.clone(), ask_tx.clone());
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
                 renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
@@ -272,6 +279,111 @@ pub fn handle_slash(
                 C_AGENT,
             )?;
         }
+        "/mode" => {
+            let current_mode = permission
+                .as_ref()
+                .map(|p| p.lock().unwrap().mode())
+                .unwrap_or(SecurityMode::Standard);
+
+            if parts.len() < 2 {
+                renderer.write_line("security mode:", C_AGENT)?;
+                renderer.write_line(
+                    &format!(
+                        "  current: {}",
+                        current_mode
+                    ),
+                    C_RESULT,
+                )?;
+                renderer.write_line("", C_AGENT)?;
+                renderer.write_line("  /mode standard      use configured permission rules", C_RESULT)?;
+                renderer.write_line("  /mode restrictive   default all tools to ask", C_RESULT)?;
+                renderer.write_line("  /mode accept        auto-accept within working directory", C_RESULT)?;
+                renderer.write_line("  /mode yolo          auto-accept ALL operations", C_RESULT)?;
+                renderer.write_line("", C_AGENT)?;
+                renderer.write_line("  /mode todo [on|off] toggle todo tools", C_RESULT)?;
+            } else {
+                match parts[1] {
+                    "standard" => {
+                        if let Some(p) = permission {
+                            p.lock().unwrap().set_mode(SecurityMode::Standard);
+                            renderer.write_line("security mode: standard", C_AGENT)?;
+                        } else {
+                            renderer.write_line("permission system not active", C_ERROR)?;
+                        }
+                    }
+                    "restrictive" => {
+                        if let Some(p) = permission {
+                            p.lock().unwrap().set_mode(SecurityMode::Restrictive);
+                            renderer.write_line("security mode: restrictive", C_AGENT)?;
+                        } else {
+                            renderer.write_line("permission system not active", C_ERROR)?;
+                        }
+                    }
+                    "accept" => {
+                        if let Some(p) = permission {
+                            p.lock().unwrap().set_mode(SecurityMode::Accept);
+                            renderer.write_line("security mode: accept (auto-allow within CWD)", C_AGENT)?;
+                        } else {
+                            renderer.write_line("permission system not active", C_ERROR)?;
+                        }
+                    }
+                    "yolo" => {
+                        if let Some(p) = permission {
+                            p.lock().unwrap().set_mode(SecurityMode::Yolo);
+                            renderer.write_line("security mode: YOLO (all operations allowed)", C_AGENT)?;
+                        } else {
+                            renderer.write_line("permission system not active", C_ERROR)?;
+                        }
+                    }
+                    "todo" => {
+                        if parts.len() < 3 {
+                            renderer.write_line(
+                                &format!(
+                                    "todo tools: {}",
+                                    if *todo_tools_enabled { "on" } else { "off" }
+                                ),
+                                C_AGENT,
+                            )?;
+                        } else {
+                            let new_state = match parts[2] {
+                                "on" => true,
+                                "off" => false,
+                                other => {
+                                    renderer.write_line(
+                                        &format!("invalid: '{}', use on or off", other),
+                                        C_ERROR,
+                                    )?;
+                                    return Ok(());
+                                }
+                            };
+                            if new_state == *todo_tools_enabled {
+                                renderer.write_line(
+                                    &format!(
+                                        "todo tools already {}",
+                                        if new_state { "on" } else { "off" }
+                                    ),
+                                    C_AGENT,
+                                )?;
+                            } else {
+                                *todo_tools_enabled = new_state;
+                                let model = client.completion_model(session.model.to_string());
+                                *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled, permission.clone(), ask_tx.clone());
+                                renderer.write_line(
+                                    &format!(
+                                        "todo tools: {}",
+                                        if *todo_tools_enabled { "on" } else { "off" }
+                                    ),
+                                    C_AGENT,
+                                )?;
+                            }
+                        }
+                    }
+                    _ => {
+                        renderer.write_line(&format!("unknown mode: {}", parts[1]), C_ERROR)?;
+                    }
+                }
+            }
+        }
         "/toggle" => {
             if parts.len() < 2 {
                 renderer.write_line("usage: /toggle <feature> [on|off]", C_AGENT)?;
@@ -312,7 +424,7 @@ pub fn handle_slash(
                     } else {
                         *todo_tools_enabled = new_state;
                         let model = client.completion_model(session.model.to_string());
-                        *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled);
+                        *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled, permission.clone(), ask_tx.clone());
                         renderer.write_line(
                             &format!(
                                 "todo tools: {}",
@@ -385,7 +497,9 @@ pub fn handle_slash(
                 "  /reasoning             toggle reasoning visibility",
                 C_RESULT,
             )?;
-            renderer.write_line("  /toggle <f> [on|off]  toggle features (todo)", C_RESULT)?;
+            renderer.write_line("  /mode                  show/change security mode", C_RESULT)?;
+            renderer.write_line("  /mode <mode>           set mode (standard|restrictive|accept|yolo)", C_RESULT)?;
+            renderer.write_line("  /toggle <f> [on|off]   toggle features (todo)", C_RESULT)?;
             renderer.write_line("  /clear                 clear screen", C_RESULT)?;
             renderer.write_line("  /undo                  undo last exchange", C_RESULT)?;
             renderer.write_line("  /retry                 retry last prompt", C_RESULT)?;

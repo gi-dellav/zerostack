@@ -3,12 +3,52 @@ mod cli;
 mod config;
 mod context;
 mod event;
+mod permission;
 mod provider;
 mod session;
 mod ui;
 
 use clap::Parser;
 use session::MessageRole;
+
+use crate::permission::ask::AskSender;
+use crate::permission::checker::{PermCheck, PermissionChecker};
+use crate::permission::{PermissionConfig, SecurityMode};
+
+fn resolve_mode(cli: &cli::Cli, cfg: &config::Config) -> SecurityMode {
+    if cli.yolo || cfg.yolo.unwrap_or(false) {
+        SecurityMode::Yolo
+    } else if cli.accept_all || cfg.accept_all.unwrap_or(false) {
+        SecurityMode::Accept
+    } else if cli.restrictive || cfg.restrictive.unwrap_or(false) {
+        SecurityMode::Restrictive
+    } else {
+        SecurityMode::Standard
+    }
+}
+
+fn build_permission_checker(
+    cli: &cli::Cli,
+    cfg: &config::Config,
+) -> (Option<PermCheck>, Option<AskSender>, Option<tokio::sync::mpsc::Receiver<crate::permission::ask::AskRequest>>) {
+    let no_tools = cli.resolve_no_tools(cfg);
+    if no_tools {
+        return (None, None, None);
+    }
+
+    let perm_config: PermissionConfig = cfg
+        .permission
+        .as_ref()
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+
+    let mode = resolve_mode(cli, cfg);
+    let checker = PermissionChecker::new(&perm_config, mode, None);
+    let perm: PermCheck = std::sync::Arc::new(std::sync::Mutex::new(checker));
+
+    let (ask_tx, ask_rx) = tokio::sync::mpsc::channel(64);
+    (Some(perm), Some(ask_tx), Some(ask_rx))
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> anyhow::Result<()> {
@@ -70,14 +110,34 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let client = provider::create_client(
-        &session.provider,
+        &provider,
         cli.api_key.as_deref(),
-        &cfg.custom_providers_map(),
+        &Default::default(),
     )?;
+
+    let (permission, ask_tx, ask_rx) = build_permission_checker(&cli, &cfg);
+
+    if let Some(perm) = &permission {
+        let allowlist: Vec<(String, String)> = session
+            .permission_allowlist
+            .iter()
+            .map(|e| (e.tool.clone(), e.pattern.clone()))
+            .collect();
+        perm.lock().unwrap().load_session_allowlist(&allowlist);
+    }
+
     let completion_model = client.completion_model(model.to_string());
-    let agent = provider::build_agent(completion_model, &cli, &cfg, &context, false);
 
     if cli.print {
+        let agent = provider::build_agent(
+            completion_model,
+            &cli,
+            &cfg,
+            &context,
+            false,
+            permission,
+            ask_tx,
+        );
         let msg = cli.message.join(" ");
         let response = agent.run_print(&msg).await?;
         if !cli.no_session {
@@ -86,11 +146,39 @@ async fn main() -> anyhow::Result<()> {
             session::storage::save_session(&session)?;
         }
     } else {
+        let agent = provider::build_agent(
+            completion_model,
+            &cli,
+            &cfg,
+            &context,
+            false,
+            permission.clone(),
+            ask_tx.clone(),
+        );
+
+        if !cli.resolve_no_tools(&cfg) {
+            if let Some(perm) = &permission {
+                let mode = resolve_mode(&cli, &cfg);
+                perm.lock().unwrap().set_mode(mode);
+            }
+        }
+
         let initial_msg = cli.message.join(" ");
         if !initial_msg.is_empty() {
             session.add_message(MessageRole::User, &initial_msg);
         }
-        ui::run_interactive(client, agent, &cli, &cfg, &mut session, &context).await?;
+        ui::run_interactive(
+            client,
+            agent,
+            &cli,
+            &cfg,
+            &mut session,
+            &context,
+            permission,
+            ask_tx,
+            ask_rx,
+        )
+        .await?;
     }
 
     Ok(())

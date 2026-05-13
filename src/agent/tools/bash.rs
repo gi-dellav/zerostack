@@ -3,9 +3,18 @@ use rig::tool::Tool;
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
-use crate::agent::tools::{BashArgs, ToolError};
+use crate::agent::tools::{check_perm, AskSender, BashArgs, PermCheck, ToolError};
 
-pub struct BashTool;
+pub struct BashTool {
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+}
+
+impl BashTool {
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
+        BashTool { permission, ask_tx }
+    }
+}
 
 impl Tool for BashTool {
     const NAME: &'static str = "bash";
@@ -30,6 +39,8 @@ impl Tool for BashTool {
     }
 
     async fn call(&self, args: BashArgs) -> Result<String, ToolError> {
+        check_perm(&self.permission, &self.ask_tx, "bash", &args.command).await?;
+
         let output = if let Some(secs) = args.timeout {
             timeout(
                 Duration::from_secs(secs),

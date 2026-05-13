@@ -1,11 +1,18 @@
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{EditArgs, ToolError};
+use crate::agent::tools::{check_perm_path, AskSender, EditArgs, PermCheck, ToolError};
 
-pub struct EditTool;
+pub struct EditTool {
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+}
 
 impl EditTool {
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
+        EditTool { permission, ask_tx }
+    }
+
     fn show_diff(
         path: &str,
         content: &str,
@@ -81,6 +88,8 @@ impl Tool for EditTool {
     }
 
     async fn call(&self, args: EditArgs) -> Result<String, ToolError> {
+        check_perm_path(&self.permission, &self.ask_tx, "edit", &args.path).await?;
+
         let bytes = tokio::fs::read(&args.path).await?;
         let has_crlf = bytes.windows(2).any(|w| w == b"\r\n");
         let content = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");

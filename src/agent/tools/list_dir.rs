@@ -4,7 +4,7 @@ use ignore::WalkBuilder;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{ListDirArgs, ToolError, is_skip_dir};
+use crate::agent::tools::{check_perm_path, AskSender, ListDirArgs, PermCheck, ToolError, is_skip_dir};
 
 fn format_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KB", "MB", "GB"];
@@ -27,7 +27,16 @@ fn count_dir_entries(path: &Path) -> u64 {
         .unwrap_or(0)
 }
 
-pub struct ListDirTool;
+pub struct ListDirTool {
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+}
+
+impl ListDirTool {
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
+        ListDirTool { permission, ask_tx }
+    }
+}
 
 impl Tool for ListDirTool {
     const NAME: &'static str = "list_dir";
@@ -55,6 +64,7 @@ impl Tool for ListDirTool {
 
     async fn call(&self, args: ListDirArgs) -> Result<String, ToolError> {
         let path = args.path.as_deref().unwrap_or(".");
+        check_perm_path(&self.permission, &self.ask_tx, "list_dir", path).await?;
 
         let walker = WalkBuilder::new(path)
             .git_ignore(true)

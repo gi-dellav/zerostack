@@ -1,9 +1,18 @@
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{ReadArgs, ToolError};
+use crate::agent::tools::{check_perm_path, AskSender, PermCheck, ReadArgs, ToolError};
 
-pub struct ReadTool;
+pub struct ReadTool {
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+}
+
+impl ReadTool {
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
+        ReadTool { permission, ask_tx }
+    }
+}
 
 impl Tool for ReadTool {
     const NAME: &'static str = "read";
@@ -29,6 +38,8 @@ impl Tool for ReadTool {
     }
 
     async fn call(&self, args: ReadArgs) -> Result<String, ToolError> {
+        check_perm_path(&self.permission, &self.ask_tx, "read", &args.path).await?;
+
         let metadata = tokio::fs::metadata(&args.path).await?;
         let file_size = metadata.len();
         if file_size > 10 * 1024 * 1024 {

@@ -2,7 +2,7 @@ use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 
-use crate::agent::tools::ToolError;
+use crate::agent::tools::{check_perm, AskSender, PermCheck, ToolError};
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TodoItem {
@@ -18,7 +18,16 @@ pub struct TodoWriteArgs {
 
 pub static TODO_LIST: std::sync::Mutex<Vec<TodoItem>> = std::sync::Mutex::new(Vec::new());
 
-pub struct WriteTodoList;
+pub struct WriteTodoList {
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+}
+
+impl WriteTodoList {
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
+        WriteTodoList { permission, ask_tx }
+    }
+}
 
 impl Tool for WriteTodoList {
     const NAME: &'static str = "write_todo_list";
@@ -54,6 +63,8 @@ impl Tool for WriteTodoList {
     }
 
     async fn call(&self, args: TodoWriteArgs) -> Result<String, ToolError> {
+        check_perm(&self.permission, &self.ask_tx, "write_todo_list", "").await?;
+
         let mut list = TODO_LIST.lock().unwrap();
         *list = args.todos;
 

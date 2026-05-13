@@ -3,11 +3,18 @@ use regex::Regex;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{GrepArgs, MAX_GREP_RESULTS, ToolError, is_skip_dir};
+use crate::agent::tools::{check_perm, AskSender, GrepArgs, MAX_GREP_RESULTS, PermCheck, ToolError, is_skip_dir};
 
-pub struct GrepTool;
+pub struct GrepTool {
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+}
 
 impl GrepTool {
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
+        GrepTool { permission, ask_tx }
+    }
+
     fn glob_to_regex(glob: &str) -> String {
         let mut re = String::with_capacity(glob.len() * 2);
         for c in glob.chars() {
@@ -66,6 +73,8 @@ impl Tool for GrepTool {
     }
 
     async fn call(&self, args: GrepArgs) -> Result<String, ToolError> {
+        check_perm(&self.permission, &self.ask_tx, "grep", &args.pattern).await?;
+
         let re = Regex::new(&args.pattern)
             .map_err(|e| ToolError::Msg(format!("Invalid regex pattern: {}", e)))?;
 

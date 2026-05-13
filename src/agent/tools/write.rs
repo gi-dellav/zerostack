@@ -3,9 +3,18 @@ use std::path::Path;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
-use crate::agent::tools::{ToolError, WriteArgs};
+use crate::agent::tools::{check_perm_path, AskSender, PermCheck, ToolError, WriteArgs};
 
-pub struct WriteTool;
+pub struct WriteTool {
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+}
+
+impl WriteTool {
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
+        WriteTool { permission, ask_tx }
+    }
+}
 
 impl Tool for WriteTool {
     const NAME: &'static str = "write";
@@ -30,6 +39,8 @@ impl Tool for WriteTool {
     }
 
     async fn call(&self, args: WriteArgs) -> Result<String, ToolError> {
+        check_perm_path(&self.permission, &self.ask_tx, "write", &args.path).await?;
+
         let path = Path::new(&args.path);
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;

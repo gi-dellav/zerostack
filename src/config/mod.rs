@@ -26,9 +26,14 @@ pub struct Config {
     pub keep_recent_tokens: Option<u64>,
     pub compact_enabled: Option<bool>,
     pub custom_providers: Option<HashMap<String, CustomProviderConfig>>,
+    pub permission: Option<serde_json::Value>,
+    pub restrictive: Option<bool>,
+    pub accept_all: Option<bool>,
+    pub yolo: Option<bool>,
 }
 
 impl Config {
+    #[allow(dead_code)]
     pub fn custom_providers_map(&self) -> HashMap<String, CustomProviderConfig> {
         self.custom_providers.clone().unwrap_or_default()
     }

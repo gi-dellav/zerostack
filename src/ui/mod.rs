@@ -11,14 +11,14 @@ use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use crossterm::style::Color;
 use tokio::sync::mpsc;
 
-use crate::agent;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
 use crate::event::{AgentEvent, UserEvent};
+use crate::permission::ask::{AskReceiver, AskSender, UserDecision};
+use crate::permission::checker::PermCheck;
 use crate::provider::{AnyAgent, AnyClient};
-use crate::session::MessageRole;
-use crate::session::Session;
+use crate::session::{MessageRole, PermissionAllowEntry, Session};
 use crate::ui::events::{render_session, sanitize_output};
 use crate::ui::input::InputEditor;
 use crate::ui::renderer::{copy_to_clipboard, Renderer};
@@ -29,6 +29,7 @@ use crate::ui::terminal::TerminalGuard;
 const C_AGENT: Color = Color::White;
 const C_ERROR: Color = Color::Red;
 const C_TOOL: Color = Color::Yellow;
+const C_PERM: Color = Color::Magenta;
 
 pub async fn run_interactive(
     client: AnyClient,
@@ -37,6 +38,9 @@ pub async fn run_interactive(
     cfg: &Config,
     session: &mut Session,
     context: &ContextFiles,
+    permission: Option<PermCheck>,
+    ask_tx: Option<AskSender>,
+    mut ask_rx: Option<AskReceiver>,
 ) -> anyhow::Result<()> {
     let _guard = TerminalGuard::new()?;
 
@@ -74,19 +78,22 @@ pub async fn run_interactive(
                         }
                     }
                     MouseEventKind::Down(btn) if btn == MouseButton::Left => {
-                        if user_tx_clone.blocking_send(UserEvent::MouseDown { row: m.row, col: m.column }).is_err() {
-                            break;
-                        }
+                        let _ = user_tx_clone.blocking_send(UserEvent::MouseDown {
+                            row: m.row,
+                            col: m.column,
+                        });
                     }
                     MouseEventKind::Drag(btn) if btn == MouseButton::Left => {
-                        if user_tx_clone.blocking_send(UserEvent::MouseDrag { row: m.row, col: m.column }).is_err() {
-                            break;
-                        }
+                        let _ = user_tx_clone.blocking_send(UserEvent::MouseDrag {
+                            row: m.row,
+                            col: m.column,
+                        });
                     }
                     MouseEventKind::Up(btn) if btn == MouseButton::Left => {
-                        if user_tx_clone.blocking_send(UserEvent::MouseUp { row: m.row, col: m.column }).is_err() {
-                            break;
-                        }
+                        let _ = user_tx_clone.blocking_send(UserEvent::MouseUp {
+                            row: m.row,
+                            col: m.column,
+                        });
                     }
                     _ => {}
                 },
@@ -301,7 +308,7 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), Color::Green)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &mut todo_tools_enabled);
+                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &mut todo_tools_enabled, &permission, &ask_tx);
                                 match result {
                                 Err(e) if e.to_string().starts_with("DEFER_COMPRESS:") => {
                                     let err_msg = e.to_string();
@@ -312,7 +319,7 @@ pub async fn run_interactive(
                                         let compress_result = handle_compress(
                                             instructions.as_deref(),
                                             &mut agent, &client, &mut renderer, session, cli, cfg, context,
-                                            &mut todo_tools_enabled,
+                                            &mut todo_tools_enabled, &permission, &ask_tx,
                                         ).await;
                                         if let Err(e) = compress_result {
                                             renderer.write_line(&format!("compress error: {}", e), C_ERROR)?;
@@ -325,7 +332,9 @@ pub async fn run_interactive(
                                         }
                                         renderer.write_line(&format!("error: {}", e), C_ERROR)?;
                                     }
-                                    Ok(_) => {}
+                                    Ok(_) => {
+                                        let _ = crate::session::storage::save_session(session);
+                                    }
                                 }
                                 if !cli.no_session {
                                     let _ = crate::session::storage::save_session(session);
@@ -337,7 +346,7 @@ pub async fn run_interactive(
                                 }
                                 renderer.write_line("", Color::White)?;
 
-                                let history = agent::runner::convert_history(session);
+                                let history = crate::agent::runner::convert_history(session);
                                 let runner = agent.clone().spawn_runner(
                                     text.to_string(),
                                     history,
@@ -420,17 +429,15 @@ pub async fn run_interactive(
                         session.total_cost += cost;
                         agent_line_started = false;
 
-                        // Auto-compaction check
                         if cfg.resolve_compact_enabled()
                             && session.needs_compaction(cfg.resolve_reserve_tokens())
                             && !cli.no_session
                         {
                             renderer.write_line("auto-compacting...", Color::DarkGrey)?;
-                            let instructions: Option<&str> = None;
                             let compress_result = handle_compress(
-                                instructions,
+                                None,
                                 &mut agent, &client, &mut renderer, session, cli, cfg, context,
-                                &mut todo_tools_enabled,
+                                &mut todo_tools_enabled, &permission, &ask_tx,
                             ).await;
                             if let Err(e) = compress_result {
                                 renderer.write_line(&format!("auto-compact error: {}", e), C_ERROR)?;
@@ -467,6 +474,84 @@ pub async fn run_interactive(
                     picker.draw()?;
                 }
             }
+            Some(ask_req) = async {
+                if let Some(rx) = &mut ask_rx {
+                    rx.recv().await
+                } else {
+                    std::future::pending().await
+                }
+            } => {
+                was_reasoning = false;
+                if agent_line_started {
+                    renderer.write_line("", Color::White)?;
+                    agent_line_started = false;
+                }
+
+                renderer.write_line(
+                    &format!("[permission] {}: {}", ask_req.tool, ask_req.input),
+                    C_PERM,
+                )?;
+                renderer.write_line(
+                    "  (y) allow once  (a) allow always  (n) deny  (ESC) abort",
+                    C_PERM,
+                )?;
+
+                let decision = loop {
+                    tokio::select! {
+                        Some(ev) = user_rx.recv() => {
+                            match ev {
+                                UserEvent::Key(key) => {
+                                    match key.code {
+                                        KeyCode::Char('y') => break UserDecision::AllowOnce,
+                                        KeyCode::Char('a') => {
+                                            let pattern = suggest_pattern(&ask_req.tool, &ask_req.input);
+                                            renderer.write_line(
+                                                &format!("  -> will allow: {}", pattern),
+                                                Color::Green,
+                                            )?;
+                                            break UserDecision::AllowAlways(pattern);
+                                        }
+                                        KeyCode::Char('n') | KeyCode::Esc => break UserDecision::Deny,
+                                        _ => {}
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                };
+
+                let allow_pattern = match &decision {
+                    UserDecision::AllowAlways(p) => Some(p.clone()),
+                    _ => None,
+                };
+                let _ = ask_req.reply.send(decision);
+
+                if let Some(pattern) = allow_pattern {
+                    session.permission_allowlist.push(PermissionAllowEntry {
+                        tool: ask_req.tool.clone(),
+                        pattern: pattern.clone(),
+                    });
+                    if !cli.no_session {
+                        let _ = crate::session::storage::save_session(session);
+                    }
+                    renderer.write_line(
+                        &format!("  allowed {} {} (saved to session)", ask_req.tool, pattern),
+                        Color::Green,
+                    )?;
+                }
+
+                renderer.render_viewport()?;
+                renderer.draw_bottom(
+                    &input.buffer,
+                    input.cursor,
+                    &StatusLine::render(session, is_running, 0),
+                    is_running,
+                )?;
+                if let Some(ref picker) = input.picker {
+                    picker.draw()?;
+                }
+            }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(200)), if is_running => {
                 renderer.draw_bottom(
                     &input.buffer,
@@ -485,4 +570,30 @@ pub async fn run_interactive(
     }
 
     Ok(())
+}
+
+fn suggest_pattern(tool: &str, input: &str) -> String {
+    match tool {
+        "bash" => {
+            let first = input.split_whitespace().next().unwrap_or("*");
+            format!("{} *", first)
+        }
+        "read" | "write" | "edit" | "list_dir" => {
+            let path = std::path::Path::new(input);
+            let parent = path
+                .parent()
+                .map(|p| p.to_string_lossy())
+                .unwrap_or(std::borrow::Cow::Borrowed("*"));
+            if parent == "" {
+                "**".to_string()
+            } else {
+                format!("{}/*", parent)
+            }
+        }
+        "grep" | "find_files" => {
+            let first = input.split_whitespace().next().unwrap_or("*");
+            format!("{}*", first)
+        }
+        _ => "*".to_string(),
+    }
 }

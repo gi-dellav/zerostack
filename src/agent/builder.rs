@@ -1,11 +1,18 @@
+use compact_str::CompactString;
 use rig::agent::{Agent, AgentBuilder};
 use rig::completion::CompletionModel;
+use rig::providers::openrouter;
 
 use crate::agent::prompt::{SYSTEM_PROMPT, TODO_TOOLS_PROMPT};
 use crate::agent::tools;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
+use crate::permission::ask::AskSender;
+use crate::permission::checker::PermCheck;
+
+#[allow(dead_code)]
+pub type ZAgent = Agent<openrouter::CompletionModel>;
 
 pub fn build_agent_inner<M: CompletionModel + 'static>(
     model: M,
@@ -13,6 +20,8 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
     cfg: &Config,
     context: &ContextFiles,
     todo_tools_enabled: bool,
+    permission: Option<PermCheck>,
+    ask_tx: Option<AskSender>,
 ) -> Agent<M> {
     let mut preamble = SYSTEM_PROMPT.to_string();
     if todo_tools_enabled {
@@ -38,20 +47,37 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
         builder.build()
     } else {
         let builder = builder
-            .tool(tools::ReadTool)
-            .tool(tools::WriteTool)
-            .tool(tools::EditTool)
-            .tool(tools::BashTool)
-            .tool(tools::GrepTool)
-            .tool(tools::FindFilesTool)
-            .tool(tools::ListDirTool);
+            .tool(tools::ReadTool::new(permission.clone(), ask_tx.clone()))
+            .tool(tools::WriteTool::new(permission.clone(), ask_tx.clone()))
+            .tool(tools::EditTool::new(permission.clone(), ask_tx.clone()))
+            .tool(tools::BashTool::new(permission.clone(), ask_tx.clone()))
+            .tool(tools::GrepTool::new(permission.clone(), ask_tx.clone()))
+            .tool(tools::FindFilesTool::new(permission.clone(), ask_tx.clone()))
+            .tool(tools::ListDirTool::new(permission.clone(), ask_tx.clone()));
 
         let builder = if todo_tools_enabled {
-            builder.tool(tools::WriteTodoList)
+            builder.tool(tools::WriteTodoList::new(permission, ask_tx))
         } else {
             builder
         };
 
         builder.build()
     }
+}
+
+#[allow(dead_code)]
+pub fn create_client(api_key: Option<&str>) -> anyhow::Result<openrouter::Client> {
+    let key = api_key
+        .map(CompactString::new)
+        .or_else(|| {
+            std::env::var("OPENROUTER_API_KEY")
+                .ok()
+                .map(CompactString::new)
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "No API key found. Set OPENROUTER_API_KEY environment variable or pass --api-key."
+            )
+        })?;
+    Ok(openrouter::Client::new(String::from(key))?)
 }

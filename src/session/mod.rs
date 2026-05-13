@@ -29,6 +29,12 @@ pub struct Compaction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionAllowEntry {
+    pub tool: String,
+    pub pattern: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: CompactString,
     pub name: CompactString,
@@ -43,6 +49,8 @@ pub struct Session {
     pub model: CompactString,
     pub provider: CompactString,
     pub working_dir: CompactString,
+    #[serde(default)]
+    pub permission_allowlist: Vec<PermissionAllowEntry>,
 }
 
 impl Session {
@@ -68,6 +76,7 @@ impl Session {
             working_dir: std::env::current_dir()
                 .map(|p| CompactString::new(p.to_string_lossy()))
                 .unwrap_or_default(),
+            permission_allowlist: Vec::new(),
         }
     }
 

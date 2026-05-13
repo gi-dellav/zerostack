@@ -12,6 +12,8 @@ use crate::agent::runner::{self, AgentRunner};
 use crate::cli::Cli;
 use crate::config::{Config, CustomProviderConfig};
 use crate::context::ContextFiles;
+use crate::permission::ask::AskSender;
+use crate::permission::checker::PermCheck;
 use crate::session::SessionMessage;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -304,22 +306,24 @@ pub fn build_agent(
     cfg: &Config,
     context: &ContextFiles,
     todo_tools_enabled: bool,
+    permission: Option<PermCheck>,
+    ask_tx: Option<AskSender>,
 ) -> AnyAgent {
     match model {
-        AnyModel::OpenRouter(m) => {
-            AnyAgent::OpenRouter(builder::build_agent_inner(m, cli, cfg, context, todo_tools_enabled))
-        }
-        AnyModel::OpenAI(m) => {
-            AnyAgent::OpenAI(builder::build_agent_inner(m, cli, cfg, context, todo_tools_enabled))
-        }
-        AnyModel::Anthropic(m) => {
-            AnyAgent::Anthropic(builder::build_agent_inner(m, cli, cfg, context, todo_tools_enabled))
-        }
-        AnyModel::Gemini(m) => {
-            AnyAgent::Gemini(builder::build_agent_inner(m, cli, cfg, context, todo_tools_enabled))
-        }
-        AnyModel::Ollama(m) => {
-            AnyAgent::Ollama(builder::build_agent_inner(m, cli, cfg, context, todo_tools_enabled))
-        }
+        AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(builder::build_agent_inner(
+            m, cli, cfg, context, todo_tools_enabled, permission, ask_tx,
+        )),
+        AnyModel::OpenAI(m) => AnyAgent::OpenAI(builder::build_agent_inner(
+            m, cli, cfg, context, todo_tools_enabled, permission, ask_tx,
+        )),
+        AnyModel::Anthropic(m) => AnyAgent::Anthropic(builder::build_agent_inner(
+            m, cli, cfg, context, todo_tools_enabled, permission, ask_tx,
+        )),
+        AnyModel::Gemini(m) => AnyAgent::Gemini(builder::build_agent_inner(
+            m, cli, cfg, context, todo_tools_enabled, permission, ask_tx,
+        )),
+        AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_agent_inner(
+            m, cli, cfg, context, todo_tools_enabled, permission, ask_tx,
+        )),
     }
 }
