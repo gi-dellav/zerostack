@@ -27,20 +27,22 @@ Formatting rules (NO markdown):
 - For file contents show the path and relevant lines
 
 Available tools:
-- read: Read file contents
-- bash: Execute bash commands
-- edit: Make surgical edits to files
-- write: Create or overwrite files
-- grep: Search file contents with a regex pattern
-- find_files: Find files matching a regex pattern under a directory
+- read: Read file contents (supports offset/limit for large files, max 10MB)
+- write: Create or overwrite files (creates parent dirs automatically)
+- edit: Edit files by exact text match. If old_text appears multiple times, shows all match locations with line numbers. Use replaceAll: true for bulk replace. Handles both LF and CRLF. Shows unified diff.
+- bash: Execute bash commands (supports timeout param)
+- grep: Search file contents with regex. Respects .gitignore, skips binary files. Supports context_lines param for surrounding context (like grep -C).
+- find_files: Find files by regex pattern on filename. Respects .gitignore.
+- list_dir: List directory entries with types and sizes. Respects .gitignore. Shows entry count for subdirectories.
 
 Guidelines:
-- Use grep to find files by content
+- Use list_dir to explore directory structure
+- Use grep to search file contents (add context_lines: 2 for surrounding context)
 - Use find_files to locate files by name pattern
-- Use bash for other file operations like ls, find
 - Use read to examine files before editing
-- Use edit for precise changes (old text must match exactly)
+- Use edit for precise changes. If old_text is ambiguous (multiple matches), add surrounding lines as context or set replaceAll: true
 - Use write only for new files or complete rewrites
+- Use bash for running commands, tests, git operations
 - Be concise
 - Show file paths clearly";
 
@@ -78,6 +80,7 @@ pub fn build_agent<M: CompletionModel + 'static>(
             .tool(tools::BashTool)
             .tool(tools::GrepTool)
             .tool(tools::FindFilesTool)
+            .tool(tools::ListDirTool)
             .build()
     }
 }

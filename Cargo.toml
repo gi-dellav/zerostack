@@ -21,6 +21,8 @@ reqwest = "0.12"
 dirs = "6"
 compact_str = { version = "0.8", features = ["serde"] }
 smallvec = "1"
+regex = "1"
+ignore = "0.4"
 
 [profile.release]
 opt-level = "z"
