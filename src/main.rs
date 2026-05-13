@@ -3,11 +3,11 @@ mod cli;
 mod config;
 mod context;
 mod event;
+mod provider;
 mod session;
 mod ui;
 
 use clap::Parser;
-use rig::client::CompletionClient;
 use session::MessageRole;
 
 #[tokio::main(flavor = "current_thread")]
@@ -69,13 +69,17 @@ async fn main() -> anyhow::Result<()> {
         session = session::storage::load_session(session_id)?;
     }
 
-    let client = agent::create_client(cli.api_key.as_deref())?;
+    let client = provider::create_client(
+        &session.provider,
+        cli.api_key.as_deref(),
+        &cfg.custom_providers_map(),
+    )?;
     let completion_model = client.completion_model(model.to_string());
-    let agent = agent::build_agent(completion_model, &cli, &cfg, &context, false);
+    let agent = provider::build_agent(completion_model, &cli, &cfg, &context, false);
 
     if cli.print {
         let msg = cli.message.join(" ");
-        let response = agent::run_print(&agent, &msg).await?;
+        let response = agent.run_print(&msg).await?;
         if !cli.no_session {
             session.add_message(MessageRole::User, &msg);
             session.add_message(MessageRole::Assistant, &response);

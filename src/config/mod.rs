@@ -1,8 +1,16 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::Deserialize;
 
 use crate::session::storage;
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CustomProviderConfig {
+    pub provider_type: String,
+    pub base_url: String,
+    pub api_key_env: Option<String>,
+}
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
@@ -17,9 +25,14 @@ pub struct Config {
     pub reserve_tokens: Option<u64>,
     pub keep_recent_tokens: Option<u64>,
     pub compact_enabled: Option<bool>,
+    pub custom_providers: Option<HashMap<String, CustomProviderConfig>>,
 }
 
 impl Config {
+    pub fn custom_providers_map(&self) -> HashMap<String, CustomProviderConfig> {
+        self.custom_providers.clone().unwrap_or_default()
+    }
+
     pub fn resolve_context_window(&self) -> u64 {
         self.context_window.unwrap_or(128_000)
     }

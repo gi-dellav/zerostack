@@ -1,13 +1,11 @@
 use compact_str::CompactString;
 use crossterm::style::Color;
-use rig::client::CompletionClient;
-use rig::providers::openrouter;
 use smallvec::SmallVec;
 
-use crate::agent;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
+use crate::provider::{AnyAgent, AnyClient};
 use crate::session::{MessageRole, Session};
 use crate::ui::events::{format_time, render_session};
 use crate::ui::input::InputEditor;
@@ -44,8 +42,8 @@ pub fn undo_last(session: &mut Session) -> usize {
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_compress(
     instructions: Option<&str>,
-    agent: &mut agent::ZAgent,
-    client: &openrouter::Client,
+    agent: &mut AnyAgent,
+    client: &AnyClient,
     renderer: &mut Renderer,
     session: &mut Session,
     cli: &Cli,
@@ -56,7 +54,6 @@ pub async fn handle_compress(
     renderer.write_line("compressing...", C_AGENT)?;
     renderer.write_line("", Color::White)?;
 
-    // Find messages to summarize (messages before the reserve window)
     let reserve = cfg.resolve_reserve_tokens();
     let keep_recent = cfg.resolve_keep_recent_tokens();
     let max_tokens = session.context_window.saturating_sub(reserve);
@@ -66,7 +63,6 @@ pub async fn handle_compress(
         return Ok(());
     }
 
-    // Walk backwards to find cut point
     let mut accumulated = 0u64;
     let mut cut_idx = session.messages.len();
     for (i, msg) in session.messages.iter().enumerate().rev() {
@@ -85,26 +81,24 @@ pub async fn handle_compress(
     let messages_to_summarize = &session.messages[..cut_idx];
     let previous_summary = session.compactions.last().map(|c| c.summary.as_str());
 
-    let summary = agent::compress::compress_messages(
-        client,
-        &session.model,
-        messages_to_summarize,
-        previous_summary,
-        instructions,
-    )
-    .await?;
+    let summary = client
+        .compress_messages(
+            &session.model,
+            messages_to_summarize,
+            previous_summary,
+            instructions,
+        )
+        .await?;
 
     let tokens_before: u64 = messages_to_summarize
         .iter()
         .map(|m| m.estimated_tokens)
         .sum();
 
-    // Create compaction entry
     session.compress(summary, cut_idx, tokens_before);
 
-    // Rebuild agent with potentially new context
     let model = client.completion_model(session.model.to_string());
-    *agent = agent::build_agent(model, cli, cfg, context, *todo_tools_enabled);
+    *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled);
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
@@ -121,8 +115,8 @@ pub async fn handle_compress(
 #[allow(clippy::too_many_arguments)]
 pub fn handle_slash(
     text: &str,
-    agent: &mut agent::ZAgent,
-    client: &openrouter::Client,
+    agent: &mut AnyAgent,
+    client: &AnyClient,
     renderer: &mut Renderer,
     session: &mut Session,
     cli: &Cli,
@@ -141,7 +135,7 @@ pub fn handle_slash(
             } else {
                 let new_model = CompactString::new(parts[1].trim());
                 let model = client.completion_model(new_model.to_string());
-                *agent = agent::build_agent(model, cli, cfg, context, *todo_tools_enabled);
+                *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled);
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
                 renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
@@ -318,7 +312,7 @@ pub fn handle_slash(
                     } else {
                         *todo_tools_enabled = new_state;
                         let model = client.completion_model(session.model.to_string());
-                        *agent = agent::build_agent(model, cli, cfg, context, *todo_tools_enabled);
+                        *agent = crate::provider::build_agent(model, cli, cfg, context, *todo_tools_enabled);
                         renderer.write_line(
                             &format!(
                                 "todo tools: {}",

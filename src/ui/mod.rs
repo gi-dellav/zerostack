@@ -9,7 +9,6 @@ mod terminal;
 use crossterm::event;
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use crossterm::style::Color;
-use rig::providers::openrouter;
 use tokio::sync::mpsc;
 
 use crate::agent;
@@ -17,6 +16,7 @@ use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
 use crate::event::{AgentEvent, UserEvent};
+use crate::provider::{AnyAgent, AnyClient};
 use crate::session::MessageRole;
 use crate::session::Session;
 use crate::ui::events::{render_session, sanitize_output};
@@ -31,8 +31,8 @@ const C_ERROR: Color = Color::Red;
 const C_TOOL: Color = Color::Yellow;
 
 pub async fn run_interactive(
-    client: openrouter::Client,
-    mut agent: agent::ZAgent,
+    client: AnyClient,
+    mut agent: AnyAgent,
     cli: &Cli,
     cfg: &Config,
     session: &mut Session,
@@ -338,8 +338,7 @@ pub async fn run_interactive(
                                 renderer.write_line("", Color::White)?;
 
                                 let history = agent::runner::convert_history(session);
-                                let runner = agent::runner::spawn_agent(
-                                    agent.clone(),
+                                let runner = agent.clone().spawn_runner(
                                     text.to_string(),
                                     history,
                                 );
@@ -427,7 +426,6 @@ pub async fn run_interactive(
                             && !cli.no_session
                         {
                             renderer.write_line("auto-compacting...", Color::DarkGrey)?;
-                            // Use the non-streaming compress (defer compress handles it)
                             let instructions: Option<&str> = None;
                             let compress_result = handle_compress(
                                 instructions,

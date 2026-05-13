@@ -1,7 +1,5 @@
-use compact_str::CompactString;
 use rig::agent::{Agent, AgentBuilder};
 use rig::completion::CompletionModel;
-use rig::providers::openrouter;
 
 use crate::agent::prompt::{SYSTEM_PROMPT, TODO_TOOLS_PROMPT};
 use crate::agent::tools;
@@ -9,9 +7,7 @@ use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
 
-pub type ZAgent = Agent<openrouter::CompletionModel>;
-
-pub fn build_agent<M: CompletionModel + 'static>(
+pub fn build_agent_inner<M: CompletionModel + 'static>(
     model: M,
     cli: &Cli,
     cfg: &Config,
@@ -58,20 +54,4 @@ pub fn build_agent<M: CompletionModel + 'static>(
 
         builder.build()
     }
-}
-
-pub fn create_client(api_key: Option<&str>) -> anyhow::Result<openrouter::Client> {
-    let key = api_key
-        .map(CompactString::new)
-        .or_else(|| {
-            std::env::var("OPENROUTER_API_KEY")
-                .ok()
-                .map(CompactString::new)
-        })
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No API key found. Set OPENROUTER_API_KEY environment variable or pass --api-key."
-            )
-        })?;
-    Ok(openrouter::Client::new(String::from(key))?)
 }
