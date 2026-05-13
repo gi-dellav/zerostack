@@ -51,9 +51,7 @@ pub fn build_agent<M: CompletionModel + 'static>(
             .tool(tools::ListDirTool);
 
         let builder = if todo_tools_enabled {
-            builder
-                .tool(tools::WriteTodoList)
-                .tool(tools::AskUserQuestion)
+            builder.tool(tools::WriteTodoList)
         } else {
             builder
         };

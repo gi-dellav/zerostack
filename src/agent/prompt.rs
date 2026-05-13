@@ -29,11 +29,11 @@ Guidelines:
 - Use write only for new files or complete rewrites
 - Use bash for running commands, tests, git operations
 - Be concise
-- Show file paths clearly";
+- Show file paths clearly
+- If you have doubts or need clarification, ask the user directly in your response. Do not guess or assume.";
 
 pub const TODO_TOOLS_PROMPT: &str = "\
-- write_todo_list: Create or update a structured task list to track progress in the current coding session. Use this for complex multi-step tasks. Replaces any existing todo list.
-- ask_user_question: Ask the user a question and get their response. Use when you need user input, clarification, or a decision.";
+- write_todo_list: Create or update a structured task list to track progress in the current coding session. Use this for complex multi-step tasks. Replaces any existing todo list.";
 
 pub const COMPACTION_PROMPT: &str = "\
 You are a conversation summarizer for a coding session. Distill the following conversation into a concise summary.

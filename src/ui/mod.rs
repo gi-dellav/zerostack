@@ -1,12 +1,13 @@
 mod events;
 mod input;
+mod picker;
 mod renderer;
 mod slash;
 mod status;
 mod terminal;
 
 use crossterm::event;
-use crossterm::event::{KeyCode, KeyModifiers, MouseEventKind};
+use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use crossterm::style::Color;
 use rig::providers::openrouter;
 use tokio::sync::mpsc;
@@ -20,7 +21,7 @@ use crate::session::MessageRole;
 use crate::session::Session;
 use crate::ui::events::{render_session, sanitize_output};
 use crate::ui::input::InputEditor;
-use crate::ui::renderer::Renderer;
+use crate::ui::renderer::{copy_to_clipboard, Renderer};
 use crate::ui::slash::{handle_compress, handle_slash};
 use crate::ui::status::StatusLine;
 use crate::ui::terminal::TerminalGuard;
@@ -47,7 +48,6 @@ pub async fn run_interactive(
     let mut show_reasoning = true;
     let mut was_reasoning = false;
     let mut todo_tools_enabled = false;
-    let mut answer_tx: Option<tokio::sync::oneshot::Sender<String>> = None;
 
     render_session(&mut renderer, session, cli, cfg, context)?;
     renderer.draw_bottom("", 0, &StatusLine::render(session, false, 0), false)?;
@@ -70,6 +70,21 @@ pub async fn run_interactive(
                     }
                     MouseEventKind::ScrollDown => {
                         if user_tx_clone.blocking_send(UserEvent::ScrollDown).is_err() {
+                            break;
+                        }
+                    }
+                    MouseEventKind::Down(btn) if btn == MouseButton::Left => {
+                        if user_tx_clone.blocking_send(UserEvent::MouseDown { row: m.row, col: m.column }).is_err() {
+                            break;
+                        }
+                    }
+                    MouseEventKind::Drag(btn) if btn == MouseButton::Left => {
+                        if user_tx_clone.blocking_send(UserEvent::MouseDrag { row: m.row, col: m.column }).is_err() {
+                            break;
+                        }
+                    }
+                    MouseEventKind::Up(btn) if btn == MouseButton::Left => {
+                        if user_tx_clone.blocking_send(UserEvent::MouseUp { row: m.row, col: m.column }).is_err() {
                             break;
                         }
                     }
@@ -108,6 +123,50 @@ pub async fn run_interactive(
                         )?;
                         continue;
                     }
+                    UserEvent::MouseDown { row, col: _ } => {
+                        if row < renderer.visible_lines() as u16 {
+                            if let Some(idx) = renderer.buffer_line_at_row(row) {
+                                renderer.selection_active = true;
+                                renderer.selection_start = Some(idx);
+                                renderer.selection_end = Some(idx);
+                                renderer.render_viewport()?;
+                                renderer.draw_bottom(
+                                    &input.buffer, input.cursor,
+                                    &StatusLine::render(session, is_running, 0),
+                                    is_running,
+                                )?;
+                            }
+                        }
+                        continue;
+                    }
+                    UserEvent::MouseDrag { row, col: _ } => {
+                        if renderer.selection_active {
+                            if let Some(idx) = renderer.buffer_line_at_row(row) {
+                                renderer.selection_end = Some(idx);
+                                renderer.render_viewport()?;
+                                renderer.draw_bottom(
+                                    &input.buffer, input.cursor,
+                                    &StatusLine::render(session, is_running, 0),
+                                    is_running,
+                                )?;
+                            }
+                        }
+                        continue;
+                    }
+                    UserEvent::MouseUp { row, col: _ } => {
+                        if renderer.selection_active {
+                            if let Some(idx) = renderer.buffer_line_at_row(row) {
+                                renderer.selection_end = Some(idx);
+                            }
+                            renderer.render_viewport()?;
+                            renderer.draw_bottom(
+                                &input.buffer, input.cursor,
+                                &StatusLine::render(session, is_running, 0),
+                                is_running,
+                            )?;
+                        }
+                        continue;
+                    }
                     UserEvent::Key(key) => {
                         let is_ctrl_c = key.code == KeyCode::Char('c')
                             && key.modifiers.contains(KeyModifiers::CONTROL);
@@ -115,8 +174,6 @@ pub async fn run_interactive(
                             if is_running {
                                 is_running = false;
                                 agent_rx = None;
-                                answer_tx.take();
-                                let _ = agent::tools::PENDING_QUESTION.lock().unwrap().take();
                                 renderer.write_line("interrupted", C_ERROR)?;
                                 renderer.draw_bottom(
                                     &input.buffer,
@@ -130,51 +187,25 @@ pub async fn run_interactive(
                             continue;
                         }
 
-                        if answer_tx.is_some() {
-                            match key.code {
-                                KeyCode::Enter => {
-                                    let answer = input.buffer.clone();
-                                    if !answer.is_empty() {
-                                        if let Some(tx) = answer_tx.take() {
-                                            let _ = tx.send(answer.to_string());
-                                        }
-                                        input.buffer.clear();
-                                        input.cursor = 0;
-                                        renderer.write_line(&format!("[Answer] {}", answer), Color::Green)?;
-                                        renderer.write_line("", Color::White)?;
-                                    }
-                                }
-                                KeyCode::Esc => {
-                                    answer_tx.take();
-                                    let _ = agent::tools::PENDING_QUESTION.lock().unwrap().take();
-                                    renderer.write_line("[Cancelled]", C_ERROR)?;
-                                    input.buffer.clear();
-                                    input.cursor = 0;
-                                }
-                                KeyCode::Char(c) => {
-                                    input.buffer.insert(input.cursor, c);
-                                    input.cursor += 1;
-                                }
-                                KeyCode::Backspace if input.cursor > 0 => {
-                                    input.cursor -= 1;
-                                    input.buffer.remove(input.cursor);
-                                }
-                                KeyCode::Delete if input.cursor < input.buffer.len() => {
-                                    input.buffer.remove(input.cursor);
-                                }
-                                KeyCode::Left if input.cursor > 0 => {
-                                    input.cursor -= 1;
-                                }
-                                KeyCode::Right if input.cursor < input.buffer.len() => {
-                                    input.cursor += 1;
-                                }
-                                KeyCode::Home => input.cursor = 0,
-                                KeyCode::End => input.cursor = input.buffer.len(),
-                                _ => {}
+                        if renderer.selection_active && key.code == KeyCode::Char('y') {
+                            if let Some(text) = renderer.selected_text() {
+                                copy_to_clipboard(&text);
+                                renderer.write_line("copied selection", Color::Green)?;
                             }
+                            renderer.clear_selection();
+                            renderer.render_viewport()?;
                             renderer.draw_bottom(
-                                &input.buffer,
-                                input.cursor,
+                                &input.buffer, input.cursor,
+                                &StatusLine::render(session, is_running, 0),
+                                is_running,
+                            )?;
+                            continue;
+                        }
+                        if renderer.selection_active && key.code == KeyCode::Esc {
+                            renderer.clear_selection();
+                            renderer.render_viewport()?;
+                            renderer.draw_bottom(
+                                &input.buffer, input.cursor,
                                 &StatusLine::render(session, is_running, 0),
                                 is_running,
                             )?;
@@ -245,6 +276,21 @@ pub async fn run_interactive(
                             _ => {}
                         }
 
+                        if input.picker.as_ref().is_some_and(|p| p.active) {
+                            if input.handle_picker_key(key) {
+                                renderer.render_viewport()?;
+                                renderer.draw_bottom(
+                                    &input.buffer, input.cursor,
+                                    &StatusLine::render(session, is_running, 0),
+                                    is_running,
+                                )?;
+                                if let Some(ref picker) = input.picker {
+                                    picker.draw()?;
+                                }
+                                continue;
+                            }
+                        }
+
                         if let Some(text) = input.handle_key(key) {
                             if renderer.is_scrolling() {
                                 renderer.scroll_to_bottom()?;
@@ -309,6 +355,9 @@ pub async fn run_interactive(
                             &StatusLine::render(session, is_running, 0),
                             is_running,
                         )?;
+                        if let Some(ref picker) = input.picker {
+                            picker.draw()?;
+                        }
                     }
                 }
             }
@@ -351,18 +400,14 @@ pub async fn run_interactive(
                             renderer.write_line("", Color::White)?;
                             agent_line_started = false;
                         }
-                        renderer.write_line("", Color::White)?;
                         let args_str = serde_json::to_string(&args).unwrap_or_default();
                         let safe = sanitize_output(&format!("[{} {}]", name, args_str));
                         renderer.write_line(&safe, C_TOOL)?;
-                        renderer.write_line("", Color::White)?;
                     }
                     AgentEvent::ToolResult { output } => {
-                        renderer.write_line("", Color::White)?;
                         let sanitized = sanitize_output(&output);
                         let preview: String = sanitized.chars().take(2000).collect();
                         renderer.write_line(&preview, Color::DarkGrey)?;
-                        renderer.write_line("", Color::White)?;
                     }
                     AgentEvent::Done { response, tokens, cost } => {
                         was_reasoning = false;
@@ -420,24 +465,20 @@ pub async fn run_interactive(
                     &StatusLine::render(session, is_running, 0),
                     is_running,
                 )?;
+                if let Some(ref picker) = input.picker {
+                    picker.draw()?;
+                }
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(200)), if is_running => {
-                if answer_tx.is_none() {
-                    let mut pq = agent::tools::PENDING_QUESTION.lock().unwrap();
-                    if let Some(req) = pq.take() {
-                        renderer.write_line(&format!("[Question] {}", req.question), C_TOOL)?;
-                        renderer.write_line("", Color::White)?;
-                        input.buffer.clear();
-                        input.cursor = 0;
-                        answer_tx = Some(req.answer_tx);
-                    }
-                }
                 renderer.draw_bottom(
                     &input.buffer,
                     input.cursor,
                     &StatusLine::render(session, is_running, 0),
                     is_running,
                 )?;
+                if let Some(ref picker) = input.picker {
+                    picker.draw()?;
+                }
             }
             else => {
                 tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;

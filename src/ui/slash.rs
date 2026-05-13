@@ -346,6 +346,9 @@ pub fn handle_slash(
             return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "quit").into());
         }
         "/clear" => {
+            session.messages.clear();
+            session.total_estimated_tokens = 0;
+            session.compactions.clear();
             render_session(renderer, session, cli, cfg, context)?;
         }
         "/undo" => {
@@ -406,6 +409,10 @@ pub fn handle_slash(
             renderer.write_line("keys:", C_AGENT)?;
             renderer.write_line("  PgUp/PgDn             scroll chat history", C_RESULT)?;
             renderer.write_line("  Home/End               jump to top/bottom", C_RESULT)?;
+            renderer.write_line("  @<query>               file picker (Tab/Enter select, Esc cancel)", C_RESULT)?;
+            renderer.write_line("  mouse drag             select text from scrollback", C_RESULT)?;
+            renderer.write_line("  y (while selected)     copy selected text to clipboard", C_RESULT)?;
+            renderer.write_line("  Esc (while selected)   clear selection", C_RESULT)?;
             renderer.write_line("  Ctrl+R                 toggle reasoning", C_RESULT)?;
             renderer.write_line("  Ctrl+C                 interrupt/quit", C_RESULT)?;
             renderer.write_line("  mouse scroll           scroll chat", C_RESULT)?;

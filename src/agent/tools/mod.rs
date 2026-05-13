@@ -1,4 +1,3 @@
-mod ask;
 mod bash;
 mod edit;
 mod find_files;
@@ -8,7 +7,6 @@ mod read;
 mod todo;
 mod write;
 
-pub use ask::{AskUserQuestion, PENDING_QUESTION};
 pub use bash::BashTool;
 pub use edit::EditTool;
 pub use find_files::FindFilesTool;

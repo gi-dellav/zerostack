@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use compact_str::CompactString;
 use crossterm::ExecutableCommand;
 use crossterm::cursor::MoveTo;
-use crossterm::style::{Color, ResetColor, SetForegroundColor};
+use crossterm::style::{Attribute, Color, ResetColor, SetAttribute, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType, ScrollUp};
 
 #[derive(Clone)]
@@ -20,6 +20,9 @@ pub struct Renderer {
     partial: CompactString,
     partial_color: Color,
     scroll_offset: usize,
+    pub selection_active: bool,
+    pub selection_start: Option<usize>,
+    pub selection_end: Option<usize>,
 }
 
 impl Renderer {
@@ -32,6 +35,9 @@ impl Renderer {
             partial: CompactString::new(""),
             partial_color: Color::White,
             scroll_offset: 0,
+            selection_active: false,
+            selection_start: None,
+            selection_end: None,
         })
     }
 
@@ -44,9 +50,50 @@ impl Renderer {
         cols.saturating_sub(1) as usize
     }
 
-    fn visible_lines(&self) -> usize {
+    pub fn visible_lines(&self) -> usize {
         let (_, rows) = self.terminal_size();
         rows.saturating_sub(2) as usize
+    }
+
+    pub fn buffer_line_at_row(&self, row: u16) -> Option<usize> {
+        let (_, rows) = self.terminal_size();
+        let visible = rows.saturating_sub(2) as usize;
+        let total = self.buffer.len();
+        if total == 0 {
+            return None;
+        }
+        let start = if self.scroll_offset == 0 {
+            total.saturating_sub(visible)
+        } else {
+            total.saturating_sub(self.scroll_offset + visible)
+        };
+        let start = start.min(total.saturating_sub(visible));
+        let idx = start + row as usize;
+        if idx < total { Some(idx) } else { None }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection_active = false;
+        self.selection_start = None;
+        self.selection_end = None;
+    }
+
+    pub fn selected_text(&self) -> Option<String> {
+        let (start, end) = match (self.selection_start, self.selection_end) {
+            (Some(s), Some(e)) if s <= e => (s, e),
+            (Some(s), Some(e)) => (e, s),
+            _ => return None,
+        };
+        let mut result = String::new();
+        for i in start..=end {
+            if let Some(entry) = self.buffer.get(i) {
+                if !result.is_empty() {
+                    result.push('\n');
+                }
+                result.push_str(&entry.text);
+            }
+        }
+        if result.is_empty() { None } else { Some(result) }
     }
 
     fn wrap_line(&self, line: &str, max_width: usize) -> Vec<CompactString> {
@@ -144,13 +191,32 @@ impl Renderer {
             stdout.execute(MoveTo(0, i as u16))?;
             if start + i < end {
                 let entry = &self.buffer[start + i];
-                write!(stdout, "{}", SetForegroundColor(entry.color))?;
-                let truncated: String = entry
+                let line_idx = start + i;
+                let text: String = entry
                     .text
                     .chars()
                     .take(cols.saturating_sub(1) as usize)
                     .collect();
-                write!(stdout, "{}", truncated)?;
+
+                let is_selected = self.selection_active
+                    && self.selection_start.is_some()
+                    && self.selection_end.is_some()
+                    && {
+                        let s = self.selection_start.unwrap();
+                        let e = self.selection_end.unwrap();
+                        let lo = s.min(e);
+                        let hi = s.max(e);
+                        line_idx >= lo && line_idx <= hi
+                    };
+
+                if is_selected {
+                    write!(stdout, "{}", SetAttribute(Attribute::Reverse))?;
+                }
+                write!(stdout, "{}", SetForegroundColor(entry.color))?;
+                write!(stdout, "{}", text)?;
+                if is_selected {
+                    write!(stdout, "{}", SetAttribute(Attribute::NoReverse))?;
+                }
                 write!(stdout, "{}", ResetColor)?;
             }
             write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
@@ -317,6 +383,7 @@ impl Renderer {
         self.buffer.clear();
         self.partial.clear();
         self.scroll_offset = 0;
+        self.clear_selection();
         let mut stdout = io::stdout();
         stdout.execute(Clear(ClearType::All))?;
         stdout.execute(MoveTo(0, 0))?;
@@ -374,5 +441,28 @@ impl Renderer {
         stdout.execute(MoveTo(cursor_x, input_row))?;
         stdout.flush()?;
         Ok(())
+    }
+}
+
+pub fn copy_to_clipboard(text: &str) {
+    let cmds: &[(&str, &[&str])] = &[
+        ("wl-copy", &[]),
+        ("xclip", &["-selection", "clipboard"]),
+        ("pbcopy", &[]),
+        ("clip.exe", &[]),
+    ];
+    for &(cmd, args) in cmds {
+        if let Ok(mut child) = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+        {
+            if let Some(mut stdin) = child.stdin.take() {
+                let _ = stdin.write_all(text.as_bytes());
+                let _ = stdin.flush();
+            }
+            let _ = child.wait();
+            return;
+        }
     }
 }
