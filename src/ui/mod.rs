@@ -52,9 +52,13 @@ pub async fn run_interactive(
     let mut show_reasoning = true;
     let mut was_reasoning = false;
     let mut todo_tools_enabled = false;
+    #[allow(unused_mut)]
+    let mut loop_label: Option<String> = None;
+    #[cfg(feature = "loop")]
+    let mut loop_state: Option<crate::extras::r#loop::LoopState> = None;
 
     render_session(&mut renderer, session, cli, cfg, context)?;
-    renderer.draw_bottom("", 0, &StatusLine::render(session, false, 0), false)?;
+    renderer.draw_bottom("", 0, &StatusLine::render(session, false, 0, None), false)?;
 
     let (user_tx, mut user_rx) = mpsc::channel::<UserEvent>(64);
     let user_tx_clone = user_tx.clone();
@@ -114,7 +118,7 @@ pub async fn run_interactive(
                         renderer.draw_bottom(
                             &input.buffer,
                             input.cursor,
-                            &StatusLine::render(session, is_running, 0),
+                            &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                             is_running,
                         )?;
                         continue;
@@ -125,7 +129,7 @@ pub async fn run_interactive(
                         renderer.draw_bottom(
                             &input.buffer,
                             input.cursor,
-                            &StatusLine::render(session, is_running, 0),
+                            &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                             is_running,
                         )?;
                         continue;
@@ -139,7 +143,7 @@ pub async fn run_interactive(
                                 renderer.render_viewport()?;
                                 renderer.draw_bottom(
                                     &input.buffer, input.cursor,
-                                    &StatusLine::render(session, is_running, 0),
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                     is_running,
                                 )?;
                             }
@@ -153,7 +157,7 @@ pub async fn run_interactive(
                                 renderer.render_viewport()?;
                                 renderer.draw_bottom(
                                     &input.buffer, input.cursor,
-                                    &StatusLine::render(session, is_running, 0),
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                     is_running,
                                 )?;
                             }
@@ -168,7 +172,7 @@ pub async fn run_interactive(
                             renderer.render_viewport()?;
                             renderer.draw_bottom(
                                 &input.buffer, input.cursor,
-                                &StatusLine::render(session, is_running, 0),
+                                &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                 is_running,
                             )?;
                         }
@@ -181,11 +185,16 @@ pub async fn run_interactive(
                             if is_running {
                                 is_running = false;
                                 agent_rx = None;
+                                #[cfg(feature = "loop")]
+                                if let Some(ref mut ls) = loop_state {
+                                    ls.active = false;
+                                    loop_label = None;
+                                }
                                 renderer.write_line("interrupted", C_ERROR)?;
                                 renderer.draw_bottom(
                                     &input.buffer,
                                     input.cursor,
-                                    &StatusLine::render(session, is_running, 0),
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                     is_running,
                                 )?;
                             } else {
@@ -203,7 +212,7 @@ pub async fn run_interactive(
                             renderer.render_viewport()?;
                             renderer.draw_bottom(
                                 &input.buffer, input.cursor,
-                                &StatusLine::render(session, is_running, 0),
+                                &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                 is_running,
                             )?;
                             continue;
@@ -213,7 +222,7 @@ pub async fn run_interactive(
                             renderer.render_viewport()?;
                             renderer.draw_bottom(
                                 &input.buffer, input.cursor,
-                                &StatusLine::render(session, is_running, 0),
+                                &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                 is_running,
                             )?;
                             continue;
@@ -230,7 +239,7 @@ pub async fn run_interactive(
                             renderer.draw_bottom(
                                 &input.buffer,
                                 input.cursor,
-                                &StatusLine::render(session, is_running, 0),
+                                &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                 is_running,
                             )?;
                             continue;
@@ -243,7 +252,7 @@ pub async fn run_interactive(
                                 renderer.draw_bottom(
                                     &input.buffer,
                                     input.cursor,
-                                    &StatusLine::render(session, is_running, 0),
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                     is_running,
                                 )?;
                                 continue;
@@ -254,7 +263,7 @@ pub async fn run_interactive(
                                 renderer.draw_bottom(
                                     &input.buffer,
                                     input.cursor,
-                                    &StatusLine::render(session, is_running, 0),
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                     is_running,
                                 )?;
                                 continue;
@@ -265,7 +274,7 @@ pub async fn run_interactive(
                                 renderer.draw_bottom(
                                     &input.buffer,
                                     input.cursor,
-                                    &StatusLine::render(session, is_running, 0),
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                     is_running,
                                 )?;
                                 continue;
@@ -275,7 +284,7 @@ pub async fn run_interactive(
                                 renderer.draw_bottom(
                                     &input.buffer,
                                     input.cursor,
-                                    &StatusLine::render(session, is_running, 0),
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                     is_running,
                                 )?;
                                 continue;
@@ -288,7 +297,7 @@ pub async fn run_interactive(
                                 renderer.render_viewport()?;
                                 renderer.draw_bottom(
                                     &input.buffer, input.cursor,
-                                    &StatusLine::render(session, is_running, 0),
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                                     is_running,
                                 )?;
                                 if let Some(ref picker) = input.picker {
@@ -299,6 +308,17 @@ pub async fn run_interactive(
                         }
 
                         if let Some(text) = input.handle_key(key) {
+                            #[cfg(feature = "loop")]
+                            if loop_state.as_ref().is_some_and(|ls| ls.active) && !text.starts_with('/') {
+                                renderer.write_line("loop active: /loop stop to cancel", C_ERROR)?;
+                                renderer.draw_bottom(
+                                    &input.buffer,
+                                    input.cursor,
+                                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
+                                    is_running,
+                                )?;
+                                continue;
+                            }
                             if renderer.is_scrolling() {
                                 renderer.scroll_to_bottom()?;
                             }
@@ -308,7 +328,7 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), Color::Green)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &mut todo_tools_enabled, &permission, &ask_tx);
+                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &mut todo_tools_enabled, &permission, &ask_tx, #[cfg(feature = "loop")] &mut loop_state);
                                 match result {
                                 Err(e) if e.to_string().starts_with("DEFER_COMPRESS:") => {
                                     let err_msg = e.to_string();
@@ -334,6 +354,17 @@ pub async fn run_interactive(
                                     }
                                     Ok(_) => {
                                         let _ = crate::session::storage::save_session(session);
+                                        #[cfg(feature = "loop")]
+                                        if let Some(ref mut ls) = loop_state
+                                            && ls.active && ls.iteration == 0 && !is_running
+                                        {
+                                            ls.iteration = 1;
+                                            let prompt = ls.build_prompt();
+                                            let runner = agent.clone().spawn_runner(prompt, Vec::new());
+                                            agent_rx = Some(runner.event_rx);
+                                            is_running = true;
+                                            loop_label = Some(ls.iteration_label());
+                                        }
                                     }
                                 }
                                 if !cli.no_session {
@@ -360,7 +391,7 @@ pub async fn run_interactive(
                         renderer.draw_bottom(
                             &input.buffer,
                             input.cursor,
-                            &StatusLine::render(session, is_running, 0),
+                            &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                             is_running,
                         )?;
                         if let Some(ref picker) = input.picker {
@@ -429,7 +460,13 @@ pub async fn run_interactive(
                         session.total_cost += cost;
                         agent_line_started = false;
 
-                        if cfg.resolve_compact_enabled()
+                        #[cfg(feature = "loop")]
+                        let loop_running = loop_state.as_ref().is_some_and(|ls| ls.active);
+                        #[cfg(not(feature = "loop"))]
+                        let loop_running = false;
+
+                        if !loop_running
+                            && cfg.resolve_compact_enabled()
                             && session.needs_compaction(cfg.resolve_reserve_tokens())
                             && !cli.no_session
                         {
@@ -454,6 +491,36 @@ pub async fn run_interactive(
                         }
                         is_running = false;
                         agent_rx = None;
+
+                        #[cfg(feature = "loop")]
+                        if let Some(ref mut ls) = loop_state
+                            && ls.active
+                        {
+                            if ls.should_stop() {
+                                renderer.write_line(
+                                    &format!(
+                                        "[loop] max iterations ({}) reached, stopping",
+                                        ls.iteration
+                                    ),
+                                    C_AGENT,
+                                )?;
+                                ls.active = false;
+                                loop_label = None;
+                            } else {
+                                let summary: String = response.chars().take(200).collect();
+                                ls.last_summary = Some(summary);
+                                ls.iteration += 1;
+                                let prompt = ls.build_prompt();
+                                let runner = agent.clone().spawn_runner(prompt, Vec::new());
+                                agent_rx = Some(runner.event_rx);
+                                is_running = true;
+                                loop_label = Some(ls.iteration_label());
+                                renderer.write_line(
+                                    &format!("[loop] launching {}", ls.iteration_label()),
+                                    C_AGENT,
+                                )?;
+                            }
+                        }
                     }
                     AgentEvent::Error(e) => {
                         was_reasoning = false;
@@ -467,7 +534,7 @@ pub async fn run_interactive(
                 renderer.draw_bottom(
                     &input.buffer,
                     input.cursor,
-                    &StatusLine::render(session, is_running, 0),
+                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                     is_running,
                 )?;
                 if let Some(ref picker) = input.picker {
@@ -545,7 +612,7 @@ pub async fn run_interactive(
                 renderer.draw_bottom(
                     &input.buffer,
                     input.cursor,
-                    &StatusLine::render(session, is_running, 0),
+                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                     is_running,
                 )?;
                 if let Some(ref picker) = input.picker {
@@ -556,7 +623,7 @@ pub async fn run_interactive(
                 renderer.draw_bottom(
                     &input.buffer,
                     input.cursor,
-                    &StatusLine::render(session, is_running, 0),
+                    &StatusLine::render(session, is_running, 0, loop_label.as_deref()),
                     is_running,
                 )?;
                 if let Some(ref picker) = input.picker {

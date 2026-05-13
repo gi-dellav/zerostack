@@ -3,6 +3,10 @@ name = "zerostack"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+loop = []
+
 [dependencies]
 rig = "0.37"
 clap = { version = "4", features = ["derive", "env"] }

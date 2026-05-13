@@ -68,6 +68,26 @@ pub struct Cli {
     )]
     pub no_context_files: bool,
 
+    #[cfg(feature = "loop")]
+    #[arg(long = "loop", help = "Run in headless loop mode (requires --loop-prompt or message)")]
+    pub loop_mode: bool,
+
+    #[cfg(feature = "loop")]
+    #[arg(long = "loop-prompt", help = "Prompt for each loop iteration")]
+    pub loop_prompt: Option<String>,
+
+    #[cfg(feature = "loop")]
+    #[arg(long = "loop-plan", help = "Plan file path [default: LOOP_PLAN.md]")]
+    pub loop_plan: Option<std::path::PathBuf>,
+
+    #[cfg(feature = "loop")]
+    #[arg(long = "loop-max", help = "Maximum number of iterations")]
+    pub loop_max: Option<u32>,
+
+    #[cfg(feature = "loop")]
+    #[arg(long = "loop-run", help = "Validation command to run after each iteration")]
+    pub loop_run: Option<String>,
+
     #[arg(help = "Prompt message(s)")]
     pub message: Vec<String>,
 }

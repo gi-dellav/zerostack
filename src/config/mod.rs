@@ -33,7 +33,6 @@ pub struct Config {
 }
 
 impl Config {
-    #[allow(dead_code)]
     pub fn custom_providers_map(&self) -> HashMap<String, CustomProviderConfig> {
         self.custom_providers.clone().unwrap_or_default()
     }

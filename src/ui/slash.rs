@@ -141,6 +141,7 @@ pub fn handle_slash(
     todo_tools_enabled: &mut bool,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
+    #[cfg(feature = "loop")] loop_state: &mut Option<crate::extras::r#loop::LoopState>,
 ) -> anyhow::Result<()> {
     let parts: SmallVec<[&str; 3]> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
@@ -486,6 +487,58 @@ pub fn handle_slash(
             let instr_str = instructions.clone().unwrap_or_default();
             return Err(anyhow::anyhow!("DEFER_COMPRESS:{}", instr_str));
         }
+        "/loop" => {
+            #[cfg(feature = "loop")]
+            {
+                if parts.len() < 2 || (parts.len() >= 2 && parts[1] == "status") {
+                    if let Some(ls) = loop_state {
+                        let status = if ls.active { "active" } else { "stopped" };
+                        renderer.write_line(
+                            &format!(
+                                "loop {}: {} ({})",
+                                status,
+                                ls.iteration_label(),
+                                ls.plan_file.display()
+                            ),
+                            C_AGENT,
+                        )?;
+                    } else {
+                        renderer.write_line("no active loop", C_AGENT)?;
+                        renderer.write_line("usage: /loop <prompt>  |  /loop stop", C_RESULT)?;
+                    }
+                } else if parts[1] == "stop" {
+                    if let Some(ls) = loop_state {
+                        ls.active = false;
+                        renderer.write_line("loop stopped", C_AGENT)?;
+                    } else {
+                        renderer.write_line("no active loop", C_AGENT)?;
+                    }
+                } else {
+                    let prompt = parts[1..].join(" ");
+                    if prompt.is_empty() {
+                        renderer.write_line("usage: /loop <prompt>", C_ERROR)?;
+                        return Ok(());
+                    }
+                    let plan_file = std::path::PathBuf::from("LOOP_PLAN.md");
+                    let ls = crate::extras::r#loop::LoopState::new(
+                        prompt, plan_file, None, None,
+                    );
+                    *loop_state = Some(ls);
+                    *is_running = true;
+                    renderer.write_line(
+                        "loop started — iteration 1 will run after this message",
+                        C_AGENT,
+                    )?;
+                }
+            }
+            #[cfg(not(feature = "loop"))]
+            {
+                renderer.write_line(
+                    "/loop requires the 'loop' feature: cargo build --features loop",
+                    C_ERROR,
+                )?;
+            }
+        }
         "/quit" => {
             *is_running = false;
             return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "quit").into());
@@ -556,6 +609,15 @@ pub fn handle_slash(
                 "  /compress [instr]      compress with custom instructions",
                 C_RESULT,
             )?;
+            #[cfg(feature = "loop")]
+            {
+                let _ = renderer.write_line("  /loop [prompt]         start iterative coding loop", C_RESULT);
+                let _ = renderer.write_line("  /loop stop             stop the loop", C_RESULT);
+            }
+            #[cfg(not(feature = "loop"))]
+            {
+                let _ = renderer.write_line("  /loop [prompt]         start iterative coding loop (req. 'loop' feature)", C_RESULT);
+            }
             renderer.write_line("  /quit                  exit zerostack", C_RESULT)?;
             renderer.write_line("  /help                  show this message", C_RESULT)?;
             renderer.write_line("", C_AGENT)?;

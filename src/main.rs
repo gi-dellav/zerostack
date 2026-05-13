@@ -3,6 +3,7 @@ mod cli;
 mod config;
 mod context;
 mod event;
+mod extras;
 mod permission;
 mod provider;
 mod session;
@@ -113,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
         session = session::storage::load_session(session_id)?;
     }
 
-    let client = provider::create_client(&provider, cli.api_key.as_deref(), &Default::default())?;
+    let client = provider::create_client(&provider, cli.api_key.as_deref(), &cfg.custom_providers_map())?;
 
     let (permission, ask_tx, ask_rx) = build_permission_checker(&cli, &cfg);
 
@@ -146,6 +147,21 @@ async fn main() -> anyhow::Result<()> {
             session::storage::save_session(&session)?;
         }
     } else {
+        #[cfg(feature = "loop")]
+        if cli.loop_mode {
+            let model = client.completion_model(model.to_string());
+            let agent = provider::build_agent(
+                model,
+                &cli,
+                &cfg,
+                &context,
+                false,
+                permission,
+                ask_tx,
+            );
+            return run_headless_loop(agent, &cli, &cfg, &context).await;
+        }
+
         let agent = provider::build_agent(
             completion_model,
             &cli,
@@ -179,6 +195,120 @@ async fn main() -> anyhow::Result<()> {
             ask_rx,
         )
         .await?;
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "loop")]
+async fn run_headless_loop(
+    agent: crate::provider::AnyAgent,
+    cli: &cli::Cli,
+    _cfg: &config::Config,
+    _context: &context::ContextFiles,
+) -> anyhow::Result<()> {
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    use crate::extras::r#loop as loop_mod;
+
+    let prompt = cli
+        .loop_prompt
+        .clone()
+        .or_else(|| {
+            let msg = cli.message.join(" ");
+            if msg.is_empty() {
+                None
+            } else {
+                Some(msg)
+            }
+        })
+        .ok_or_else(|| {
+            anyhow::anyhow!("No loop prompt. Use --loop-prompt or pass a message.")
+        })?;
+
+    let plan_file = cli
+        .loop_plan
+        .clone()
+        .unwrap_or_else(|| PathBuf::from("LOOP_PLAN.md"));
+    let max_iterations = cli.loop_max;
+    let run_cmd = cli.loop_run.clone();
+    let session_id = Uuid::new_v4().to_string();
+
+    let use_existing = loop_mod::plan::handle_startup(&plan_file)?;
+    if !use_existing {
+        // No plan exists — agent will generate one on first iteration
+    }
+
+    let mut state = loop_mod::LoopState::new(prompt, plan_file, max_iterations, run_cmd);
+
+    loop {
+        state.iteration += 1;
+
+        if state.should_stop() {
+            eprintln!(
+                "[loop] max iterations ({}) reached, stopping",
+                state.iteration
+            );
+            break;
+        }
+
+        let iteration_prompt = state.build_prompt();
+
+        eprintln!("=== {} ===", state.iteration_label());
+        eprintln!();
+
+        let response = match agent.run_print(&iteration_prompt).await {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("[loop] error in iteration {}: {}", state.iteration, e);
+                break;
+            }
+        };
+
+        let summary: String = response.chars().take(300).collect();
+        state.last_summary = Some(summary.clone());
+
+        let validation_output = if let Some(cmd) = &state.run_cmd {
+            eprintln!("--- Validation: {} ---", cmd);
+            match tokio::process::Command::new("sh")
+                .arg("-c")
+                .arg(cmd)
+                .output()
+                .await
+            {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                    let combined = if stderr.is_empty() {
+                        stdout
+                    } else {
+                        format!("{}\n{}", stdout, stderr)
+                    };
+                    eprintln!("{}", combined);
+                    Some(combined)
+                }
+                Err(e) => {
+                    let msg = format!("error: {}", e);
+                    eprintln!("{}", msg);
+                    Some(msg)
+                }
+            }
+        } else {
+            None
+        };
+        state.last_run_output = validation_output.clone();
+
+        let _ = loop_mod::transcript::save_iteration(
+            &session_id,
+            state.iteration,
+            &iteration_prompt,
+            &response,
+            validation_output.as_deref(),
+            &summary,
+        );
+
+        eprintln!("--- iteration {} complete, looping ---\n", state.iteration);
     }
 
     Ok(())

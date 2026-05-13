@@ -13,7 +13,7 @@ fn fmt_tokens(n: u64) -> String {
 }
 
 impl StatusLine {
-    pub fn render(session: &Session, is_running: bool, _spinner_tick: u64) -> String {
+    pub fn render(session: &Session, is_running: bool, _spinner_tick: u64, loop_label: Option<&str>) -> String {
         let state = if is_running { "running" } else { "ready" };
         let dir = session
             .working_dir
@@ -37,11 +37,17 @@ impl StatusLine {
             format!(" cmp:{}", session.compactions.len())
         };
 
+        let loop_badge = match loop_label {
+            Some(label) => format!(" [{}]", label),
+            None => String::new(),
+        };
+
         format!(
-            "{}{} | {} | {}/{} ({}%) | {}msgs | {}{}",
+            "{}{} | {}{} | {}/{} ({}%) | {}msgs | {}{}",
             dir,
             cost_str,
             session.model,
+            loop_badge,
             fmt_tokens(used),
             fmt_tokens(ctx),
             pct,

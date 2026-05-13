@@ -88,6 +88,12 @@ impl Tool for EditTool {
     }
 
     async fn call(&self, args: EditArgs) -> Result<String, ToolError> {
+        if args.old_text.is_empty() {
+            return Err(ToolError::Msg(
+                "old_text must not be empty. Provide the exact text to replace.".to_string(),
+            ));
+        }
+
         check_perm_path(&self.permission, &self.ask_tx, "edit", &args.path).await?;
 
         let bytes = tokio::fs::read(&args.path).await?;
@@ -169,5 +175,29 @@ impl Tool for EditTool {
             ));
         }
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_rejects_empty_old_text() {
+        let tool = EditTool::new(None, None);
+        let args = EditArgs {
+            path: "/tmp/test.txt".to_string(),
+            old_text: String::new(),
+            new_text: "replacement".to_string(),
+            replace_all: None,
+        };
+        let result = tool.call(args).await;
+        assert!(result.is_err());
+        match result {
+            Err(ToolError::Msg(msg)) => {
+                assert!(msg.contains("old_text must not be empty"), "unexpected msg: {msg}");
+            }
+            _ => panic!("expected ToolError::Msg"),
+        }
     }
 }
