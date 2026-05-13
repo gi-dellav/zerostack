@@ -7,6 +7,182 @@ use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use crossterm::terminal::Clear;
 use crossterm::ExecutableCommand;
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backspace_empty_query() {
+        let mut picker = FilePicker::new();
+        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
+        // backspace on empty query should not panic
+        picker.backspace();
+        assert!(picker.query.is_empty());
+        assert_eq!(picker.cursor, 0);
+    }
+
+    #[test]
+    fn test_char_input_and_backspace_ascii() {
+        let mut picker = FilePicker::new();
+        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
+        picker.char_input('a');
+        picker.char_input('b');
+        picker.char_input('c');
+        assert_eq!(picker.query, "abc");
+        assert_eq!(picker.cursor, 3);
+
+        picker.backspace();
+        assert_eq!(picker.query, "ab");
+        assert_eq!(picker.cursor, 2);
+
+        picker.backspace();
+        assert_eq!(picker.query, "a");
+        assert_eq!(picker.cursor, 1);
+
+        picker.backspace();
+        assert_eq!(picker.query, "");
+        assert_eq!(picker.cursor, 0);
+
+        // backspace at empty should be no-op
+        picker.backspace();
+        assert_eq!(picker.query, "");
+        assert_eq!(picker.cursor, 0);
+    }
+
+    #[test]
+    fn test_char_input_and_backspace_unicode() {
+        let mut picker = FilePicker::new();
+        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
+
+        // Multi-byte UTF-8: é is 2 bytes, ñ is 2 bytes
+        picker.char_input('é');
+        assert_eq!(picker.query, "é");
+        assert_eq!(picker.cursor, 1);
+
+        picker.char_input('ñ');
+        assert_eq!(picker.query, "éñ");
+        assert_eq!(picker.cursor, 2);
+
+        // Backspace should remove 'ñ' (multi-byte) without panicking
+        picker.backspace();
+        assert_eq!(picker.query, "é");
+        assert_eq!(picker.cursor, 1);
+
+        // Backspace should remove 'é' (multi-byte) without panicking
+        picker.backspace();
+        assert_eq!(picker.query, "");
+        assert_eq!(picker.cursor, 0);
+
+        // Mix ASCII and multi-byte
+        picker.char_input('a');
+        picker.char_input('é');
+        picker.char_input('b');
+        assert_eq!(picker.query, "aéb");
+        assert_eq!(picker.cursor, 3);
+
+        picker.backspace();
+        assert_eq!(picker.query, "aé");
+        assert_eq!(picker.cursor, 2);
+
+        picker.backspace();
+        assert_eq!(picker.query, "a");
+        assert_eq!(picker.cursor, 1);
+
+        picker.backspace();
+        assert_eq!(picker.query, "");
+        assert_eq!(picker.cursor, 0);
+    }
+
+    #[test]
+    fn test_mid_query_insertion_unicode() {
+        let mut picker = FilePicker::new();
+        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
+
+        // Build "ab"
+        picker.char_input('a');
+        picker.char_input('b');
+        assert_eq!(picker.query, "ab");
+        assert_eq!(picker.cursor, 2);
+
+        // Move cursor back with backspace to simulate left-arrow + insert
+        picker.backspace();
+        assert_eq!(picker.query, "a");
+        assert_eq!(picker.cursor, 1);
+
+        // Insert multi-byte char in middle (simulating cursor positioning)
+        // This tests that nth(1) on "a" gives byte_pos = 1 (end of string)
+        picker.char_input('é');
+        assert_eq!(picker.query, "aé");
+        assert_eq!(picker.cursor, 2);
+
+        // Insert 'c' at the end
+        picker.char_input('c');
+        assert_eq!(picker.query, "aéc");
+        assert_eq!(picker.cursor, 3);
+
+        // Remove from the end (multi-byte in middle)
+        picker.backspace();
+        assert_eq!(picker.query, "aé");
+        assert_eq!(picker.cursor, 2);
+
+        picker.backspace();
+        assert_eq!(picker.query, "a");
+        assert_eq!(picker.cursor, 1);
+    }
+
+    #[test]
+    fn test_deactivate_and_reactivate() {
+        let mut picker = FilePicker::new();
+        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
+        picker.char_input('h');
+        picker.char_input('i');
+        assert_eq!(picker.query, "hi");
+
+        picker.deactivate();
+        assert!(!picker.active);
+
+        picker.activate();
+        assert!(picker.active);
+        assert_eq!(picker.query, "");
+        assert_eq!(picker.cursor, 0);
+    }
+
+    #[test]
+    fn test_backspace_cursor_never_negative() {
+        let mut picker = FilePicker::new();
+        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
+        // Multiple backspaces on empty should keep cursor at 0
+        for _ in 0..10 {
+            picker.backspace();
+        }
+        assert_eq!(picker.cursor, 0);
+        assert!(picker.query.is_empty());
+    }
+
+    #[test]
+    fn test_emoji_handling() {
+        let mut picker = FilePicker::new();
+        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
+
+        // Emoji: "🔥" is 4 bytes in UTF-8
+        picker.char_input('🔥');
+        assert_eq!(picker.query, "🔥");
+        assert_eq!(picker.cursor, 1);
+
+        picker.char_input('x');
+        assert_eq!(picker.query, "🔥x");
+        assert_eq!(picker.cursor, 2);
+
+        picker.backspace();
+        assert_eq!(picker.query, "🔥");
+        assert_eq!(picker.cursor, 1);
+
+        picker.backspace();
+        assert_eq!(picker.query, "");
+        assert_eq!(picker.cursor, 0);
+    }
+}
+
 pub struct FilePicker {
     pub active: bool,
     pub query: String,
@@ -91,15 +267,29 @@ impl FilePicker {
     }
 
     pub fn char_input(&mut self, c: char) {
-        self.query.insert(self.cursor, c);
+        // Convert char-index cursor to byte index for String::insert
+        let byte_pos = self
+            .query
+            .char_indices()
+            .nth(self.cursor)
+            .map(|(i, _)| i)
+            .unwrap_or(self.query.len());
+        self.query.insert(byte_pos, c);
         self.cursor += 1;
         self.filter();
     }
 
     pub fn backspace(&mut self) {
-        if self.cursor > 0 {
+        if self.cursor > 0 && !self.query.is_empty() {
             self.cursor -= 1;
-            self.query.remove(self.cursor);
+            // Convert char-index cursor to byte index for String::remove
+            let byte_pos = self
+                .query
+                .char_indices()
+                .nth(self.cursor)
+                .map(|(i, _)| i)
+                .unwrap_or(self.query.len());
+            self.query.remove(byte_pos);
             self.filter();
         }
     }
@@ -141,6 +331,12 @@ impl FilePicker {
 
     pub fn selected_path(&self) -> Option<&PathBuf> {
         self.matches.get(self.selected)
+    }
+
+    #[cfg(test)]
+    pub fn test_set_cache(&mut self, files: Vec<PathBuf>) {
+        *self.file_cache.lock().unwrap() = files;
+        self.cache_loading = false;
     }
 
     pub fn draw(&self) -> std::io::Result<()> {
