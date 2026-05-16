@@ -1,5 +1,5 @@
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Component, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crossterm::ExecutableCommand;
@@ -369,7 +369,7 @@ fn walk_files(root: &str) -> Vec<PathBuf> {
         }
         if path
             .components()
-            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+            .any(|c| matches!(c, Component::Normal(n) if n.to_string_lossy().starts_with('.')))
         {
             continue;
         }
@@ -380,7 +380,7 @@ fn walk_files(root: &str) -> Vec<PathBuf> {
             .to_string();
         let rel = rel.trim_start_matches('/').to_string();
         files.push(PathBuf::from(rel));
-        if files.len() >= 20 {
+        if files.len() >= 200 {
             break;
         }
     }

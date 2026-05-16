@@ -70,6 +70,14 @@ impl InputEditor {
                 }
                 true
             }
+            KeyCode::Up => {
+                picker.select_prev();
+                true
+            }
+            KeyCode::Down => {
+                picker.select_next();
+                true
+            }
             KeyCode::Enter => {
                 if let Some(path) = picker.selected_path() {
                     let path_str = path.to_string_lossy().to_string();
