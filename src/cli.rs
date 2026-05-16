@@ -27,7 +27,7 @@ pub struct Cli {
     #[arg(long = "model", env = "ZS_MODEL", help = "Model name")]
     pub model: Option<String>,
 
-    #[arg(long = "api-key", help = "API key for the provider")]
+    #[arg(long = "api-key", help = "API key for the provider (WARNING: visible to other users via ps/htop; prefer env vars)")]
     pub api_key: Option<String>,
 
     #[arg(long = "max-tokens", help = "Maximum tokens in response")]
