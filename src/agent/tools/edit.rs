@@ -195,7 +195,10 @@ mod tests {
         assert!(result.is_err());
         match result {
             Err(ToolError::Msg(msg)) => {
-                assert!(msg.contains("old_text must not be empty"), "unexpected msg: {msg}");
+                assert!(
+                    msg.contains("old_text must not be empty"),
+                    "unexpected msg: {msg}"
+                );
             }
             _ => panic!("expected ToolError::Msg"),
         }

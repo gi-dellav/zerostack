@@ -310,44 +310,19 @@ pub fn build_agent(
 ) -> AnyAgent {
     match model {
         AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(builder::build_agent_inner(
-            m,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
+            m, cli, cfg, context, permission, ask_tx,
         )),
         AnyModel::OpenAI(m) => AnyAgent::OpenAI(builder::build_agent_inner(
-            m,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
+            m, cli, cfg, context, permission, ask_tx,
         )),
         AnyModel::Anthropic(m) => AnyAgent::Anthropic(builder::build_agent_inner(
-            m,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
+            m, cli, cfg, context, permission, ask_tx,
         )),
         AnyModel::Gemini(m) => AnyAgent::Gemini(builder::build_agent_inner(
-            m,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
+            m, cli, cfg, context, permission, ask_tx,
         )),
         AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_agent_inner(
-            m,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
+            m, cli, cfg, context, permission, ask_tx,
         )),
     }
 }

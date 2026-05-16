@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use include_dir::{include_dir, Dir};
+use include_dir::{Dir, include_dir};
 
 static EMBEDDED: Dir = include_dir!("$CARGO_MANIFEST_DIR/prompts");
 
@@ -17,13 +17,15 @@ pub fn load() -> HashMap<String, String> {
             && let Some(name) = file.path().file_stem().and_then(|s| s.to_str())
             && let Some(content) = file.contents_utf8()
         {
-            prompts.entry(name.to_string()).or_insert_with(|| content.to_string());
+            prompts
+                .entry(name.to_string())
+                .or_insert_with(|| content.to_string());
         }
     }
 
     let global = global_prompts_dir();
-    if global.exists() {
-        if let Ok(entries) = std::fs::read_dir(&global) {
+    if global.exists()
+        && let Ok(entries) = std::fs::read_dir(&global) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().is_some_and(|e| e == "md")
@@ -34,11 +36,10 @@ pub fn load() -> HashMap<String, String> {
                 }
             }
         }
-    }
 
     let local = PathBuf::from("prompts");
-    if local.exists() {
-        if let Ok(entries) = std::fs::read_dir(&local) {
+    if local.exists()
+        && let Ok(entries) = std::fs::read_dir(&local) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().is_some_and(|e| e == "md")
@@ -49,7 +50,6 @@ pub fn load() -> HashMap<String, String> {
                 }
             }
         }
-    }
 
     prompts
 }

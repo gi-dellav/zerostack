@@ -102,14 +102,8 @@ pub async fn handle_compress(
     session.compress(summary, cut_idx, tokens_before);
 
     let model = client.completion_model(session.model.to_string());
-    *agent = crate::provider::build_agent(
-        model,
-        cli,
-        cfg,
-        context,
-        permission.clone(),
-        ask_tx.clone(),
-    );
+    *agent =
+        crate::provider::build_agent(model, cli, cfg, context, permission.clone(), ask_tx.clone());
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
@@ -402,9 +396,7 @@ pub fn handle_slash(
                         return Ok(());
                     }
                     let plan_file = std::path::PathBuf::from("LOOP_PLAN.md");
-                    let ls = crate::extras::r#loop::LoopState::new(
-                        prompt, plan_file, None, None,
-                    );
+                    let ls = crate::extras::r#loop::LoopState::new(prompt, plan_file, None, None);
                     *loop_state = Some(ls);
                     *is_running = true;
                     renderer.write_line(
@@ -470,15 +462,9 @@ pub fn handle_slash(
                         permission.clone(),
                         ask_tx.clone(),
                     );
-                    renderer.write_line(
-                        &format!("active prompt: {}", name),
-                        C_AGENT,
-                    )?;
+                    renderer.write_line(&format!("active prompt: {}", name), C_AGENT)?;
                 } else {
-                    renderer.write_line(
-                        &format!("unknown prompt: '{}'", name),
-                        C_ERROR,
-                    )?;
+                    renderer.write_line(&format!("unknown prompt: '{}'", name), C_ERROR)?;
                     if !sorted.is_empty() {
                         renderer.write_line("available prompts:", C_AGENT)?;
                         for p in &sorted {
@@ -496,7 +482,10 @@ pub fn handle_slash(
             }
             let name = parts[1].trim();
             if name.is_empty() || name.contains(' ') || name.contains('/') {
-                renderer.write_line("invalid name: use a single word without spaces or slashes", C_ERROR)?;
+                renderer.write_line(
+                    "invalid name: use a single word without spaces or slashes",
+                    C_ERROR,
+                )?;
                 return Ok(());
             }
 
@@ -541,7 +530,10 @@ pub fn handle_slash(
                 match crate::extras::git_worktree::default_branch(&info.main_repo_path) {
                     Some(b) => b,
                     None => {
-                        renderer.write_line("no target branch specified and couldn't detect main/master", C_ERROR)?;
+                        renderer.write_line(
+                            "no target branch specified and couldn't detect main/master",
+                            C_ERROR,
+                        )?;
                         return Ok(());
                     }
                 }
@@ -550,12 +542,19 @@ pub fn handle_slash(
             let main_path = info.main_repo_path.display();
             let wt_path = info.worktree_path.display();
             renderer.write_line(
-                &format!("merging '{}' into '{}' in {}...", info.branch, target, repo_name),
+                &format!(
+                    "merging '{}' into '{}' in {}...",
+                    info.branch, target, repo_name
+                ),
                 C_AGENT,
             )?;
             return Err(anyhow::anyhow!(
                 "DEFER_WT_MERGE:{}:{}:{}:{}:{}",
-                info.branch, target, main_path, wt_path, repo_name
+                info.branch,
+                target,
+                main_path,
+                wt_path,
+                repo_name
             ));
         }
         #[cfg(feature = "git-worktree")]
@@ -568,26 +567,22 @@ pub fn handle_slash(
                 }
             };
             let main_path = info.main_repo_path.display();
-            renderer.write_line(
-                &format!("returning to main repo at {}", main_path),
-                C_AGENT,
-            )?;
+            renderer.write_line(&format!("returning to main repo at {}", main_path), C_AGENT)?;
             return Err(anyhow::anyhow!(
                 "DEFER_WT_EXIT:{}:{}",
-                main_path, info.worktree_path.display()
+                main_path,
+                info.worktree_path.display()
             ));
         }
-        "/regen-prompts" => {
-            match crate::context::prompts::regen() {
-                Ok(()) => {
-                    context.prompts = crate::context::prompts::load();
-                    renderer.write_line("default prompts regenerated", C_AGENT)?;
-                }
-                Err(e) => {
-                    renderer.write_line(&format!("failed to regenerate prompts: {}", e), C_ERROR)?;
-                }
+        "/regen-prompts" => match crate::context::prompts::regen() {
+            Ok(()) => {
+                context.prompts = crate::context::prompts::load();
+                renderer.write_line("default prompts regenerated", C_AGENT)?;
             }
-        }
+            Err(e) => {
+                renderer.write_line(&format!("failed to regenerate prompts: {}", e), C_ERROR)?;
+            }
+        },
         "/quit" => {
             *is_running = false;
             return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "quit").into());
@@ -659,12 +654,18 @@ pub fn handle_slash(
             )?;
             #[cfg(feature = "loop")]
             {
-                let _ = renderer.write_line("  /loop [prompt]         start iterative coding loop", C_RESULT);
+                let _ = renderer.write_line(
+                    "  /loop [prompt]         start iterative coding loop",
+                    C_RESULT,
+                );
                 let _ = renderer.write_line("  /loop stop             stop the loop", C_RESULT);
             }
             #[cfg(not(feature = "loop"))]
             {
-                let _ = renderer.write_line("  /loop [prompt]         start iterative coding loop (req. 'loop' feature)", C_RESULT);
+                let _ = renderer.write_line(
+                    "  /loop [prompt]         start iterative coding loop (req. 'loop' feature)",
+                    C_RESULT,
+                );
             }
             renderer.write_line("  /prompt                list available prompts", C_RESULT)?;
             renderer.write_line("  /prompt <name>         activate a prompt", C_RESULT)?;
@@ -687,7 +688,10 @@ pub fn handle_slash(
                 "  mouse drag             select text (copies to clipboard on release)",
                 C_RESULT,
             )?;
-            renderer.write_line("  Esc (while selected)   clear selection (no copy)", C_RESULT)?;
+            renderer.write_line(
+                "  Esc (while selected)   clear selection (no copy)",
+                C_RESULT,
+            )?;
             renderer.write_line("  Ctrl+R                 toggle reasoning", C_RESULT)?;
             renderer.write_line("  Ctrl+C                 interrupt/quit", C_RESULT)?;
             renderer.write_line("  mouse scroll           scroll chat", C_RESULT)?;

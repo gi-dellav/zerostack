@@ -187,8 +187,8 @@ pub async fn run_interactive(
                         continue;
                     }
                     UserEvent::MouseDown { row, col: _ } => {
-                        if row < renderer.visible_lines() as u16 {
-                            if let Some(idx) = renderer.buffer_line_at_row(row) {
+                        if row < renderer.visible_lines() as u16
+                            && let Some(idx) = renderer.buffer_line_at_row(row) {
                                 renderer.selection_active = true;
                                 renderer.selection_start = Some(idx);
                                 renderer.selection_end = Some(idx);
@@ -199,12 +199,11 @@ pub async fn run_interactive(
                                     is_running,
                                 )?;
                             }
-                        }
                         continue;
                     }
                     UserEvent::MouseDrag { row, col: _ } => {
-                        if renderer.selection_active {
-                            if let Some(idx) = renderer.buffer_line_at_row(row) {
+                        if renderer.selection_active
+                            && let Some(idx) = renderer.buffer_line_at_row(row) {
                                 renderer.selection_end = Some(idx);
                                 renderer.render_viewport()?;
                                 renderer.draw_bottom(
@@ -213,7 +212,6 @@ pub async fn run_interactive(
                                     is_running,
                                 )?;
                             }
-                        }
                         continue;
                     }
                     UserEvent::MouseUp { row, col: _ } => {
@@ -348,8 +346,8 @@ pub async fn run_interactive(
                             _ => {}
                         }
 
-                        if input.picker.as_ref().is_some_and(|p| p.active) {
-                            if input.handle_picker_key(key) {
+                        if input.picker.as_ref().is_some_and(|p| p.active)
+                            && input.handle_picker_key(key) {
                                 renderer.render_viewport()?;
                                 renderer.draw_bottom(
                                     &input.buffer, input.cursor,
@@ -361,7 +359,6 @@ pub async fn run_interactive(
                                 }
                                 continue;
                             }
-                        }
 
                         if let Some(text) = input.handle_key(key) {
                             #[cfg(feature = "loop")]
@@ -721,23 +718,20 @@ pub async fn run_interactive(
                 let decision = loop {
                     tokio::select! {
                         Some(ev) = user_rx.recv() => {
-                            match ev {
-                                UserEvent::Key(key) => {
-                                    match key.code {
-                                        KeyCode::Char('y') => break UserDecision::AllowOnce,
-                                        KeyCode::Char('a') => {
-                                            let pattern = suggest_pattern(&ask_req.tool, &ask_req.input);
-                                            renderer.write_line(
-                                                &format!("  -> will allow: {}", pattern),
-                                                Color::Green,
-                                            )?;
-                                            break UserDecision::AllowAlways(pattern);
-                                        }
-                                        KeyCode::Char('n') | KeyCode::Esc => break UserDecision::Deny,
-                                        _ => {}
+                            if let UserEvent::Key(key) = ev {
+                                match key.code {
+                                    KeyCode::Char('y') => break UserDecision::AllowOnce,
+                                    KeyCode::Char('a') => {
+                                        let pattern = suggest_pattern(&ask_req.tool, &ask_req.input);
+                                        renderer.write_line(
+                                            &format!("  -> will allow: {}", pattern),
+                                            Color::Green,
+                                        )?;
+                                        break UserDecision::AllowAlways(pattern);
                                     }
+                                    KeyCode::Char('n') | KeyCode::Esc => break UserDecision::Deny,
+                                    _ => {}
                                 }
-                                _ => {}
                             }
                         }
                     }
@@ -806,7 +800,7 @@ fn suggest_pattern(tool: &str, input: &str) -> String {
                 .parent()
                 .map(|p| p.to_string_lossy())
                 .unwrap_or(std::borrow::Cow::Borrowed("*"));
-            if parent == "" {
+            if parent.is_empty() {
                 "**".to_string()
             } else {
                 format!("{}/*", parent)

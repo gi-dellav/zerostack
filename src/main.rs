@@ -68,12 +68,11 @@ async fn main() -> anyhow::Result<()> {
     let cfg = config::load();
     let mut context = context::load(cli.resolve_no_context_files(&cfg));
 
-    if let Some(default) = &cfg.default_prompt {
-        if let Some(content) = context.prompts.get(default.as_str()) {
+    if let Some(default) = &cfg.default_prompt
+        && let Some(content) = context.prompts.get(default.as_str()) {
             context.current_prompt = Some(content.clone());
             context.current_prompt_name = Some(default.clone());
         }
-    }
 
     let provider = cli.resolve_provider(&cfg);
     let model = cli.resolve_model(&cfg);
@@ -121,7 +120,11 @@ async fn main() -> anyhow::Result<()> {
         session = session::storage::load_session(session_id)?;
     }
 
-    let client = provider::create_client(&provider, cli.api_key.as_deref(), &cfg.custom_providers_map())?;
+    let client = provider::create_client(
+        &provider,
+        cli.api_key.as_deref(),
+        &cfg.custom_providers_map(),
+    )?;
 
     let (permission, ask_tx, ask_rx) = build_permission_checker(&cli, &cfg);
 
@@ -137,14 +140,8 @@ async fn main() -> anyhow::Result<()> {
     let completion_model = client.completion_model(model.to_string());
 
     if cli.print {
-        let agent = provider::build_agent(
-            completion_model,
-            &cli,
-            &cfg,
-            &context,
-            permission,
-            ask_tx,
-        );
+        let agent =
+            provider::build_agent(completion_model, &cli, &cfg, &context, permission, ask_tx);
         let msg = cli.message.join(" ");
         let response = agent.run_print(&msg).await?;
         if !cli.no_session {
@@ -156,14 +153,7 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(feature = "loop")]
         if cli.loop_mode {
             let model = client.completion_model(model.to_string());
-            let agent = provider::build_agent(
-                model,
-                &cli,
-                &cfg,
-                &context,
-                permission,
-                ask_tx,
-            );
+            let agent = provider::build_agent(model, &cli, &cfg, &context, permission, ask_tx);
             return run_headless_loop(agent, &cli, &cfg, &context).await;
         }
 
@@ -176,12 +166,11 @@ async fn main() -> anyhow::Result<()> {
             ask_tx.clone(),
         );
 
-        if !cli.resolve_no_tools(&cfg) {
-            if let Some(perm) = &permission {
+        if !cli.resolve_no_tools(&cfg)
+            && let Some(perm) = &permission {
                 let mode = resolve_mode(&cli, &cfg);
                 perm.lock().unwrap().set_mode(mode);
             }
-        }
 
         let initial_msg = cli.message.join(" ");
         if !initial_msg.is_empty() {
@@ -221,15 +210,9 @@ async fn run_headless_loop(
         .clone()
         .or_else(|| {
             let msg = cli.message.join(" ");
-            if msg.is_empty() {
-                None
-            } else {
-                Some(msg)
-            }
+            if msg.is_empty() { None } else { Some(msg) }
         })
-        .ok_or_else(|| {
-            anyhow::anyhow!("No loop prompt. Use --loop-prompt or pass a message.")
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("No loop prompt. Use --loop-prompt or pass a message."))?;
 
     let plan_file = cli
         .loop_plan

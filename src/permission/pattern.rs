@@ -36,11 +36,10 @@ fn expand_home(pattern: &str) -> String {
         }
         return pattern.to_string();
     }
-    if let Some(rest) = pattern.strip_prefix("$HOME/") {
-        if let Some(home) = dirs::home_dir() {
+    if let Some(rest) = pattern.strip_prefix("$HOME/")
+        && let Some(home) = dirs::home_dir() {
             return format!("{}/{}", home.to_string_lossy(), rest);
         }
-    }
     pattern.to_string()
 }
 

@@ -13,7 +13,12 @@ fn fmt_tokens(n: u64) -> String {
 }
 
 impl StatusLine {
-    pub fn render(session: &Session, is_running: bool, _spinner_tick: u64, loop_label: Option<&str>) -> String {
+    pub fn render(
+        session: &Session,
+        is_running: bool,
+        _spinner_tick: u64,
+        loop_label: Option<&str>,
+    ) -> String {
         let state = if is_running { "running" } else { "ready" };
         let dir = session
             .working_dir

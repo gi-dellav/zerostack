@@ -69,7 +69,10 @@ pub struct Cli {
     pub no_context_files: bool,
 
     #[cfg(feature = "loop")]
-    #[arg(long = "loop", help = "Run in headless loop mode (requires --loop-prompt or message)")]
+    #[arg(
+        long = "loop",
+        help = "Run in headless loop mode (requires --loop-prompt or message)"
+    )]
     pub loop_mode: bool,
 
     #[cfg(feature = "loop")]
@@ -85,7 +88,10 @@ pub struct Cli {
     pub loop_max: Option<u32>,
 
     #[cfg(feature = "loop")]
-    #[arg(long = "loop-run", help = "Validation command to run after each iteration")]
+    #[arg(
+        long = "loop-run",
+        help = "Validation command to run after each iteration"
+    )]
     pub loop_run: Option<String>,
 
     #[arg(help = "Prompt message(s)")]

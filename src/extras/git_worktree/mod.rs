@@ -33,16 +33,15 @@ pub fn detect() -> Option<WorktreeInfo> {
         return None;
     }
 
-    let main_repo_path: PathBuf = Path::new(&common_dir)
-        .parent()
-        .map(|p| p.to_path_buf())?;
+    let main_repo_path: PathBuf = Path::new(&common_dir).parent().map(|p| p.to_path_buf())?;
     let main_repo_path = main_repo_path.canonicalize().ok()?;
 
     let branch = current_branch().unwrap_or_default();
 
     Some(WorktreeInfo {
         branch,
-        worktree_path: worktree_path.parent()
+        worktree_path: worktree_path
+            .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or(worktree_path),
         main_repo_path,
@@ -91,17 +90,21 @@ pub fn create(name: &str) -> Result<(PathBuf, WorktreeInfo), String> {
         return Err(format!("git worktree add failed: {}", stderr.trim()));
     }
 
-    let wt_path = PathBuf::from(&target).canonicalize()
+    let wt_path = PathBuf::from(&target)
+        .canonicalize()
         .map_err(|e| format!("failed to resolve worktree path: {}", e))?;
 
-    let main_repo = std::env::current_dir()
-        .map_err(|e| format!("failed to get current dir: {}", e))?;
+    let main_repo =
+        std::env::current_dir().map_err(|e| format!("failed to get current dir: {}", e))?;
 
-    Ok((wt_path.clone(), WorktreeInfo {
-        branch: name.to_string(),
-        worktree_path: wt_path,
-        main_repo_path: main_repo,
-    }))
+    Ok((
+        wt_path.clone(),
+        WorktreeInfo {
+            branch: name.to_string(),
+            worktree_path: wt_path,
+            main_repo_path: main_repo,
+        },
+    ))
 }
 
 pub fn repo_name(path: &Path) -> String {
