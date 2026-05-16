@@ -63,4 +63,4 @@ For existing prompts, include a concise note of behavioral changes.
 
 ## Formatting
 
-Prefer Markdown lists over tables when formatting structured information.
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**

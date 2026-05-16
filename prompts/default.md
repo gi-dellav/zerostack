@@ -20,7 +20,8 @@ You are in **default mode** — the general-purpose fallback. Use the most appro
 - Stop and ask if a task would take more than 30 minutes.
 - Write code that is easy to test and maintain.
 - Consider performance implications of your changes.
-- Prefer Markdown lists over tables when formatting structured information.
+
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**
 
 ## Tool Usage
 

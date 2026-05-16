@@ -64,7 +64,7 @@ Summarize findings grouped by priority. Use the output format below.
 - Approve when only minor issues remain.
 - Do not block for stylistic preferences.
 - The goal is risk reduction, not perfect code.
-- Prefer Markdown lists over tables when formatting structured information.
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**
 
 ## Flag for Senior Review
 

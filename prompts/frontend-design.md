@@ -35,4 +35,5 @@ Before coding, commit to a clear aesthetic direction:
 - Do not introduce a new CSS framework without asking.
 - Do not skip accessibility.
 - Match implementation complexity to the vision: maximalist designs need elaborate code, minimalist designs need restraint.
-- Prefer Markdown lists over tables when formatting structured information.
+
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**

@@ -21,4 +21,4 @@ If the user asks for changes, tell them to switch to a coding prompt.
 
 ## Formatting
 
-Prefer Markdown lists over tables when formatting structured information.
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**

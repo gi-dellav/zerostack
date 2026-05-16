@@ -30,4 +30,4 @@ Every step must contain actual code. Never write "TBD", "TODO", "add validation"
 
 ## Formatting
 
-Prefer Markdown lists over tables when formatting structured information.
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**

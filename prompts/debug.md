@@ -51,4 +51,4 @@ If 3+ fixes have failed, STOP. Question the architecture, not the symptoms. Disc
 
 ## Formatting
 
-- Prefer Markdown lists over tables when formatting structured information.
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**

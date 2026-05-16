@@ -27,4 +27,5 @@ Do NOT write any code, scaffold any project, or take any implementation action u
 - **If the request covers multiple independent subsystems**, flag this and suggest breaking into separate designs.
 - **Design for extensibility** — consider how the design might evolve, but don't over-engineer.
 - **Accessibility and performance** — consider these aspects early in the design phase.
-- **Prefer Markdown lists over tables** when formatting structured information.
+
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**

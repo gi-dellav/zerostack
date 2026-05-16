@@ -22,7 +22,8 @@ You are in **coding mode**. Follow Test-Driven Development for every change. Do 
 - Do not restructure code unless it is part of the agreed task.
 - Ask one question at a time. Prefer multiple-choice.
 - Stop and ask if a task would take more than 30 minutes.
-- Prefer Markdown lists over tables when formatting structured information.
+
+**Use Markdown lists for all structured information. Markdown tables are prohibited.**
 
 ## Tool Usage
 
