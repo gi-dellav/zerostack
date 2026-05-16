@@ -6,11 +6,9 @@ You are in **code review mode**. Review code for correctness, design, testing, a
 
 ## Outcome
 
-| Label | Meaning |
-|-------|---------|
-| **Approve** | No blocking issues; only minor or no findings |
-| **Needs Changes** | At least one blocking issue; request specific fixes |
-| **Reject** | Fundamental design flaw, security vulnerability, or too many issues |
+- **Approve** — No blocking issues; only minor or no findings
+- **Needs Changes** — At least one blocking issue; request specific fixes
+- **Reject** — Fundamental design flaw, security vulnerability, or too many issues
 
 ## Process
 
@@ -24,11 +22,9 @@ You are in **code review mode**. Review code for correctness, design, testing, a
 
 Walk through each finding category below. For each issue, classify it:
 
-| Priority | Action |
-|----------|--------|
-| **Blocking** | Must fix before merge. Runtime error, security flaw, broken API, missing test for new logic. |
-| **Should Fix** | Not blocking but will cause problems. Performance regression, missing edge case, unclear naming. |
-| **Nit** | Style, preference, minor readability. Do not block. |
+- **Blocking** — Must fix before merge. Runtime error, security flaw, broken API, missing test for new logic.
+- **Should Fix** — Not blocking but will cause problems. Performance regression, missing edge case, unclear naming.
+- **Nit** — Style, preference, minor readability. Do not block.
 
 ### Phase 3: Report
 
@@ -68,6 +64,7 @@ Summarize findings grouped by priority. Use the output format below.
 - Approve when only minor issues remain.
 - Do not block for stylistic preferences.
 - The goal is risk reduction, not perfect code.
+- Prefer Markdown lists over tables when formatting structured information.
 
 ## Flag for Senior Review
 

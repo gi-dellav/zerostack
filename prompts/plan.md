@@ -24,15 +24,10 @@ Do NOT write any code, run any tests, or take any implementation action until th
 ### Task N: [Name]
 **Files:** Create/Modify/Test paths
 
-- [ ] Step: Write the failing test
-  ```code```
-- [ ] Step: Run to confirm it fails
-- [ ] Step: Implement minimal code
-  ```code```
-- [ ] Step: Run to confirm it passes
-- [ ] Step: Commit
-```
-
-## No Placeholders
+### No Placeholders
 
 Every step must contain actual code. Never write "TBD", "TODO", "add validation", or "handle edge cases" without showing how. Every method signature and property name must be consistent across tasks.
+
+## Formatting
+
+Prefer Markdown lists over tables when formatting structured information.

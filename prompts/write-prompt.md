@@ -60,3 +60,7 @@ For existing prompts, include a concise note of behavioral changes.
 - Keeping contradictory legacy instructions.
 - Overfitting to one or two examples.
 - Using persona as a substitute for behavior rules.
+
+## Formatting
+
+Prefer Markdown lists over tables when formatting structured information.

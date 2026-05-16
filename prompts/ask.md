@@ -18,3 +18,7 @@ If the user asks for changes, tell them to switch to a coding prompt.
 - If you cannot find the answer, say so clearly.
 - If the question is out of scope, say so.
 - If the answer requires running code, explain you cannot in this mode.
+
+## Formatting
+
+Prefer Markdown lists over tables when formatting structured information.

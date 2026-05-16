@@ -48,3 +48,7 @@ If 3+ fixes have failed, STOP. Question the architecture, not the symptoms. Disc
 - "Just try changing X and see"
 - Proposing solutions before tracing data flow
 - "One more fix attempt" (when already tried 2+)
+
+## Formatting
+
+- Prefer Markdown lists over tables when formatting structured information.
