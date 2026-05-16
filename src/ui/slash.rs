@@ -13,6 +13,8 @@ use crate::session::{MessageRole, Session};
 use crate::ui::events::{format_time, render_session};
 use crate::ui::input::InputEditor;
 use crate::ui::renderer::Renderer;
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 
 const C_AGENT: Color = Color::White;
 const C_RESULT: Color = Color::DarkGrey;
@@ -54,6 +56,7 @@ pub async fn handle_compress(
     context: &mut ContextFiles,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
+    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> anyhow::Result<()> {
     renderer.write_line("compressing...", C_AGENT)?;
     renderer.write_line("", Color::White)?;
@@ -102,8 +105,16 @@ pub async fn handle_compress(
     session.compress(summary, cut_idx, tokens_before);
 
     let model = client.completion_model(session.model.to_string());
-    *agent =
-        crate::provider::build_agent(model, cli, cfg, context, permission.clone(), ask_tx.clone());
+    *agent = crate::provider::build_agent(
+        model,
+        cli,
+        cfg,
+        context,
+        permission.clone(),
+        ask_tx.clone(),
+                        #[cfg(feature = "mcp")] mcp_manager,
+                    ).await;
+                    renderer.write_line("prompt cleared (back to default behavior)", C_AGENT)?;
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
@@ -118,7 +129,7 @@ pub async fn handle_compress(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn handle_slash(
+pub async fn handle_slash(
     text: &str,
     agent: &mut AnyAgent,
     client: &AnyClient,
@@ -132,7 +143,9 @@ pub fn handle_slash(
     input: &mut InputEditor,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
+    todo_tools_enabled: &mut bool,
     #[cfg(feature = "loop")] loop_state: &mut Option<crate::extras::r#loop::LoopState>,
+    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> anyhow::Result<()> {
     let parts: SmallVec<[&str; 3]> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
@@ -149,7 +162,8 @@ pub fn handle_slash(
                     context,
                     permission.clone(),
                     ask_tx.clone(),
-                );
+                    #[cfg(feature = "mcp")] mcp_manager,
+                ).await;
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
                 renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
@@ -349,20 +363,74 @@ pub fn handle_slash(
                         }
                     }
                     _ => {
-                        renderer.write_line(&format!("unknown mode: {}", parts[1]), C_ERROR)?;
+                        renderer.write_line(
+                            &format!("unknown mode: {}", parts[1]),
+                            C_ERROR,
+                        )?;
                     }
                 }
             }
         }
-        "/compress" | "/compact" => {
-            let instructions = if parts.len() > 1 {
-                Some(parts[1..].join(" "))
+        "/toggle" => {
+            if parts.len() < 2 {
+                renderer.write_line("usage: /toggle <feature> [on|off]", C_AGENT)?;
+                renderer.write_line("features:", C_AGENT)?;
+                renderer.write_line(
+                    &format!("  todo  {}", if *todo_tools_enabled { "on" } else { "off" }),
+                    C_RESULT,
+                )?;
             } else {
-                None
-            };
-            let instr_str = instructions.clone().unwrap_or_default();
-            return Err(anyhow::anyhow!("DEFER_COMPRESS:{}", instr_str));
+                let new_state = match parts.get(2).copied() {
+                    Some("on") => true,
+                    Some("off") => false,
+                    Some(other) => {
+                        renderer.write_line(
+                            &format!("invalid: '{}', use on or off", other),
+                            C_ERROR,
+                        )?;
+                        return Ok(());
+                    }
+                    None => !*todo_tools_enabled,
+                };
+                if new_state == *todo_tools_enabled {
+                    renderer.write_line(
+                        &format!(
+                            "todo tools already {}",
+                            if new_state { "on" } else { "off" }
+                        ),
+                        C_AGENT,
+                    )?;
+                } else {
+                    *todo_tools_enabled = new_state;
+                    let model = client.completion_model(session.model.to_string());
+                    *agent = crate::provider::build_agent(
+                        model,
+                        cli,
+                        cfg,
+                        context,
+                        permission.clone(),
+                        ask_tx.clone(),
+                        #[cfg(feature = "mcp")] mcp_manager,
+                    ).await;
+                    renderer.write_line(
+                        &format!(
+                            "todo tools: {}",
+                            if *todo_tools_enabled { "on" } else { "off" }
+                        ),
+                        C_AGENT,
+                    )?;
+                }
+            }
         }
+        "/compress" | "/compact" => {
+                        let instructions = if parts.len() > 1 {
+                            Some(parts[1..].join(" "))
+                        } else {
+                            None
+                        };
+                        let instr_str = instructions.clone().unwrap_or_default();
+                        return Err(anyhow::anyhow!("DEFER_COMPRESS:{}", instr_str));
+                    }
         "/loop" => {
             #[cfg(feature = "loop")]
             {
@@ -445,8 +513,8 @@ pub fn handle_slash(
                         context,
                         permission.clone(),
                         ask_tx.clone(),
-                    );
-                    renderer.write_line("prompt cleared (back to default behavior)", C_AGENT)?;
+                        #[cfg(feature = "mcp")] mcp_manager,
+                    ).await;
                 }
             } else {
                 let name = parts[1].trim();
@@ -461,7 +529,8 @@ pub fn handle_slash(
                         context,
                         permission.clone(),
                         ask_tx.clone(),
-                    );
+                        #[cfg(feature = "mcp")] mcp_manager,
+                    ).await;
                     renderer.write_line(&format!("active prompt: {}", name), C_AGENT)?;
                 } else {
                     renderer.write_line(&format!("unknown prompt: '{}'", name), C_ERROR)?;
@@ -503,7 +572,8 @@ pub fn handle_slash(
                         context,
                         permission.clone(),
                         ask_tx.clone(),
-                    );
+                        #[cfg(feature = "mcp")] mcp_manager,
+                    ).await;
                     render_session(renderer, session, cli, cfg, context)?;
                     renderer.write_line(
                         &format!("worktree created: branch '{}' at {}", name, path.display()),

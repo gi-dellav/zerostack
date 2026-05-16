@@ -3,3 +3,6 @@ pub mod r#loop;
 
 #[cfg(feature = "git-worktree")]
 pub mod git_worktree;
+
+#[cfg(feature = "mcp")]
+pub mod mcp;

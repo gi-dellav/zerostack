@@ -25,6 +25,8 @@ use crate::ui::renderer::{Renderer, copy_to_clipboard};
 use crate::ui::slash::{handle_compress, handle_slash};
 use crate::ui::status::StatusLine;
 use crate::ui::terminal::TerminalGuard;
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 
 const C_AGENT: Color = Color::White;
 const C_ERROR: Color = Color::Red;
@@ -92,6 +94,7 @@ pub async fn run_interactive(
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
     mut ask_rx: Option<AskReceiver>,
+    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> anyhow::Result<()> {
     let _guard = TerminalGuard::new()?;
 
@@ -102,6 +105,7 @@ pub async fn run_interactive(
     let mut agent_line_started = false;
     let mut show_reasoning = true;
     let mut was_reasoning = false;
+    let mut todo_tools_enabled = false;
     #[allow(unused_mut)]
     let mut loop_label: Option<String> = None;
     #[cfg(feature = "loop")]
@@ -381,7 +385,7 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), Color::Green)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &permission, &ask_tx, #[cfg(feature = "loop")] &mut loop_state);
+                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &permission, &ask_tx, &mut todo_tools_enabled, #[cfg(feature = "loop")] &mut loop_state, #[cfg(feature = "mcp")] mcp_manager).await;
                                 match result {
                                 Err(e) if e.to_string().starts_with("DEFER_COMPRESS:") => {
                                     let err_msg = e.to_string();
@@ -393,6 +397,7 @@ pub async fn run_interactive(
                                             instructions.as_deref(),
                                             &mut agent, &client, &mut renderer, session, cli, cfg, context,
                                             &permission, &ask_tx,
+                                            #[cfg(feature = "mcp")] mcp_manager,
                                         ).await;
                                         if let Err(e) = compress_result {
                                             renderer.write_line(&format!("compress error: {}", e), C_ERROR)?;
@@ -442,7 +447,8 @@ pub async fn run_interactive(
                                                 context,
                                                 permission.clone(),
                                                 ask_tx.clone(),
-                                            );
+                                                #[cfg(feature = "mcp")] mcp_manager,
+                                            ).await;
                                             render_session(&mut renderer, session, cli, cfg, context)?;
                                             renderer.write_line(
                                                 &format!("returned to main repo at {}", main_path),
@@ -597,6 +603,7 @@ pub async fn run_interactive(
                                 None,
                                 &mut agent, &client, &mut renderer, session, cli, cfg, context,
                                 &permission, &ask_tx,
+                                #[cfg(feature = "mcp")] mcp_manager,
                             ).await;
                             if let Err(e) = compress_result {
                                 renderer.write_line(&format!("auto-compact error: {}", e), C_ERROR)?;
@@ -658,7 +665,8 @@ pub async fn run_interactive(
                                         context,
                                         permission.clone(),
                                         ask_tx.clone(),
-                                    );
+                                        #[cfg(feature = "mcp")] mcp_manager,
+                                    ).await;
                                     render_session(&mut renderer, session, cli, cfg, context)?;
                                     renderer.write_line(
                                         &format!("merged and returned to main repo at {}", main_path),

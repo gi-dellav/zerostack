@@ -126,6 +126,17 @@ async fn main() -> anyhow::Result<()> {
         &cfg.custom_providers_map(),
     )?;
 
+    #[cfg(feature = "mcp")]
+    let mcp_manager = if let Some(servers) = &cfg.mcp_servers {
+        if !cli.resolve_no_tools(&cfg) {
+            Some(extras::mcp::McpClientManager::connect_all(servers).await)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let (permission, ask_tx, ask_rx) = build_permission_checker(&cli, &cfg);
 
     if let Some(perm) = &permission {
@@ -140,8 +151,15 @@ async fn main() -> anyhow::Result<()> {
     let completion_model = client.completion_model(model.to_string());
 
     if cli.print {
-        let agent =
-            provider::build_agent(completion_model, &cli, &cfg, &context, permission, ask_tx);
+        let agent = provider::build_agent(
+            completion_model,
+            &cli,
+            &cfg,
+            &context,
+            permission,
+            ask_tx,
+            #[cfg(feature = "mcp")] mcp_manager.as_ref(),
+        ).await;
         let msg = cli.message.join(" ");
         let response = agent.run_print(&msg).await?;
         if !cli.no_session {
@@ -153,7 +171,15 @@ async fn main() -> anyhow::Result<()> {
         #[cfg(feature = "loop")]
         if cli.loop_mode {
             let model = client.completion_model(model.to_string());
-            let agent = provider::build_agent(model, &cli, &cfg, &context, permission, ask_tx);
+            let agent = provider::build_agent(
+                model,
+                &cli,
+                &cfg,
+                &context,
+                permission,
+                ask_tx,
+                #[cfg(feature = "mcp")] mcp_manager.as_ref(),
+            ).await;
             return run_headless_loop(agent, &cli, &cfg, &context).await;
         }
 
@@ -164,7 +190,8 @@ async fn main() -> anyhow::Result<()> {
             &context,
             permission.clone(),
             ask_tx.clone(),
-        );
+            #[cfg(feature = "mcp")] mcp_manager.as_ref(),
+        ).await;
 
         if !cli.resolve_no_tools(&cfg)
             && let Some(perm) = &permission {
@@ -186,8 +213,14 @@ async fn main() -> anyhow::Result<()> {
             permission,
             ask_tx,
             ask_rx,
+            #[cfg(feature = "mcp")] mcp_manager.as_ref(),
         )
         .await?;
+    }
+
+    #[cfg(feature = "mcp")]
+    if let Some(mgr) = mcp_manager {
+        mgr.shutdown().await;
     }
 
     Ok(())

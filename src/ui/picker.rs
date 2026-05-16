@@ -190,7 +190,6 @@ pub struct FilePicker {
     pub matches: Vec<PathBuf>,
     pub selected: usize,
     file_cache: Arc<Mutex<Vec<PathBuf>>>,
-    cache_loading: bool,
 }
 
 impl FilePicker {
@@ -202,7 +201,6 @@ impl FilePicker {
             matches: Vec::new(),
             selected: 0,
             file_cache: Arc::new(Mutex::new(Vec::new())),
-            cache_loading: false,
         }
     }
 
@@ -212,11 +210,8 @@ impl FilePicker {
         self.cursor = 0;
         self.matches.clear();
         self.selected = 0;
-        if !self.file_cache.lock().unwrap().is_empty() {
-            self.filter();
-        } else if !self.cache_loading {
-            self.load_files();
-        }
+        self.load_files();
+        self.filter();
     }
 
     pub fn deactivate(&mut self) {
@@ -224,47 +219,8 @@ impl FilePicker {
     }
 
     fn load_files(&mut self) {
-        if self.cache_loading {
-            return;
-        }
-        self.cache_loading = true;
-
-        let cache = self.file_cache.clone();
-        std::thread::spawn(move || {
-            let mut files = Vec::new();
-            let walker = ignore::WalkBuilder::new(".")
-                .hidden(false)
-                .git_ignore(true)
-                .max_depth(Some(8))
-                .sort_by_file_name(|a, b| a.cmp(b))
-                .build();
-
-            for entry in walker.flatten() {
-                let path = entry.path();
-                if !path.is_file() {
-                    continue;
-                }
-                if path
-                    .components()
-                    .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
-                {
-                    continue;
-                }
-                let rel = path
-                    .strip_prefix(".")
-                    .unwrap_or(path)
-                    .to_string_lossy()
-                    .to_string();
-                let rel = rel.trim_start_matches('/').to_string();
-                files.push(PathBuf::from(rel));
-                if files.len() >= 10_000 {
-                    break;
-                }
-            }
-
-            let mut cache = cache.lock().unwrap();
-            *cache = files;
-        });
+        let files = walk_files(".");
+        *self.file_cache.lock().unwrap() = files;
     }
 
     pub fn char_input(&mut self, c: char) {
@@ -337,7 +293,6 @@ impl FilePicker {
     #[cfg(test)]
     pub fn test_set_cache(&mut self, files: Vec<PathBuf>) {
         *self.file_cache.lock().unwrap() = files;
-        self.cache_loading = false;
     }
 
     pub fn draw(&self) -> std::io::Result<()> {
@@ -353,13 +308,7 @@ impl FilePicker {
             let r = rows.saturating_sub(3);
             stdout.execute(MoveTo(0, r))?;
             write!(stdout, "{}", SetForegroundColor(Color::DarkGrey))?;
-            let cache_empty = self.file_cache.lock().unwrap().is_empty();
-            let msg = if cache_empty && self.cache_loading {
-                "loading files..."
-            } else {
-                "no matches"
-            };
-            write!(stdout, "{}", msg)?;
+            write!(stdout, "{}", "no matches")?;
             write!(stdout, "{}", ResetColor)?;
             stdout.flush()?;
             return Ok(());
@@ -402,4 +351,38 @@ impl FilePicker {
         stdout.flush()?;
         Ok(())
     }
+}
+
+fn walk_files(root: &str) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(false)
+        .git_ignore(true)
+        .max_depth(Some(8))
+        .sort_by_file_name(|a, b| a.cmp(b))
+        .build();
+
+    for entry in walker.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if path
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().starts_with('.'))
+        {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+        let rel = rel.trim_start_matches('/').to_string();
+        files.push(PathBuf::from(rel));
+        if files.len() >= 20 {
+            break;
+        }
+    }
+    files
 }

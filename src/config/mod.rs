@@ -32,6 +32,8 @@ pub struct Config {
     pub yolo: Option<bool>,
     pub show_tool_details: Option<bool>,
     pub default_prompt: Option<String>,
+    #[cfg(feature = "mcp")]
+    pub mcp_servers: Option<std::collections::HashMap<String, crate::extras::mcp::config::McpServerConfig>>,
 }
 
 impl Config {

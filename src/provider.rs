@@ -15,6 +15,8 @@ use crate::context::ContextFiles;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
 use crate::session::SessionMessage;
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ProviderKind {
@@ -300,29 +302,35 @@ pub fn create_client(
     }
 }
 
-pub fn build_agent(
+pub async fn build_agent(
     model: AnyModel,
     cli: &Cli,
     cfg: &Config,
     context: &ContextFiles,
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
+    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> AnyAgent {
     match model {
         AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(builder::build_agent_inner(
             m, cli, cfg, context, permission, ask_tx,
-        )),
+            #[cfg(feature = "mcp")] mcp_manager,
+        ).await),
         AnyModel::OpenAI(m) => AnyAgent::OpenAI(builder::build_agent_inner(
             m, cli, cfg, context, permission, ask_tx,
-        )),
+            #[cfg(feature = "mcp")] mcp_manager,
+        ).await),
         AnyModel::Anthropic(m) => AnyAgent::Anthropic(builder::build_agent_inner(
             m, cli, cfg, context, permission, ask_tx,
-        )),
+            #[cfg(feature = "mcp")] mcp_manager,
+        ).await),
         AnyModel::Gemini(m) => AnyAgent::Gemini(builder::build_agent_inner(
             m, cli, cfg, context, permission, ask_tx,
-        )),
+            #[cfg(feature = "mcp")] mcp_manager,
+        ).await),
         AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_agent_inner(
             m, cli, cfg, context, permission, ask_tx,
-        )),
+            #[cfg(feature = "mcp")] mcp_manager,
+        ).await),
     }
 }
