@@ -60,6 +60,14 @@ impl PermissionChecker {
             rules.insert(tool_name.to_string(), entries);
         }
 
+        if !rules.contains_key("bash") {
+            let mut defaults = Vec::new();
+            for (pat, action) in crate::permission::default_bash_rules() {
+                defaults.push((Pattern::new(pat), action));
+            }
+            rules.insert("bash".to_string(), defaults);
+        }
+
         let ext_dir_rules = config
             .external_directory
             .as_ref()
@@ -159,7 +167,7 @@ impl PermissionChecker {
             return CheckResult::Allowed;
         }
 
-        let abs_path = resolve_absolute(path);
+        let abs_path = resolve_absolute(path, &self.working_dir);
         let mut matched: Vec<Action> = Vec::new();
         if let Some(rules) = self.rules.get(tool) {
             for (pattern, action) in rules {
@@ -190,6 +198,12 @@ impl PermissionChecker {
             },
             SecurityMode::Standard => base,
             SecurityMode::Yolo => unreachable!(),
+        };
+
+        let action = if matched.is_empty() && action == Action::Allow && self.is_external_path(&abs_path) {
+            Action::Ask
+        } else {
+            action
         };
 
         if action != Action::Deny {
@@ -291,13 +305,12 @@ impl PermissionChecker {
     }
 }
 
-fn resolve_absolute(path: &str) -> String {
+fn resolve_absolute(path: &str, working_dir: &str) -> String {
     let p = Path::new(path);
     if p.is_absolute() {
         p.to_string_lossy().to_string()
     } else {
-        std::env::current_dir()
-            .unwrap_or_default()
+        Path::new(working_dir)
             .join(p)
             .to_string_lossy()
             .to_string()

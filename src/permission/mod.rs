@@ -54,3 +54,45 @@ impl std::fmt::Display for SecurityMode {
         }
     }
 }
+
+pub fn default_bash_rules() -> Vec<(&'static str, Action)> {
+    vec![
+        ("ls **", Action::Allow),
+        ("cd **", Action::Allow),
+        ("pwd", Action::Allow),
+        ("echo **", Action::Allow),
+        ("which **", Action::Allow),
+        ("type **", Action::Allow),
+        ("cat **", Action::Allow),
+        ("head **", Action::Allow),
+        ("tail **", Action::Allow),
+        ("wc **", Action::Allow),
+        ("sort **", Action::Allow),
+        ("uniq **", Action::Allow),
+        ("cut **", Action::Allow),
+        ("diff **", Action::Allow),
+        ("grep **", Action::Allow),
+        ("find **", Action::Allow),
+        ("git status", Action::Allow),
+        ("git log **", Action::Allow),
+        ("git diff **", Action::Allow),
+        ("git show **", Action::Allow),
+        ("git branch **", Action::Allow),
+        ("cargo check", Action::Allow),
+        ("cargo build", Action::Allow),
+        ("cargo test", Action::Allow),
+        ("cargo fmt", Action::Allow),
+        ("cargo clippy", Action::Allow),
+        ("mkdir **", Action::Allow),
+        ("touch **", Action::Allow),
+        ("npm run **", Action::Allow),
+        ("pip list", Action::Allow),
+        ("pip show **", Action::Allow),
+        ("rm -rf /**", Action::Deny),
+        ("sudo rm -rf /**", Action::Deny),
+        ("dd **", Action::Deny),
+        ("mkfs **", Action::Deny),
+        ("fdisk **", Action::Deny),
+        ("mkswap **", Action::Deny),
+    ]
+}

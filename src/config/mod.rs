@@ -33,6 +33,7 @@ pub struct Config {
     pub restrictive: Option<bool>,
     pub accept_all: Option<bool>,
     pub yolo: Option<bool>,
+    pub default_permission_mode: Option<String>,
     pub show_tool_details: Option<bool>,
     pub default_prompt: Option<String>,
     #[cfg(feature = "mcp")]

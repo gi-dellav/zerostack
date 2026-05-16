@@ -13,12 +13,14 @@ fn fmt_tokens(n: u64) -> String {
 }
 
 impl StatusLine {
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         session: &Session,
         is_running: bool,
         _spinner_tick: u64,
         loop_label: Option<&str>,
         prompt_name: Option<&str>,
+        perm_mode: Option<&str>,
     ) -> String {
         let state = if is_running { "running" } else { "ready" };
         let dir = session
@@ -53,8 +55,13 @@ impl StatusLine {
             None => String::new(),
         };
 
+        let perm_badge = match perm_mode {
+            Some(m) if m != "standard" => format!(" | mode:{}", m),
+            _ => String::new(),
+        };
+
         format!(
-            "{}{} | {}{} | {}/{} ({}%) | {}msgs | {}{}{}",
+            "{}{} | {}{} | {}/{} ({}%) | {}msgs | {}{}{}{}",
             dir,
             cost_str,
             session.model,
@@ -66,6 +73,7 @@ impl StatusLine {
             state,
             compact_badge,
             prompt_badge,
+            perm_badge,
         )
     }
 }

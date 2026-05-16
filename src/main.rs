@@ -23,6 +23,13 @@ fn resolve_mode(cli: &cli::Cli, cfg: &config::Config) -> SecurityMode {
         SecurityMode::Accept
     } else if cli.restrictive || cfg.restrictive.unwrap_or(false) {
         SecurityMode::Restrictive
+    } else if let Some(m) = &cfg.default_permission_mode {
+        match m.as_str() {
+            "yolo" => SecurityMode::Yolo,
+            "accept" => SecurityMode::Accept,
+            "restrictive" => SecurityMode::Restrictive,
+            _ => SecurityMode::Standard,
+        }
     } else {
         SecurityMode::Standard
     }
