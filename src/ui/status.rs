@@ -18,6 +18,7 @@ impl StatusLine {
         is_running: bool,
         _spinner_tick: u64,
         loop_label: Option<&str>,
+        prompt_name: Option<&str>,
     ) -> String {
         let state = if is_running { "running" } else { "ready" };
         let dir = session
@@ -47,8 +48,13 @@ impl StatusLine {
             None => String::new(),
         };
 
+        let prompt_badge = match prompt_name {
+            Some(name) => format!(" [{}]", name),
+            None => String::new(),
+        };
+
         format!(
-            "{}{} | {}{} | {}/{} ({}%) | {}msgs | {}{}",
+            "{}{} | {}{} | {}/{} ({}%) | {}msgs | {}{}{}",
             dir,
             cost_str,
             session.model,
@@ -59,6 +65,7 @@ impl StatusLine {
             session.messages.len(),
             state,
             compact_badge,
+            prompt_badge,
         )
     }
 }

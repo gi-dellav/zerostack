@@ -68,11 +68,11 @@ async fn main() -> anyhow::Result<()> {
     let cfg = config::load();
     let mut context = context::load(cli.resolve_no_context_files(&cfg));
 
-    if let Some(default) = &cfg.default_prompt
-        && let Some(content) = context.prompts.get(default.as_str()) {
-            context.current_prompt = Some(content.clone());
-            context.current_prompt_name = Some(default.clone());
-        }
+    let default_prompt = cfg.default_prompt.as_deref().unwrap_or("code");
+    if let Some(content) = context.prompts.get(default_prompt) {
+        context.current_prompt = Some(content.clone());
+        context.current_prompt_name = Some(default_prompt.to_string());
+    }
 
     let provider = cli.resolve_provider(&cfg);
     let model = cli.resolve_model(&cfg);

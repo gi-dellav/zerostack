@@ -420,7 +420,7 @@ pub fn handle_slash(
                 if sorted.is_empty() {
                     renderer.write_line("no prompts available", C_AGENT)?;
                 } else {
-                    let current = context.current_prompt.as_deref().unwrap_or("(none)");
+                    let current = context.current_prompt_name.as_deref().unwrap_or("(none)");
                     renderer.write_line(
                         &format!("available prompts (current: {}):", current),
                         C_AGENT,
@@ -674,6 +674,21 @@ pub fn handle_slash(
                 "  /regen-prompts        restore built-in prompts to global dir",
                 C_RESULT,
             )?;
+            #[cfg(feature = "git-worktree")]
+            {
+                let _ = renderer.write_line(
+                    "  /worktree <name>       create a git worktree on <name> branch and cd into it",
+                    C_RESULT,
+                );
+                let _ = renderer.write_line(
+                    "  /wt-merge [branch]     merge worktree branch into [branch] (default: main/master)",
+                    C_RESULT,
+                );
+                let _ = renderer.write_line(
+                    "  /wt-exit               exit worktree and return to main repo",
+                    C_RESULT,
+                );
+            }
             renderer.write_line("  /quit                  exit zerostack", C_RESULT)?;
             renderer.write_line("  /help                  show this message", C_RESULT)?;
             renderer.write_line("", C_AGENT)?;
