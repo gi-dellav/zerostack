@@ -7,9 +7,9 @@ use crossterm::style::{Attribute, Color, ResetColor, SetAttribute, SetForeground
 use crossterm::terminal::{Clear, ClearType, ScrollUp};
 
 #[derive(Clone)]
-struct LineEntry {
-    text: CompactString,
-    color: Color,
+pub struct LineEntry {
+    pub text: CompactString,
+    pub color: Color,
 }
 
 pub struct Renderer {
@@ -20,6 +20,7 @@ pub struct Renderer {
     partial: CompactString,
     partial_color: Color,
     scroll_offset: usize,
+    input_scroll_offset: usize,
     pub selection_active: bool,
     pub selection_start: Option<usize>,
     pub selection_end: Option<usize>,
@@ -35,6 +36,7 @@ impl Renderer {
             partial: CompactString::new(""),
             partial_color: Color::White,
             scroll_offset: 0,
+            input_scroll_offset: 0,
             selection_active: false,
             selection_start: None,
             selection_end: None,
@@ -48,6 +50,28 @@ impl Renderer {
     fn max_line_width(&self) -> usize {
         let (cols, _) = self.terminal_size();
         cols.saturating_sub(1) as usize
+    }
+
+    pub fn line_width(&self) -> usize {
+        self.max_line_width()
+    }
+
+    pub fn buffer_len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    pub fn replace_from(&mut self, start: usize, lines: Vec<LineEntry>) {
+        self.commit_partial();
+        self.buffer.truncate(start);
+        self.buffer.extend(lines);
+        self.lines = self.buffer.len() as u16;
+        self.col = 0;
+        self.partial.clear();
+        let visible = self.visible_lines();
+        let max_offset = self.buffer.len().saturating_sub(visible);
+        if self.scroll_offset > max_offset {
+            self.scroll_offset = max_offset;
+        }
     }
 
     pub fn visible_lines(&self) -> usize {
@@ -422,11 +446,23 @@ impl Renderer {
         write!(stdout, "{}", SetForegroundColor(Color::Cyan))?;
         write!(stdout, "{}", prompt)?;
         write!(stdout, "{}", ResetColor)?;
-        let truncated: String = input_line
+        let visible_width = cols.saturating_sub(2) as usize;
+        let input_len = input_line.len();
+
+        if cursor_pos < self.input_scroll_offset {
+            self.input_scroll_offset = cursor_pos;
+        } else if cursor_pos >= self.input_scroll_offset + visible_width {
+            self.input_scroll_offset = cursor_pos - visible_width + 1;
+        }
+        let max_scroll = input_len.saturating_sub(visible_width);
+        self.input_scroll_offset = self.input_scroll_offset.min(max_scroll);
+
+        let visible: String = input_line
             .chars()
-            .take(cols.saturating_sub(2) as usize)
+            .skip(self.input_scroll_offset)
+            .take(visible_width)
             .collect();
-        write!(stdout, "{}", truncated)?;
+        write!(stdout, "{}", visible)?;
 
         stdout.execute(MoveTo(0, status_row))?;
         write!(stdout, "{}", " ".repeat(cols as usize))?;
@@ -441,7 +477,7 @@ impl Renderer {
         write!(stdout, "{}", truncated)?;
         write!(stdout, "{}", ResetColor)?;
 
-        let cursor_x = (2 + cursor_pos.min(input_line.len())) as u16;
+        let cursor_x = (2 + cursor_pos.saturating_sub(self.input_scroll_offset)) as u16;
         stdout.execute(MoveTo(cursor_x, input_row))?;
         stdout.flush()?;
         Ok(())

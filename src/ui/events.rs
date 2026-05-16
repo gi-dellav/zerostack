@@ -6,6 +6,7 @@ use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
 use crate::session::{MessageRole, Session};
+use crate::ui::markdown;
 use crate::ui::renderer::Renderer;
 
 pub fn format_time(rfc3339: &str) -> CompactString {
@@ -61,13 +62,24 @@ pub fn render_session(
         renderer.write_line("", Color::White)?;
     }
     for msg in &session.messages {
-        let (prefix, c) = match msg.role {
+        let (prefix, _c) = match msg.role {
             MessageRole::User => (">", Color::Green),
             MessageRole::Assistant => ("<", Color::White),
             MessageRole::System => ("#", Color::DarkGrey),
         };
-        for line in msg.content.lines() {
-            renderer.write_line(&format!("{} {}", prefix, line), c)?;
+        if msg.role == MessageRole::Assistant {
+            let max_width = renderer.line_width();
+            let mut styled = markdown::markdown_to_styled(&msg.content, max_width);
+            if !styled.is_empty() {
+                styled[0].text = CompactString::from(format!("{} {}", prefix, styled[0].text));
+            }
+            for entry in styled {
+                renderer.write_line(&entry.text, entry.color)?;
+            }
+        } else {
+            for line in msg.content.lines() {
+                renderer.write_line(&format!("{} {}", prefix, line), _c)?;
+            }
         }
         renderer.write_line("", Color::White)?;
     }

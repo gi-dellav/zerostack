@@ -1,5 +1,6 @@
 mod events;
 mod input;
+mod markdown;
 mod picker;
 mod renderer;
 mod slash;
@@ -9,6 +10,7 @@ mod terminal;
 use crossterm::event;
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use crossterm::style::Color;
+use compact_str::CompactString;
 use tokio::sync::mpsc;
 
 use crate::cli::Cli;
@@ -103,6 +105,8 @@ pub async fn run_interactive(
     let mut is_running = false;
     let mut agent_rx: Option<mpsc::Receiver<AgentEvent>> = None;
     let mut agent_line_started = false;
+    let mut response_buf = String::new();
+    let mut response_start_line: Option<usize> = None;
     let mut show_reasoning = true;
     let mut was_reasoning = false;
     let mut todo_tools_enabled = false;
@@ -535,13 +539,34 @@ pub async fn run_interactive(
                             renderer.write_line("", Color::White)?;
                             agent_line_started = false;
                             was_reasoning = false;
-                        }
-                        if !agent_line_started {
-                            renderer.write("< ", C_AGENT)?;
-                            agent_line_started = true;
+                            response_buf.clear();
+                            response_start_line = None;
                         }
                         let safe = sanitize_output(&text);
-                        renderer.write(&safe, C_AGENT)?;
+                        response_buf.push_str(&safe);
+
+                        if response_buf.is_empty() {
+                            continue;
+                        }
+
+                        let max_width = renderer.line_width();
+                        let mut styled =
+                            crate::ui::markdown::markdown_to_styled(&response_buf, max_width);
+
+                        if !styled.is_empty() {
+                            styled[0].text =
+                                CompactString::from(format!("< {}", styled[0].text));
+                        }
+
+                        if let Some(start) = response_start_line {
+                            renderer.replace_from(start, styled);
+                        } else {
+                            let start = renderer.buffer_len();
+                            response_start_line = Some(start);
+                            renderer.replace_from(start, styled);
+                        }
+                        renderer.render_viewport()?;
+                        agent_line_started = true;
                     }
                     AgentEvent::ToolCall { name, args } => {
                         was_reasoning = false;
@@ -549,6 +574,8 @@ pub async fn run_interactive(
                             renderer.write_line("", Color::White)?;
                             agent_line_started = false;
                         }
+                        response_buf.clear();
+                        response_start_line = None;
                         let show_details = cfg.show_tool_details.unwrap_or(false);
                         let line = if show_details {
                             format_tool_call_summary(&name, &args)
@@ -578,15 +605,33 @@ pub async fn run_interactive(
                     }
                     AgentEvent::Done { response, tokens, cost } => {
                         was_reasoning = false;
-                        if !agent_line_started {
+
+                        if !response_buf.is_empty() {
+                            let max_width = renderer.line_width();
+                            let mut styled = crate::ui::markdown::markdown_to_styled(
+                                &response_buf,
+                                max_width,
+                            );
+                            if !styled.is_empty() {
+                                styled[0].text =
+                                    CompactString::from(format!("< {}", styled[0].text));
+                            }
+                            if let Some(start) = response_start_line {
+                                renderer.replace_from(start, styled);
+                                renderer.render_viewport()?;
+                            }
+                        } else if !agent_line_started {
                             renderer.write("< ", C_AGENT)?;
                         }
+
                         renderer.write_line("", Color::White)?;
                         renderer.write_line("", Color::White)?;
                         session.add_message(MessageRole::Assistant, &response);
                         session.total_tokens = session.total_tokens.saturating_add(tokens);
                         session.total_cost += cost;
                         agent_line_started = false;
+                        response_buf.clear();
+                        response_start_line = None;
 
                         #[cfg(feature = "loop")]
                         let loop_running = loop_state.as_ref().is_some_and(|ls| ls.active);
@@ -689,6 +734,8 @@ pub async fn run_interactive(
                         is_running = false;
                         agent_rx = None;
                         agent_line_started = false;
+                        response_buf.clear();
+                        response_start_line = None;
                     }
                 }
                 renderer.draw_bottom(

@@ -39,6 +39,7 @@ compact_str = { version = "0.9", features = ["serde"] }
 smallvec = "1"
 regex = "1"
 ignore = "0.4"
+pulldown-cmark = "0.13"
 include_dir = "0.7"
 http = "1"
 
