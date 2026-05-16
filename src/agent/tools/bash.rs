@@ -1,18 +1,19 @@
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
-use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
 use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm};
+use crate::sandbox::Sandbox;
 
 pub struct BashTool {
     pub permission: Option<PermCheck>,
     pub ask_tx: Option<AskSender>,
+    pub sandbox: Sandbox,
 }
 
 impl BashTool {
-    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
-        BashTool { permission, ask_tx }
+    pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>, sandbox: Sandbox) -> Self {
+        BashTool { permission, ask_tx, sandbox }
     }
 }
 
@@ -44,16 +45,12 @@ impl Tool for BashTool {
         let output = if let Some(secs) = args.timeout {
             timeout(
                 Duration::from_secs(secs),
-                Command::new("bash").arg("-c").arg(&args.command).output(),
+                self.sandbox.wrap_command(&args.command).output(),
             )
             .await
             .map_err(|_| ToolError::Msg("Command timed out".to_string()))?
         } else {
-            Command::new("bash")
-                .arg("-c")
-                .arg(&args.command)
-                .output()
-                .await
+            self.sandbox.wrap_command(&args.command).output().await
         }?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);

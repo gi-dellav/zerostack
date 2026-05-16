@@ -10,6 +10,7 @@ use crate::config::Config;
 use crate::context::ContextFiles;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
+use crate::sandbox::Sandbox;
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::McpClientManager;
 
@@ -23,6 +24,7 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     context: &ContextFiles,
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
+    sandbox: Sandbox,
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> Agent<M> {
     let mut preamble = SYSTEM_PROMPT.to_string();
@@ -60,7 +62,7 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
             Box::new(tools::ReadTool::new(permission.clone(), ask_tx.clone())),
             Box::new(tools::WriteTool::new(permission.clone(), ask_tx.clone())),
             Box::new(tools::EditTool::new(permission.clone(), ask_tx.clone())),
-            Box::new(tools::BashTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::BashTool::new(permission.clone(), ask_tx.clone(), sandbox.clone())),
             Box::new(tools::GrepTool::new(permission.clone(), ask_tx.clone())),
             Box::new(tools::FindFilesTool::new(permission.clone(), ask_tx.clone())),
             Box::new(tools::ListDirTool::new(permission.clone(), ask_tx.clone())),

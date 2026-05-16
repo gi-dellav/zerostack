@@ -9,6 +9,7 @@ use crate::permission::SecurityMode;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
 use crate::provider::{AnyAgent, AnyClient};
+use crate::sandbox::Sandbox;
 use crate::session::{MessageRole, Session};
 use crate::ui::events::{format_time, render_session};
 use crate::ui::input::InputEditor;
@@ -56,6 +57,7 @@ pub async fn handle_compress(
     context: &mut ContextFiles,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
+    sandbox: &Sandbox,
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> anyhow::Result<()> {
     renderer.write_line("compressing...", C_AGENT)?;
@@ -112,9 +114,10 @@ pub async fn handle_compress(
         context,
         permission.clone(),
         ask_tx.clone(),
-                        #[cfg(feature = "mcp")] mcp_manager,
-                    ).await;
-                    renderer.write_line("prompt cleared (back to default behavior)", C_AGENT)?;
+        sandbox.clone(),
+        #[cfg(feature = "mcp")] mcp_manager,
+    ).await;
+    renderer.write_line("prompt cleared (back to default behavior)", C_AGENT)?;
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
@@ -144,6 +147,7 @@ pub async fn handle_slash(
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
     todo_tools_enabled: &mut bool,
+    sandbox: &Sandbox,
     #[cfg(feature = "loop")] loop_state: &mut Option<crate::extras::r#loop::LoopState>,
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> anyhow::Result<()> {
@@ -162,6 +166,7 @@ pub async fn handle_slash(
                     context,
                     permission.clone(),
                     ask_tx.clone(),
+                    sandbox.clone(),
                     #[cfg(feature = "mcp")] mcp_manager,
                 ).await;
                 session.model = new_model.clone();
@@ -478,6 +483,7 @@ pub async fn handle_slash(
                         context,
                         permission.clone(),
                         ask_tx.clone(),
+                        sandbox.clone(),
                         #[cfg(feature = "mcp")] mcp_manager,
                     ).await;
                     renderer.write_line(
@@ -581,6 +587,7 @@ pub async fn handle_slash(
                         context,
                         permission.clone(),
                         ask_tx.clone(),
+                        sandbox.clone(),
                         #[cfg(feature = "mcp")] mcp_manager,
                     ).await;
                 }
@@ -597,6 +604,7 @@ pub async fn handle_slash(
                         context,
                         permission.clone(),
                         ask_tx.clone(),
+                        sandbox.clone(),
                         #[cfg(feature = "mcp")] mcp_manager,
                     ).await;
                     renderer.write_line(&format!("active prompt: {}", name), C_AGENT)?;
@@ -640,6 +648,7 @@ pub async fn handle_slash(
                         context,
                         permission.clone(),
                         ask_tx.clone(),
+                        sandbox.clone(),
                         #[cfg(feature = "mcp")] mcp_manager,
                     ).await;
                     render_session(renderer, session, cli, cfg, context)?;

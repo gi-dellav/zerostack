@@ -20,6 +20,7 @@ use crate::event::{AgentEvent, UserEvent};
 use crate::permission::ask::{AskReceiver, AskSender, UserDecision};
 use crate::permission::checker::PermCheck;
 use crate::provider::{AnyAgent, AnyClient};
+use crate::sandbox::Sandbox;
 use crate::session::{MessageRole, PermissionAllowEntry, Session};
 use crate::ui::events::{render_session, sanitize_output};
 use crate::ui::input::InputEditor;
@@ -96,6 +97,7 @@ pub async fn run_interactive(
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
     mut ask_rx: Option<AskReceiver>,
+    sandbox: Sandbox,
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> anyhow::Result<()> {
     let _guard = TerminalGuard::new()?;
@@ -393,7 +395,7 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), Color::Green)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &permission, &ask_tx, &mut todo_tools_enabled, #[cfg(feature = "loop")] &mut loop_state, #[cfg(feature = "mcp")] mcp_manager).await;
+                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &permission, &ask_tx, &mut todo_tools_enabled, &sandbox, #[cfg(feature = "loop")] &mut loop_state, #[cfg(feature = "mcp")] mcp_manager).await;
                                 match result {
                                 Err(e) if e.to_string().starts_with("DEFER_COMPRESS:") => {
                                     let err_msg = e.to_string();
@@ -404,7 +406,7 @@ pub async fn run_interactive(
                                         let compress_result = handle_compress(
                                             instructions.as_deref(),
                                             &mut agent, &client, &mut renderer, session, cli, cfg, context,
-                                            &permission, &ask_tx,
+                                            &permission, &ask_tx, &sandbox,
                                             #[cfg(feature = "mcp")] mcp_manager,
                                         ).await;
                                         if let Err(e) = compress_result {
@@ -455,6 +457,7 @@ pub async fn run_interactive(
                                                 context,
                                                 permission.clone(),
                                                 ask_tx.clone(),
+                                                sandbox.clone(),
                                                 #[cfg(feature = "mcp")] mcp_manager,
                                             ).await;
                                             render_session(&mut renderer, session, cli, cfg, context)?;
@@ -646,7 +649,7 @@ pub async fn run_interactive(
                             let compress_result = handle_compress(
                                 None,
                                 &mut agent, &client, &mut renderer, session, cli, cfg, context,
-                                &permission, &ask_tx,
+                                &permission, &ask_tx, &sandbox,
                                 #[cfg(feature = "mcp")] mcp_manager,
                             ).await;
                             if let Err(e) = compress_result {
@@ -709,6 +712,7 @@ pub async fn run_interactive(
                                         context,
                                         permission.clone(),
                                         ask_tx.clone(),
+                                        sandbox.clone(),
                                         #[cfg(feature = "mcp")] mcp_manager,
                                     ).await;
                                     render_session(&mut renderer, session, cli, cfg, context)?;

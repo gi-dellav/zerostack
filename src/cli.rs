@@ -62,6 +62,12 @@ pub struct Cli {
     pub yolo: bool,
 
     #[arg(
+        long = "sandbox",
+        help = "Run bash commands inside bubblewrap (bwrap) sandbox"
+    )]
+    pub sandbox: bool,
+
+    #[arg(
         long = "no-context-files",
         short = 'n',
         help = "Disable AGENTS.md loading"
@@ -125,5 +131,9 @@ impl Cli {
 
     pub fn resolve_no_tools(&self, cfg: &config::Config) -> bool {
         self.no_tools || cfg.no_tools.unwrap_or(false)
+    }
+
+    pub fn resolve_sandbox(&self, cfg: &config::Config) -> bool {
+        self.sandbox || cfg.sandbox.unwrap_or(false)
     }
 }

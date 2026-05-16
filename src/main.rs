@@ -6,6 +6,7 @@ mod event;
 mod extras;
 mod permission;
 mod provider;
+mod sandbox;
 mod session;
 mod ui;
 
@@ -144,6 +145,7 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    let sandbox = sandbox::Sandbox::new(cli.resolve_sandbox(&cfg));
     let (permission, ask_tx, ask_rx) = build_permission_checker(&cli, &cfg);
 
     if let Some(perm) = &permission {
@@ -165,6 +167,7 @@ async fn main() -> anyhow::Result<()> {
             &context,
             permission,
             ask_tx,
+            sandbox.clone(),
             #[cfg(feature = "mcp")] mcp_manager.as_ref(),
         ).await;
         let msg = cli.message.join(" ");
@@ -185,6 +188,7 @@ async fn main() -> anyhow::Result<()> {
                 &context,
                 permission,
                 ask_tx,
+                sandbox.clone(),
                 #[cfg(feature = "mcp")] mcp_manager.as_ref(),
             ).await;
             return run_headless_loop(agent, &cli, &cfg, &context).await;
@@ -197,6 +201,7 @@ async fn main() -> anyhow::Result<()> {
             &context,
             permission.clone(),
             ask_tx.clone(),
+            sandbox.clone(),
             #[cfg(feature = "mcp")] mcp_manager.as_ref(),
         ).await;
 
@@ -220,6 +225,7 @@ async fn main() -> anyhow::Result<()> {
             permission,
             ask_tx,
             ask_rx,
+            sandbox,
             #[cfg(feature = "mcp")] mcp_manager.as_ref(),
         )
         .await?;
