@@ -576,12 +576,7 @@ pub async fn run_interactive(
                         }
                         response_buf.clear();
                         response_start_line = None;
-                        let show_details = cfg.show_tool_details.unwrap_or(false);
-                        let line = if show_details {
-                            format_tool_call_summary(&name, &args)
-                        } else {
-                            format!("◈ {}", name)
-                        };
+                        let line = format!("◈ {}", format_tool_call_summary(&name, &args));
                         renderer.write_line(&sanitize_output(&line), C_TOOL)?;
                     }
                     AgentEvent::ToolResult { output } => {
