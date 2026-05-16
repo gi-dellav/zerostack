@@ -88,7 +88,7 @@ pub async fn run_interactive(
     cli: &Cli,
     cfg: &Config,
     session: &mut Session,
-    context: &ContextFiles,
+    context: &mut ContextFiles,
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
     mut ask_rx: Option<AskReceiver>,

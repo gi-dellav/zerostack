@@ -27,6 +27,7 @@ compact_str = { version = "0.9", features = ["serde"] }
 smallvec = "1"
 regex = "1"
 ignore = "0.4"
+include_dir = "0.7"
 
 [profile.release]
 opt-level = "z"

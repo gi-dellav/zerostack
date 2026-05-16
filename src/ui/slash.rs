@@ -51,7 +51,7 @@ pub async fn handle_compress(
     session: &mut Session,
     cli: &Cli,
     cfg: &Config,
-    context: &ContextFiles,
+    context: &mut ContextFiles,
     todo_tools_enabled: &mut bool,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
@@ -134,7 +134,7 @@ pub fn handle_slash(
     session: &mut Session,
     cli: &Cli,
     cfg: &Config,
-    context: &ContextFiles,
+    context: &mut ContextFiles,
     show_reasoning: &mut bool,
     is_running: &mut bool,
     input: &mut InputEditor,
@@ -539,6 +539,84 @@ pub fn handle_slash(
                 )?;
             }
         }
+        "/prompt" => {
+            let mut sorted: Vec<&String> = context.prompts.keys().collect();
+            sorted.sort();
+            if parts.len() < 2 {
+                if sorted.is_empty() {
+                    renderer.write_line("no prompts available", C_AGENT)?;
+                } else {
+                    let current = context.current_prompt.as_deref().unwrap_or("(none)");
+                    renderer.write_line(
+                        &format!("available prompts (current: {}):", current),
+                        C_AGENT,
+                    )?;
+                    for name in &sorted {
+                        renderer.write_line(&format!("  {}", name), C_RESULT)?;
+                    }
+                    renderer.write_line("", C_AGENT)?;
+                    renderer.write_line("usage: /prompt <name>  |  /prompt default", C_RESULT)?;
+                }
+            } else if parts[1] == "default" {
+                if context.current_prompt.is_none() {
+                    renderer.write_line("no active prompt to clear", C_AGENT)?;
+                } else {
+                    context.current_prompt = None;
+                    let model = client.completion_model(session.model.to_string());
+                    *agent = crate::provider::build_agent(
+                        model,
+                        cli,
+                        cfg,
+                        context,
+                        *todo_tools_enabled,
+                        permission.clone(),
+                        ask_tx.clone(),
+                    );
+                    renderer.write_line("prompt cleared (back to default behavior)", C_AGENT)?;
+                }
+            } else {
+                let name = parts[1].trim();
+                if let Some(content) = context.prompts.get(name) {
+                    context.current_prompt = Some(content.clone());
+                    let model = client.completion_model(session.model.to_string());
+                    *agent = crate::provider::build_agent(
+                        model,
+                        cli,
+                        cfg,
+                        context,
+                        *todo_tools_enabled,
+                        permission.clone(),
+                        ask_tx.clone(),
+                    );
+                    renderer.write_line(
+                        &format!("active prompt: {}", name),
+                        C_AGENT,
+                    )?;
+                } else {
+                    renderer.write_line(
+                        &format!("unknown prompt: '{}'", name),
+                        C_ERROR,
+                    )?;
+                    if !sorted.is_empty() {
+                        renderer.write_line("available prompts:", C_AGENT)?;
+                        for p in &sorted {
+                            renderer.write_line(&format!("  {}", p), C_RESULT)?;
+                        }
+                    }
+                }
+            }
+        }
+        "/regen-prompts" => {
+            match crate::context::prompts::regen() {
+                Ok(()) => {
+                    context.prompts = crate::context::prompts::load();
+                    renderer.write_line("default prompts regenerated", C_AGENT)?;
+                }
+                Err(e) => {
+                    renderer.write_line(&format!("failed to regenerate prompts: {}", e), C_ERROR)?;
+                }
+            }
+        }
         "/quit" => {
             *is_running = false;
             return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "quit").into());
@@ -618,6 +696,13 @@ pub fn handle_slash(
             {
                 let _ = renderer.write_line("  /loop [prompt]         start iterative coding loop (req. 'loop' feature)", C_RESULT);
             }
+            renderer.write_line("  /prompt                list available prompts", C_RESULT)?;
+            renderer.write_line("  /prompt <name>         activate a prompt", C_RESULT)?;
+            renderer.write_line("  /prompt default        clear active prompt", C_RESULT)?;
+            renderer.write_line(
+                "  /regen-prompts        restore built-in prompts to global dir",
+                C_RESULT,
+            )?;
             renderer.write_line("  /quit                  exit zerostack", C_RESULT)?;
             renderer.write_line("  /help                  show this message", C_RESULT)?;
             renderer.write_line("", C_AGENT)?;

@@ -33,6 +33,11 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
         preamble.push_str(agents);
     }
 
+    if let Some(prompt) = &context.current_prompt {
+        preamble.push_str("\n\n---\n\n");
+        preamble.push_str(prompt);
+    }
+
     // Inject current working directory so the agent knows where it is
     if let Ok(cwd) = std::env::current_dir() {
         let cwd_str = cwd.display();

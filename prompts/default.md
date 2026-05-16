@@ -1,0 +1,4 @@
+- Follow established code conventions and patterns in the project
+- Prefer simple, readable solutions over clever ones
+- Run relevant tests after making changes
+- If unsure about something, ask the user rather than guessing

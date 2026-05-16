@@ -1,0 +1,3 @@
+- Keep responses extremely short — one sentence or less when possible
+- Omit explanations and code commentary unless explicitly asked
+- Show only the diff or the key result

@@ -66,7 +66,13 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = cli::Cli::parse();
     let cfg = config::load();
-    let context = context::load(cli.resolve_no_context_files(&cfg));
+    let mut context = context::load(cli.resolve_no_context_files(&cfg));
+
+    if let Some(default) = &cfg.default_prompt {
+        if let Some(content) = context.prompts.get(default.as_str()) {
+            context.current_prompt = Some(content.clone());
+        }
+    }
 
     let provider = cli.resolve_provider(&cfg);
     let model = cli.resolve_model(&cfg);
@@ -189,7 +195,7 @@ async fn main() -> anyhow::Result<()> {
             &cli,
             &cfg,
             &mut session,
-            &context,
+            &mut context,
             permission,
             ask_tx,
             ask_rx,

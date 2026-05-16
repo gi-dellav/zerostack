@@ -1,20 +1,31 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use smallvec::SmallVec;
 
 use crate::session::storage;
 
+pub mod prompts;
+
 pub struct ContextFiles {
     pub agents: Option<String>,
+    pub prompts: HashMap<String, String>,
+    pub current_prompt: Option<String>,
 }
 
 pub fn load(no_context_files: bool) -> ContextFiles {
+    let _ = prompts::ensure_global();
     let agents = if no_context_files {
         None
     } else {
         load_agents()
     };
-    ContextFiles { agents }
+    let prompt_map = prompts::load();
+    ContextFiles {
+        agents,
+        prompts: prompt_map,
+        current_prompt: None,
+    }
 }
 
 fn load_file(path: &PathBuf) -> Option<String> {

@@ -31,6 +31,7 @@ pub struct Config {
     pub accept_all: Option<bool>,
     pub yolo: Option<bool>,
     pub show_tool_details: Option<bool>,
+    pub default_prompt: Option<String>,
 }
 
 impl Config {
