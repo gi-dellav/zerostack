@@ -5,13 +5,12 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 ## Features
 
 - **Multi-provider**: OpenRouter, OpenAI, Anthropic, Gemini, Ollama, plus custom providers
-- **File tools**: read, write, edit (by exact match with diff display), grep, find_files, list_dir
-- **Bash execution**: with permission gating, optional sandboxing for isolation, and doom-loop detection
+- **Standard tools**: all of the standard tools exposed to coding agents, as described by the opencode documentation.
 - **Permission system**: four configurable modes with per-tool patterns, session allowlists, and external directory policies
 - **Session management**: save/load/resume sessions, auto-compaction to stay within context windows
 - **Terminal UI**: crossterm-based, markdown rendering, mouse selection/copy, scrollback, reasoning visibility toggle
 - **Prompts system**: switch between system prompt modes at runtime (`code`, `plan`, `review`, `debug`, etc.) to tailor the agent's behavior to the task without having to manage Skills.
-- **MCP support**: connect MCP servers for extended tooling
+- **MCP support**: connect MCP servers for extended tooling (exposed as an optional compile-time feature)
 - **Integrated Exa search**: allows for WebFetch and WebSearch tools
 - **Integrated Ralph Wiggum loops**: looping capabilities for long-horizon tasks
 - **Integrated Git Worktrees integration**: Use `/worktree` to move the agent from one worktree to another.
