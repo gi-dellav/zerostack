@@ -27,11 +27,14 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 
 ## Installation
 
+In order to install *zerostack*, you must have Cargo and git installed. Then, run:
+
 ```bash
-cargo install --path .
+cargo install zerostack
 ```
 
-Requires Rust edition 2024.
+You are now ready to work with a lightweight coding agent!
+
 
 ### Optional: sandbox mode
 
@@ -71,9 +74,9 @@ zerostack --provider openrouter --model deepseek/deepseek-v4-flash
 
 ## Prompts system
 
-*zerostack* includes a set of built-in system prompts that change the agent's behavior and tone.
-The idea is to build a complete suite of prompts that can fully substitute skills like [superpower](https://github.com/obra/superpowers) or the [Claude's official skills](https://github.com/anthropics/claude-plugins-official/tree/main).
-You can switch between different prompts or list all registered prompts using `/prompt`.
+*zerostack* includes a set of built-in system prompts that change the agent's behavior and tone.  
+The idea is to build a complete suite of prompts that can fully substitute skills like [superpower](https://github.com/obra/superpowers) or the [Claude's official skills](https://github.com/anthropics/claude-plugins-official/tree/main).  
+You can switch between different prompts or list all registered prompts using `/prompt`.  
 
 Built-in prompts:
 
@@ -210,4 +213,4 @@ variable in `$XDG_CONFIG_HOME/zerostack/config.json`.
 
 ## License
 
-MIT
+GPL-3.0-only
