@@ -31,6 +31,8 @@ pub struct Config {
     pub accept_all: Option<bool>,
     pub yolo: Option<bool>,
     pub show_tool_details: Option<bool>,
+    #[cfg(feature = "mcp")]
+    pub mcp_servers: Option<std::collections::HashMap<String, crate::extras::mcp::config::McpServerConfig>>,
 }
 
 impl Config {

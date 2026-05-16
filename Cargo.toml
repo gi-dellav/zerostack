@@ -6,9 +6,20 @@ edition = "2024"
 [features]
 default = ['loop']
 loop = []
+mcp = [
+    "dep:rmcp",
+    "rmcp?/client",
+    "rmcp?/transport-child-process",
+    "rmcp?/transport-streamable-http-client-reqwest",
+]
 
 [dependencies]
-rig = "0.37"
+rig = { version = "0.37", features = ["rmcp"] }
+rmcp = { version = "1.7", optional = true, default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+] }
 clap = { version = "4", features = ["derive", "env"] }
 crossterm = "0.29"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +38,7 @@ compact_str = { version = "0.9", features = ["serde"] }
 smallvec = "1"
 regex = "1"
 ignore = "0.4"
+http = "1"
 
 [profile.release]
 opt-level = "z"

@@ -13,6 +13,8 @@ use crate::session::{MessageRole, Session};
 use crate::ui::events::{format_time, render_session};
 use crate::ui::input::InputEditor;
 use crate::ui::renderer::Renderer;
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 
 const C_AGENT: Color = Color::White;
 const C_RESULT: Color = Color::DarkGrey;
@@ -55,6 +57,7 @@ pub async fn handle_compress(
     todo_tools_enabled: &mut bool,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
+    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> anyhow::Result<()> {
     renderer.write_line("compressing...", C_AGENT)?;
     renderer.write_line("", Color::White)?;
@@ -111,7 +114,8 @@ pub async fn handle_compress(
         *todo_tools_enabled,
         permission.clone(),
         ask_tx.clone(),
-    );
+        #[cfg(feature = "mcp")] mcp_manager,
+    ).await;
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
@@ -126,7 +130,7 @@ pub async fn handle_compress(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn handle_slash(
+pub async fn handle_slash(
     text: &str,
     agent: &mut AnyAgent,
     client: &AnyClient,
@@ -142,6 +146,7 @@ pub fn handle_slash(
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
     #[cfg(feature = "loop")] loop_state: &mut Option<crate::extras::r#loop::LoopState>,
+    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> anyhow::Result<()> {
     let parts: SmallVec<[&str; 3]> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
@@ -159,7 +164,8 @@ pub fn handle_slash(
                     *todo_tools_enabled,
                     permission.clone(),
                     ask_tx.clone(),
-                );
+                    #[cfg(feature = "mcp")] mcp_manager,
+                ).await;
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
                 renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
@@ -399,7 +405,8 @@ pub fn handle_slash(
                                     *todo_tools_enabled,
                                     permission.clone(),
                                     ask_tx.clone(),
-                                );
+                                    #[cfg(feature = "mcp")] mcp_manager,
+                                ).await;
                                 renderer.write_line(
                                     &format!(
                                         "todo tools: {}",
@@ -464,7 +471,8 @@ pub fn handle_slash(
                             *todo_tools_enabled,
                             permission.clone(),
                             ask_tx.clone(),
-                        );
+                            #[cfg(feature = "mcp")] mcp_manager,
+                        ).await;
                         renderer.write_line(
                             &format!(
                                 "todo tools: {}",

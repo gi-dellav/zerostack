@@ -10,11 +10,13 @@ use crate::config::Config;
 use crate::context::ContextFiles;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 
 #[allow(dead_code)]
 pub type ZAgent = Agent<openrouter::CompletionModel>;
 
-pub fn build_agent_inner<M: CompletionModel + 'static>(
+pub async fn build_agent_inner<M: CompletionModel + 'static>(
     model: M,
     cli: &Cli,
     cfg: &Config,
@@ -22,6 +24,7 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
     todo_tools_enabled: bool,
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
+    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> Agent<M> {
     let mut preamble = SYSTEM_PROMPT.to_string();
     if todo_tools_enabled {
@@ -52,23 +55,33 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
     if cli.resolve_no_tools(cfg) {
         builder.build()
     } else {
-        let builder = builder
-            .tool(tools::ReadTool::new(permission.clone(), ask_tx.clone()))
-            .tool(tools::WriteTool::new(permission.clone(), ask_tx.clone()))
-            .tool(tools::EditTool::new(permission.clone(), ask_tx.clone()))
-            .tool(tools::BashTool::new(permission.clone(), ask_tx.clone()))
-            .tool(tools::GrepTool::new(permission.clone(), ask_tx.clone()))
-            .tool(tools::FindFilesTool::new(
-                permission.clone(),
-                ask_tx.clone(),
-            ))
-            .tool(tools::ListDirTool::new(permission.clone(), ask_tx.clone()));
+        let base_tools: Vec<Box<dyn rig::tool::ToolDyn>> = vec![
+            Box::new(tools::ReadTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::WriteTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::EditTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::BashTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::GrepTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::FindFilesTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::ListDirTool::new(permission.clone(), ask_tx.clone())),
+        ];
 
-        let builder = if todo_tools_enabled {
-            builder.tool(tools::WriteTodoList::new(permission, ask_tx))
-        } else {
-            builder
-        };
+        let mut builder = builder.tools(base_tools);
+
+        if todo_tools_enabled {
+            builder = builder.tool(tools::WriteTodoList::new(permission.clone(), ask_tx.clone()));
+        }
+
+        #[cfg(feature = "mcp")]
+        if let Some(manager) = &mcp_manager {
+            let mcp_tools = manager.collect_tools(permission.clone(), ask_tx.clone()).await;
+            if !mcp_tools.is_empty() {
+                let dyn_tools: Vec<Box<dyn rig::tool::ToolDyn>> = mcp_tools
+                    .into_iter()
+                    .map(|t| Box::new(t) as Box<dyn rig::tool::ToolDyn>)
+                    .collect();
+                builder = builder.tools(dyn_tools);
+            }
+        }
 
         builder.build()
     }
