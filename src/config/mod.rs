@@ -5,6 +5,9 @@ use serde::Deserialize;
 
 use crate::session::storage;
 
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::config::McpServerConfig;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct CustomProviderConfig {
     pub provider_type: String,
@@ -33,7 +36,7 @@ pub struct Config {
     pub show_tool_details: Option<bool>,
     pub default_prompt: Option<String>,
     #[cfg(feature = "mcp")]
-    pub mcp_servers: Option<std::collections::HashMap<String, crate::extras::mcp::config::McpServerConfig>>,
+    pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
 }
 
 impl Config {
@@ -64,18 +67,38 @@ pub fn config_file_path() -> PathBuf {
 
 pub fn load() -> Config {
     let path = config_file_path();
-    if !path.exists() {
-        return Config::default();
-    }
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("warning: failed to read config ({}): {}", path.display(), e);
-            return Config::default();
-        }
-    };
-    serde_json::from_str(&content).unwrap_or_else(|e| {
-        eprintln!("warning: invalid config JSON ({}): {}", path.display(), e);
+    let mut cfg: Config = if !path.exists() {
         Config::default()
-    })
+    } else {
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("warning: failed to read config ({}): {}", path.display(), e);
+                return Config::default();
+            }
+        };
+        serde_json::from_str(&content).unwrap_or_else(|e| {
+            eprintln!("warning: invalid config JSON ({}): {}", path.display(), e);
+            Config::default()
+        })
+    };
+
+    #[cfg(feature = "mcp")]
+    if cfg.mcp_servers.is_none() {
+        let mut headers = HashMap::new();
+        if let Some(key) = std::env::var("EXA_API_KEY").ok() {
+            headers.insert("x-api-key".to_string(), key);
+        }
+        let mut defaults = HashMap::new();
+        defaults.insert(
+            "Exa Web Search".to_string(),
+            McpServerConfig::Url {
+                url: "https://mcp.exa.ai/mcp".to_string(),
+                headers,
+            },
+        );
+        cfg.mcp_servers = Some(defaults);
+    }
+
+    cfg
 }
