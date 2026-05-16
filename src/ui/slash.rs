@@ -371,6 +371,74 @@ pub async fn handle_slash(
                 }
             }
         }
+        #[cfg(feature = "mcp")]
+        "/mcp" => {
+            let Some(mgr) = mcp_manager else {
+                renderer.write_line("no MCP servers configured", C_AGENT)?;
+                return Ok(());
+            };
+            if mgr.handles.is_empty() {
+                renderer.write_line("no MCP servers connected", C_AGENT)?;
+            } else if parts.len() == 1 {
+                renderer.write_line("MCP servers:", C_AGENT)?;
+                for handle in &mgr.handles {
+                    match handle.list_tools().await {
+                        Ok(tools) => {
+                            renderer.write_line(
+                                &format!("  {} ({} tools)", handle.server_name, tools.len()),
+                                C_RESULT,
+                            )?;
+                        }
+                        Err(e) => {
+                            renderer.write_line(
+                                &format!("  {} (error: {})", handle.server_name, e),
+                                C_ERROR,
+                            )?;
+                        }
+                    }
+                }
+            } else {
+                let name = parts[1].trim();
+                if let Some(handle) = mgr.handles.iter().find(|h| h.server_name == name) {
+                    match handle.list_tools().await {
+                        Ok(tools) => {
+                            if tools.is_empty() {
+                                renderer.write_line(
+                                    &format!("server '{}' has no tools", name),
+                                    C_AGENT,
+                                )?;
+                            } else {
+                                renderer.write_line(
+                                    &format!("tools on '{}':", name),
+                                    C_AGENT,
+                                )?;
+                                for tool in &tools {
+                                    let desc = tool
+                                        .description
+                                        .as_deref()
+                                        .unwrap_or("");
+                                    renderer.write_line(
+                                        &format!("  {}  {}", tool.name, desc),
+                                        C_RESULT,
+                                    )?;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            renderer.write_line(
+                                &format!("error listing tools on '{}': {}", name, e),
+                                C_ERROR,
+                            )?;
+                        }
+                    }
+                } else {
+                    renderer.write_line(
+                        &format!("unknown MCP server: '{}'", name),
+                        C_ERROR,
+                    )?;
+                }
+            }
+        }
         "/toggle" => {
             if parts.len() < 2 {
                 renderer.write_line("usage: /toggle <feature> [on|off]", C_AGENT)?;
@@ -711,6 +779,17 @@ pub async fn handle_slash(
                 "  /mode <mode>           set mode (standard|restrictive|accept|yolo)",
                 C_RESULT,
             )?;
+            #[cfg(feature = "mcp")]
+            {
+                let _ = renderer.write_line(
+                    "  /mcp                   list MCP servers and tools",
+                    C_RESULT,
+                );
+                let _ = renderer.write_line(
+                    "  /mcp <server>          list tools of an MCP server",
+                    C_RESULT,
+                );
+            }
             renderer.write_line("  /clear                 clear screen", C_RESULT)?;
             renderer.write_line("  /undo                  undo last exchange", C_RESULT)?;
             renderer.write_line("  /retry                 retry last prompt", C_RESULT)?;
