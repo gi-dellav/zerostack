@@ -52,7 +52,6 @@ pub async fn handle_compress(
     cli: &Cli,
     cfg: &Config,
     context: &mut ContextFiles,
-    todo_tools_enabled: &mut bool,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
 ) -> anyhow::Result<()> {
@@ -108,7 +107,6 @@ pub async fn handle_compress(
         cli,
         cfg,
         context,
-        *todo_tools_enabled,
         permission.clone(),
         ask_tx.clone(),
     );
@@ -138,7 +136,6 @@ pub fn handle_slash(
     show_reasoning: &mut bool,
     is_running: &mut bool,
     input: &mut InputEditor,
-    todo_tools_enabled: &mut bool,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
     #[cfg(feature = "loop")] loop_state: &mut Option<crate::extras::r#loop::LoopState>,
@@ -156,7 +153,6 @@ pub fn handle_slash(
                     cli,
                     cfg,
                     context,
-                    *todo_tools_enabled,
                     permission.clone(),
                     ask_tx.clone(),
                 );
@@ -318,7 +314,6 @@ pub fn handle_slash(
                 renderer
                     .write_line("  /mode yolo          auto-accept ALL operations", C_RESULT)?;
                 renderer.write_line("", C_AGENT)?;
-                renderer.write_line("  /mode todo [on|off] toggle todo tools", C_RESULT)?;
             } else {
                 match parts[1] {
                     "standard" => {
@@ -359,123 +354,10 @@ pub fn handle_slash(
                             renderer.write_line("permission system not active", C_ERROR)?;
                         }
                     }
-                    "todo" => {
-                        if parts.len() < 3 {
-                            renderer.write_line(
-                                &format!(
-                                    "todo tools: {}",
-                                    if *todo_tools_enabled { "on" } else { "off" }
-                                ),
-                                C_AGENT,
-                            )?;
-                        } else {
-                            let new_state = match parts[2] {
-                                "on" => true,
-                                "off" => false,
-                                other => {
-                                    renderer.write_line(
-                                        &format!("invalid: '{}', use on or off", other),
-                                        C_ERROR,
-                                    )?;
-                                    return Ok(());
-                                }
-                            };
-                            if new_state == *todo_tools_enabled {
-                                renderer.write_line(
-                                    &format!(
-                                        "todo tools already {}",
-                                        if new_state { "on" } else { "off" }
-                                    ),
-                                    C_AGENT,
-                                )?;
-                            } else {
-                                *todo_tools_enabled = new_state;
-                                let model = client.completion_model(session.model.to_string());
-                                *agent = crate::provider::build_agent(
-                                    model,
-                                    cli,
-                                    cfg,
-                                    context,
-                                    *todo_tools_enabled,
-                                    permission.clone(),
-                                    ask_tx.clone(),
-                                );
-                                renderer.write_line(
-                                    &format!(
-                                        "todo tools: {}",
-                                        if *todo_tools_enabled { "on" } else { "off" }
-                                    ),
-                                    C_AGENT,
-                                )?;
-                            }
-                        }
-                    }
                     _ => {
                         renderer.write_line(&format!("unknown mode: {}", parts[1]), C_ERROR)?;
                     }
                 }
-            }
-        }
-        "/toggle" => {
-            if parts.len() < 2 {
-                renderer.write_line("usage: /toggle <feature> [on|off]", C_AGENT)?;
-                renderer.write_line("features:", C_AGENT)?;
-                renderer.write_line(
-                    &format!("  todo  {}", if *todo_tools_enabled { "on" } else { "off" }),
-                    C_RESULT,
-                )?;
-            } else if parts[1] == "todo" {
-                if parts.len() < 3 {
-                    renderer.write_line(
-                        &format!(
-                            "todo tools: {}",
-                            if *todo_tools_enabled { "on" } else { "off" }
-                        ),
-                        C_AGENT,
-                    )?;
-                } else {
-                    let new_state = match parts[2] {
-                        "on" => true,
-                        "off" => false,
-                        other => {
-                            renderer.write_line(
-                                &format!("invalid: '{}', use on or off", other),
-                                C_ERROR,
-                            )?;
-                            return Ok(());
-                        }
-                    };
-                    if new_state == *todo_tools_enabled {
-                        renderer.write_line(
-                            &format!(
-                                "todo tools already {}",
-                                if new_state { "on" } else { "off" }
-                            ),
-                            C_AGENT,
-                        )?;
-                    } else {
-                        *todo_tools_enabled = new_state;
-                        let model = client.completion_model(session.model.to_string());
-                        *agent = crate::provider::build_agent(
-                            model,
-                            cli,
-                            cfg,
-                            context,
-                            *todo_tools_enabled,
-                            permission.clone(),
-                            ask_tx.clone(),
-                        );
-                        renderer.write_line(
-                            &format!(
-                                "todo tools: {}",
-                                if *todo_tools_enabled { "on" } else { "off" }
-                            ),
-                            C_AGENT,
-                        )?;
-                    }
-                }
-            } else {
-                renderer.write_line(&format!("unknown feature: {}", parts[1]), C_ERROR)?;
             }
         }
         "/compress" | "/compact" => {
@@ -568,7 +450,6 @@ pub fn handle_slash(
                         cli,
                         cfg,
                         context,
-                        *todo_tools_enabled,
                         permission.clone(),
                         ask_tx.clone(),
                     );
@@ -584,7 +465,6 @@ pub fn handle_slash(
                         cli,
                         cfg,
                         context,
-                        *todo_tools_enabled,
                         permission.clone(),
                         ask_tx.clone(),
                     );
@@ -675,7 +555,6 @@ pub fn handle_slash(
                 "  /mode <mode>           set mode (standard|restrictive|accept|yolo)",
                 C_RESULT,
             )?;
-            renderer.write_line("  /toggle <f> [on|off]   toggle features (todo)", C_RESULT)?;
             renderer.write_line("  /clear                 clear screen", C_RESULT)?;
             renderer.write_line("  /undo                  undo last exchange", C_RESULT)?;
             renderer.write_line("  /retry                 retry last prompt", C_RESULT)?;

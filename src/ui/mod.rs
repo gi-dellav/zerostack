@@ -102,7 +102,6 @@ pub async fn run_interactive(
     let mut agent_line_started = false;
     let mut show_reasoning = true;
     let mut was_reasoning = false;
-    let mut todo_tools_enabled = false;
     #[allow(unused_mut)]
     let mut loop_label: Option<String> = None;
     #[cfg(feature = "loop")]
@@ -383,7 +382,7 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), Color::Green)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &mut todo_tools_enabled, &permission, &ask_tx, #[cfg(feature = "loop")] &mut loop_state);
+                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut is_running, &mut input, &permission, &ask_tx, #[cfg(feature = "loop")] &mut loop_state);
                                 match result {
                                 Err(e) if e.to_string().starts_with("DEFER_COMPRESS:") => {
                                     let err_msg = e.to_string();
@@ -394,7 +393,7 @@ pub async fn run_interactive(
                                         let compress_result = handle_compress(
                                             instructions.as_deref(),
                                             &mut agent, &client, &mut renderer, session, cli, cfg, context,
-                                            &mut todo_tools_enabled, &permission, &ask_tx,
+                                            &permission, &ask_tx,
                                         ).await;
                                         if let Err(e) = compress_result {
                                             renderer.write_line(&format!("compress error: {}", e), C_ERROR)?;
@@ -547,7 +546,7 @@ pub async fn run_interactive(
                             let compress_result = handle_compress(
                                 None,
                                 &mut agent, &client, &mut renderer, session, cli, cfg, context,
-                                &mut todo_tools_enabled, &permission, &ask_tx,
+                                &permission, &ask_tx,
                             ).await;
                             if let Err(e) = compress_result {
                                 renderer.write_line(&format!("auto-compact error: {}", e), C_ERROR)?;

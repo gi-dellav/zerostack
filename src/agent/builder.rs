@@ -19,15 +19,12 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
     cli: &Cli,
     cfg: &Config,
     context: &ContextFiles,
-    todo_tools_enabled: bool,
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
 ) -> Agent<M> {
     let mut preamble = SYSTEM_PROMPT.to_string();
-    if todo_tools_enabled {
-        preamble.push('\n');
-        preamble.push_str(TODO_TOOLS_PROMPT);
-    }
+    preamble.push('\n');
+    preamble.push_str(TODO_TOOLS_PROMPT);
     if let Some(agents) = &context.agents {
         preamble.push_str("\n\n");
         preamble.push_str(agents);
@@ -67,13 +64,8 @@ pub fn build_agent_inner<M: CompletionModel + 'static>(
                 permission.clone(),
                 ask_tx.clone(),
             ))
-            .tool(tools::ListDirTool::new(permission.clone(), ask_tx.clone()));
-
-        let builder = if todo_tools_enabled {
-            builder.tool(tools::WriteTodoList::new(permission, ask_tx))
-        } else {
-            builder
-        };
+            .tool(tools::ListDirTool::new(permission.clone(), ask_tx.clone()))
+            .tool(tools::WriteTodoList::new(permission, ask_tx));
 
         builder.build()
     }

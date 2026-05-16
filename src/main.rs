@@ -141,7 +141,6 @@ async fn main() -> anyhow::Result<()> {
             &cli,
             &cfg,
             &context,
-            false,
             permission,
             ask_tx,
         );
@@ -161,7 +160,6 @@ async fn main() -> anyhow::Result<()> {
                 &cli,
                 &cfg,
                 &context,
-                false,
                 permission,
                 ask_tx,
             );
@@ -173,7 +171,6 @@ async fn main() -> anyhow::Result<()> {
             &cli,
             &cfg,
             &context,
-            false,
             permission.clone(),
             ask_tx.clone(),
         );
