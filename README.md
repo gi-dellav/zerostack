@@ -15,6 +15,8 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 - **Integrated Ralph Wiggum loops**: looping capabilities for long-horizon tasks
 - **Integrated Git Worktrees integration**: Use `/worktree` to move the agent from one worktree to another.
 
+**NOTE**: Windows support is not tested is any way, but feel free to try and open an issue if you encounter any bugs!
+
 ## Performance
 
 *zerostack* is one of the smallest and most performant coding agents on the market.
@@ -32,8 +34,7 @@ In order to install *zerostack*, you must have Cargo and git installed. Then, ru
 cargo install zerostack
 ```
 
-You are now ready to work with a lightweight coding agent!
-
+You are now ready to work with a lightweight coding agent! (Note: you can also find pre-built binaries on Github Releases)
 
 ### Optional: sandbox mode
 
