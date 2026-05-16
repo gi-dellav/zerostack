@@ -106,6 +106,8 @@ pub async fn run_interactive(
     let mut loop_label: Option<String> = None;
     #[cfg(feature = "loop")]
     let mut loop_state: Option<crate::extras::r#loop::LoopState> = None;
+    #[cfg(feature = "git-worktree")]
+    let mut wt_return_path: Option<String> = None;
 
     render_session(&mut renderer, session, cli, cfg, context)?;
     renderer.draw_bottom("", 0, &StatusLine::render(session, false, 0, None), false)?;
@@ -400,6 +402,57 @@ pub async fn run_interactive(
                                         }
                                         let _ = crate::session::storage::save_session(session);
                                     }
+                                    #[cfg(feature = "git-worktree")]
+                                    Err(e) if e.to_string().starts_with("DEFER_WT_MERGE:") => {
+                                        let err_msg = e.to_string();
+                                        let parts: Vec<&str> = err_msg.strip_prefix("DEFER_WT_MERGE:").unwrap_or("").splitn(5, ':').collect();
+                                        if parts.len() == 5 {
+                                            let branch = parts[0];
+                                            let target = parts[1];
+                                            let main_path = parts[2].to_string();
+                                            let wt_path = parts[3];
+                                            let _repo_name = parts[4];
+                                            let prompt = format!(
+                                                "I'm in a git worktree on branch '{}' at '{}'. \
+                                                 Please merge branch '{}' into '{}' in the main repo at '{}', \
+                                                 push the changes, and delete the worktree at '{}'. \
+                                                 After merging, go back to the main repo at '{}'.",
+                                                branch, wt_path, branch, target, main_path, wt_path, main_path
+                                            );
+                                            session.add_message(MessageRole::User, &prompt);
+                                            let history = crate::agent::runner::convert_history(session);
+                                            let runner = agent.clone().spawn_runner(prompt, history);
+                                            agent_rx = Some(runner.event_rx);
+                                            is_running = true;
+                                            wt_return_path = Some(main_path);
+                                        }
+                                    }
+                                    #[cfg(feature = "git-worktree")]
+                                    Err(e) if e.to_string().starts_with("DEFER_WT_EXIT:") => {
+                                        let err_msg = e.to_string();
+                                        let parts: Vec<&str> = err_msg.strip_prefix("DEFER_WT_EXIT:").unwrap_or("").splitn(2, ':').collect();
+                                        if parts.len() == 2 {
+                                            let main_path = parts[0];
+                                            std::env::set_current_dir(main_path)
+                                                .map_err(|e| anyhow::anyhow!("failed to change directory: {}", e))?;
+                                            session.working_dir = compact_str::CompactString::new(main_path);
+                                            context.reload();
+                                            let model = client.completion_model(session.model.to_string());
+                                            agent = crate::provider::build_agent(
+                                                model,
+                                                cli,
+                                                cfg,
+                                                context,
+                                                permission.clone(),
+                                                ask_tx.clone(),
+                                            );
+                                            render_session(&mut renderer, session, cli, cfg, context)?;
+                                            renderer.write_line(
+                                                &format!("returned to main repo at {}", main_path),
+                                                C_AGENT,
+                                            )?;
+                                        }
+                                    }
                                     Err(e) => {
                                         if e.downcast_ref::<std::io::Error>().is_some_and(|e: &std::io::Error| e.kind() == std::io::ErrorKind::Interrupted) {
                                             break;
@@ -591,6 +644,36 @@ pub async fn run_interactive(
                                     &format!("[loop] launching {}", ls.iteration_label()),
                                     C_AGENT,
                                 )?;
+                            }
+                        }
+
+                        #[cfg(feature = "git-worktree")]
+                        if let Some(main_path) = wt_return_path.take() {
+                            match std::env::set_current_dir(&main_path) {
+                                Ok(()) => {
+                                    session.working_dir = compact_str::CompactString::new(&main_path);
+                                    context.reload();
+                                    let model = client.completion_model(session.model.to_string());
+                                    agent = crate::provider::build_agent(
+                                        model,
+                                        cli,
+                                        cfg,
+                                        context,
+                                        permission.clone(),
+                                        ask_tx.clone(),
+                                    );
+                                    render_session(&mut renderer, session, cli, cfg, context)?;
+                                    renderer.write_line(
+                                        &format!("merged and returned to main repo at {}", main_path),
+                                        C_AGENT,
+                                    )?;
+                                }
+                                Err(e) => {
+                                    renderer.write_line(
+                                        &format!("warning: failed to change back to main repo: {}", e),
+                                        C_ERROR,
+                                    )?;
+                                }
                             }
                         }
                     }

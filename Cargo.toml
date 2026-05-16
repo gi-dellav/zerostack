@@ -6,6 +6,7 @@ edition = "2024"
 [features]
 default = ['loop']
 loop = []
+git-worktree = []
 
 [dependencies]
 rig = "0.37"

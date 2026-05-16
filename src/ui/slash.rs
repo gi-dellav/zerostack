@@ -444,6 +444,7 @@ pub fn handle_slash(
                     renderer.write_line("no active prompt to clear", C_AGENT)?;
                 } else {
                     context.current_prompt = None;
+                    context.current_prompt_name = None;
                     let model = client.completion_model(session.model.to_string());
                     *agent = crate::provider::build_agent(
                         model,
@@ -459,6 +460,7 @@ pub fn handle_slash(
                 let name = parts[1].trim();
                 if let Some(content) = context.prompts.get(name) {
                     context.current_prompt = Some(content.clone());
+                    context.current_prompt_name = Some(name.to_string());
                     let model = client.completion_model(session.model.to_string());
                     *agent = crate::provider::build_agent(
                         model,
@@ -485,6 +487,95 @@ pub fn handle_slash(
                     }
                 }
             }
+        }
+        #[cfg(feature = "git-worktree")]
+        "/worktree" => {
+            if parts.len() < 2 {
+                renderer.write_line("usage: /worktree <name>", C_ERROR)?;
+                return Ok(());
+            }
+            let name = parts[1].trim();
+            if name.is_empty() || name.contains(' ') || name.contains('/') {
+                renderer.write_line("invalid name: use a single word without spaces or slashes", C_ERROR)?;
+                return Ok(());
+            }
+
+            match crate::extras::git_worktree::create(name) {
+                Ok((path, _info)) => {
+                    std::env::set_current_dir(&path)
+                        .map_err(|e| anyhow::anyhow!("failed to change directory: {}", e))?;
+                    session.working_dir = compact_str::CompactString::new(path.to_string_lossy());
+                    context.reload();
+                    let model = client.completion_model(session.model.to_string());
+                    *agent = crate::provider::build_agent(
+                        model,
+                        cli,
+                        cfg,
+                        context,
+                        permission.clone(),
+                        ask_tx.clone(),
+                    );
+                    render_session(renderer, session, cli, cfg, context)?;
+                    renderer.write_line(
+                        &format!("worktree created: branch '{}' at {}", name, path.display()),
+                        C_AGENT,
+                    )?;
+                }
+                Err(e) => {
+                    renderer.write_line(&format!("failed: {}", e), C_ERROR)?;
+                }
+            }
+        }
+        #[cfg(feature = "git-worktree")]
+        "/wt-merge" => {
+            let info = match crate::extras::git_worktree::detect() {
+                Some(i) => i,
+                None => {
+                    renderer.write_line("not in a git worktree", C_ERROR)?;
+                    return Ok(());
+                }
+            };
+            let target = if parts.len() >= 2 {
+                parts[1].trim().to_string()
+            } else {
+                match crate::extras::git_worktree::default_branch(&info.main_repo_path) {
+                    Some(b) => b,
+                    None => {
+                        renderer.write_line("no target branch specified and couldn't detect main/master", C_ERROR)?;
+                        return Ok(());
+                    }
+                }
+            };
+            let repo_name = crate::extras::git_worktree::repo_name(&info.main_repo_path);
+            let main_path = info.main_repo_path.display();
+            let wt_path = info.worktree_path.display();
+            renderer.write_line(
+                &format!("merging '{}' into '{}' in {}...", info.branch, target, repo_name),
+                C_AGENT,
+            )?;
+            return Err(anyhow::anyhow!(
+                "DEFER_WT_MERGE:{}:{}:{}:{}:{}",
+                info.branch, target, main_path, wt_path, repo_name
+            ));
+        }
+        #[cfg(feature = "git-worktree")]
+        "/wt-exit" => {
+            let info = match crate::extras::git_worktree::detect() {
+                Some(i) => i,
+                None => {
+                    renderer.write_line("not in a git worktree", C_ERROR)?;
+                    return Ok(());
+                }
+            };
+            let main_path = info.main_repo_path.display();
+            renderer.write_line(
+                &format!("returning to main repo at {}", main_path),
+                C_AGENT,
+            )?;
+            return Err(anyhow::anyhow!(
+                "DEFER_WT_EXIT:{}:{}",
+                main_path, info.worktree_path.display()
+            ));
         }
         "/regen-prompts" => {
             match crate::context::prompts::regen() {

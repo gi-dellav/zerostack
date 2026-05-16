@@ -11,6 +11,18 @@ pub struct ContextFiles {
     pub agents: Option<String>,
     pub prompts: HashMap<String, String>,
     pub current_prompt: Option<String>,
+    pub current_prompt_name: Option<String>,
+}
+
+impl ContextFiles {
+    #[allow(dead_code)]
+    pub fn reload(&mut self) {
+        self.agents = load_agents();
+        self.prompts = prompts::load();
+        if let Some(name) = &self.current_prompt_name {
+            self.current_prompt = self.prompts.get(name).cloned();
+        }
+    }
 }
 
 pub fn load(no_context_files: bool) -> ContextFiles {
@@ -25,6 +37,7 @@ pub fn load(no_context_files: bool) -> ContextFiles {
         agents,
         prompts: prompt_map,
         current_prompt: None,
+        current_prompt_name: None,
     }
 }
 

@@ -71,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
     if let Some(default) = &cfg.default_prompt {
         if let Some(content) = context.prompts.get(default.as_str()) {
             context.current_prompt = Some(content.clone());
+            context.current_prompt_name = Some(default.clone());
         }
     }
 
