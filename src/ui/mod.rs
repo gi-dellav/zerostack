@@ -1,5 +1,5 @@
 mod events;
-mod input;
+pub(crate) mod input;
 mod markdown;
 pub(crate) mod picker;
 mod renderer;
