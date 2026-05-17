@@ -10,6 +10,9 @@ mod sandbox;
 mod session;
 mod ui;
 
+#[cfg(test)]
+mod tests;
+
 use clap::Parser;
 use session::MessageRole;
 

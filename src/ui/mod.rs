@@ -1,7 +1,7 @@
 mod events;
 mod input;
 mod markdown;
-mod picker;
+pub(crate) mod picker;
 mod renderer;
 mod slash;
 mod status;

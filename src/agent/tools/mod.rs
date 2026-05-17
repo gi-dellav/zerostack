@@ -1,5 +1,5 @@
 mod bash;
-mod edit;
+pub(crate) mod edit;
 mod find_files;
 mod grep;
 mod list_dir;
