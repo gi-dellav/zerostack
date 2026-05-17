@@ -44,7 +44,7 @@ where
     let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(256);
 
     tokio::spawn(async move {
-        let mut stream = agent.stream_chat(prompt, history).multi_turn(100).await;
+        let mut stream = agent.stream_chat(prompt, history).await;
 
         while let Some(item) = stream.next().await {
             match item {

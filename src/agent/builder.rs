@@ -50,6 +50,9 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     let max_tokens = cli.resolve_max_tokens(cfg);
     builder = builder.max_tokens(max_tokens);
 
+    let max_turns = cli.resolve_max_agent_turns(cfg);
+    builder = builder.default_max_turns(max_turns);
+
     if let Some(temp) = cli.temperature {
         let clamped = temp.clamp(0.0, 2.0);
         builder = builder.temperature(clamped);
