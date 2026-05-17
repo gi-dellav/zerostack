@@ -8,11 +8,11 @@ use crate::agent::tools;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
 use crate::sandbox::Sandbox;
-#[cfg(feature = "mcp")]
-use crate::extras::mcp::McpClientManager;
 
 #[allow(dead_code)]
 pub type ZAgent = Agent<openrouter::CompletionModel>;
@@ -65,11 +65,21 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
             Box::new(tools::ReadTool::new(permission.clone(), ask_tx.clone())),
             Box::new(tools::WriteTool::new(permission.clone(), ask_tx.clone())),
             Box::new(tools::EditTool::new(permission.clone(), ask_tx.clone())),
-            Box::new(tools::BashTool::new(permission.clone(), ask_tx.clone(), sandbox.clone())),
+            Box::new(tools::BashTool::new(
+                permission.clone(),
+                ask_tx.clone(),
+                sandbox.clone(),
+            )),
             Box::new(tools::GrepTool::new(permission.clone(), ask_tx.clone())),
-            Box::new(tools::FindFilesTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::FindFilesTool::new(
+                permission.clone(),
+                ask_tx.clone(),
+            )),
             Box::new(tools::ListDirTool::new(permission.clone(), ask_tx.clone())),
-            Box::new(tools::WriteTodoList::new(permission.clone(), ask_tx.clone())),
+            Box::new(tools::WriteTodoList::new(
+                permission.clone(),
+                ask_tx.clone(),
+            )),
         ];
 
         #[allow(unused_mut)]
@@ -77,7 +87,9 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
 
         #[cfg(feature = "mcp")]
         if let Some(manager) = &mcp_manager {
-            let mcp_tools = manager.collect_tools(permission.clone(), ask_tx.clone()).await;
+            let mcp_tools = manager
+                .collect_tools(permission.clone(), ask_tx.clone())
+                .await;
             if !mcp_tools.is_empty() {
                 let dyn_tools: Vec<Box<dyn rig::tool::ToolDyn>> = mcp_tools
                     .into_iter()

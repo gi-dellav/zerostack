@@ -9,7 +9,6 @@ use crossterm::terminal::Clear;
 
 use super::resolve_color;
 
-
 pub struct FilePicker {
     pub active: bool,
     pub query: String,
@@ -144,7 +143,11 @@ impl FilePicker {
         if self.matches.is_empty() {
             let r = rows.saturating_sub(3);
             stdout.execute(MoveTo(0, r))?;
-            write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkGrey)))?;
+            write!(
+                stdout,
+                "{}",
+                SetForegroundColor(self.color(Color::DarkGrey))
+            )?;
             write!(stdout, "{}", "no matches")?;
             write!(stdout, "{}", ResetColor)?;
             stdout.flush()?;
@@ -180,7 +183,11 @@ impl FilePicker {
                 write!(stdout, "{}", SetForegroundColor(self.color(Color::Green)))?;
                 write!(stdout, "▸ {}", truncated)?;
             } else {
-                write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkGrey)))?;
+                write!(
+                    stdout,
+                    "{}",
+                    SetForegroundColor(self.color(Color::DarkGrey))
+                )?;
                 write!(stdout, "  {}", truncated)?;
             }
             write!(stdout, "{}", ResetColor)?;

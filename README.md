@@ -14,6 +14,7 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 - **Integrated Exa search**: allows for WebFetch and WebSearch tools
 - **Integrated Ralph Wiggum loops**: looping capabilities for long-horizon tasks
 - **Integrated Git Worktrees integration**: Use `/worktree` to move the agent from one worktree to another.
+- **ACP support** (gated): Agent Communication Protocol server — lets editors (Zed, etc.) connect to zerostack as an ACP agent
 
 **NOTE**: Windows support is not tested is any way, but feel free to try and open an issue if you encounter any bugs!
 
@@ -31,7 +32,14 @@ _zerostack_ is one of the smallest and most performant coding agents on the mark
 In order to install _zerostack_, you must have Cargo and git installed. Then, run:
 
 ```bash
+# Default — MCP, loop, and git-worktree included
 cargo install zerostack
+
+# With ACP (Agent Communication Protocol) support for editor integration
+cargo install zerostack --features acp
+
+# All features
+cargo install zerostack --features "acp,loop,git-worktree,mcp"
 ```
 
 You are now ready to work with a lightweight coding agent! (Note: you can also find pre-built binaries on Github Releases)
@@ -207,6 +215,44 @@ The worktrees integrations offers 3 slash commands:
 2. **Work** — Use zerostack normally; changes stay on the feature branch.
 3. **Merge** — `/wt-merge` tells the agent to merge the branch, push, clean up, and return to the main repo.
 4. **Exit** — `/wt-exit` immediately returns to the main repo without merging.
+
+## ACP (Agent Communication Protocol) support
+
+**ACP** is a JSON-RPC based protocol that standardizes communication between code editors
+(IDEs, text-editors, etc.) and coding agents. With the `acp` feature enabled, zerostack
+acts as an ACP **Agent** server, allowing editors like **Zed** to connect to it as a
+coding agent backend.
+
+**NOTE:** ACP support is gated behind the `acp` feature and is not included in the
+default build.
+
+### ACP usage
+
+```bash
+# Start zerostack in ACP stdio mode (editor spawns this as a subprocess)
+zerostack --acp
+
+# Start zerostack in ACP TCP mode (listen on 0.0.0.0:7243)
+zerostack --acp --acp-host 0.0.0.0 --acp-port 7243
+```
+
+### ACP config
+
+In `$XDG_CONFIG_HOME/zerostack/config.json`:
+
+```json
+{
+  "acp_servers": {
+    "my-editor": {
+      "host": "127.0.0.1",
+      "port": 7243
+    }
+  }
+}
+```
+
+ACP mode requires setting up an LLM provider (the standard `--provider`, `--model`,
+and API key env vars apply). Without it, zerostack cannot process prompts.
 
 ## Supported providers
 

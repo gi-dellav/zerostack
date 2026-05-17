@@ -117,7 +117,12 @@ where
     AgentRunner { event_rx }
 }
 
-pub async fn run_print<M, P>(agent: &Agent<M, P>, prompt: &str, max_turns: usize, context_window: u64) -> anyhow::Result<String>
+pub async fn run_print<M, P>(
+    agent: &Agent<M, P>,
+    prompt: &str,
+    max_turns: usize,
+    context_window: u64,
+) -> anyhow::Result<String>
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,

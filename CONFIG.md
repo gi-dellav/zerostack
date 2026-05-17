@@ -78,6 +78,9 @@ Accepted top-level keys:
 | `show_tool_details`       | boolean | Show tool-result previews in the TUI. Default: `false`.                                                                                                                     |
 | `default_prompt`          | string  | Prompt name to activate on startup. Default: `code`.                                                                                                                        |
 | `mcp_servers`             | object  | MCP server map when compiled with the `mcp` feature. When omitted, defaults to a single Exa Web Search server; see below.                                                   |
+| `acp_servers`             | object  | ACP server config map when compiled with the `acp` feature. See the ACP section below.                                                                                       |
+| `acp_host`                | string  | TCP bind host for ACP server mode (equivalent to `--acp-host`).                                                                                                              |
+| `acp_port`                | integer | TCP bind port for ACP server mode (equivalent to `--acp-port`, default: 7243).                                                                                               |
 
 Permission actions are lowercase strings: `allow`, `ask`, or `deny`. Each tool
 rule can be a single action or an object mapping glob-like patterns to actions.
@@ -114,3 +117,31 @@ If `mcp_servers` is omitted (`null`) and the `mcp` feature is enabled, zerostack
 adds a default Exa Web Search MCP server at `https://mcp.exa.ai/mcp` with the
 `x-api-key` header set to `EXA_API_KEY` when that environment variable is set.
 Set `"mcp_servers": {}` to disable all MCP servers.
+
+## ACP (Agent Communication Protocol) configuration
+
+When compiled with the `acp` feature, zerostack can act as an ACP agent server.
+The following config keys are available:
+
+| Key           | Type    | Description                                            |
+| ------------- | ------- | ------------------------------------------------------ |
+| `acp_servers` | object  | Named ACP server configurations (see below)            |
+| `acp_host`    | string  | TCP bind host for ACP server (default: stdio mode)     |
+| `acp_port`    | integer | TCP bind port for ACP server (default: 7243)           |
+
+ACP server configs (in `acp_servers`) support two transport types:
+
+```json
+{
+  "acp_servers": {
+    "tcp-server": {
+      "host": "127.0.0.1",
+      "port": 7243,
+      "api_key": "optional-key"
+    }
+  }
+}
+```
+
+When `--acp` is passed without `--acp-host`, zerostack runs in stdio mode
+(the editor spawns it as a subprocess). With `--acp-host`, it listens on TCP.

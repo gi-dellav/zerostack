@@ -14,9 +14,7 @@ pub struct McpClientManager {
 }
 
 impl McpClientManager {
-    pub async fn connect_all(
-        configs: &HashMap<String, config::McpServerConfig>,
-    ) -> Self {
+    pub async fn connect_all(configs: &HashMap<String, config::McpServerConfig>) -> Self {
         let mut handles = Vec::new();
         for (name, cfg) in configs {
             match client::McpClientHandle::connect(name.clone(), cfg).await {

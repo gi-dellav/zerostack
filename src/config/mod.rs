@@ -8,6 +8,9 @@ use crate::session::storage;
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::config::McpServerConfig;
 
+#[cfg(feature = "acp")]
+use crate::extras::acp::config::AcpServerConfig;
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct CustomProviderConfig {
     pub provider_type: String,
@@ -40,6 +43,13 @@ pub struct Config {
     pub default_prompt: Option<String>,
     #[cfg(feature = "mcp")]
     pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
+
+    #[cfg(feature = "acp")]
+    pub acp_servers: Option<HashMap<String, AcpServerConfig>>,
+    #[cfg(feature = "acp")]
+    pub acp_host: Option<String>,
+    #[cfg(feature = "acp")]
+    pub acp_port: Option<u16>,
 }
 
 impl Config {
@@ -70,6 +80,7 @@ pub fn config_file_path() -> PathBuf {
 
 pub fn load() -> Config {
     let path = config_file_path();
+    #[allow(unused_mut)]
     let mut cfg: Config = if !path.exists() {
         Config::default()
     } else {

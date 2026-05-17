@@ -148,6 +148,11 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    #[cfg(feature = "acp")]
+    if cli.acp_enabled {
+        return extras::acp::serve(cli, cfg, context).await;
+    }
+
     let sandbox = sandbox::Sandbox::new(cli.resolve_sandbox(&cfg));
     let (permission, ask_tx, ask_rx) = build_permission_checker(&cli, &cfg);
 
@@ -157,7 +162,9 @@ async fn main() -> anyhow::Result<()> {
             .iter()
             .map(|e| (e.tool.clone(), e.pattern.clone()))
             .collect();
-        perm.lock().unwrap_or_else(|e| e.into_inner()).load_session_allowlist(&allowlist);
+        perm.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .load_session_allowlist(&allowlist);
     }
 
     let completion_model = client.completion_model(model.to_string());
@@ -171,10 +178,18 @@ async fn main() -> anyhow::Result<()> {
             permission,
             ask_tx,
             sandbox.clone(),
-            #[cfg(feature = "mcp")] mcp_manager.as_ref(),
-        ).await;
+            #[cfg(feature = "mcp")]
+            mcp_manager.as_ref(),
+        )
+        .await;
         let msg = cli.message.join(" ");
-        let response = agent.run_print(&msg, cli.resolve_max_agent_turns(&cfg), cfg.resolve_context_window()).await?;
+        let response = agent
+            .run_print(
+                &msg,
+                cli.resolve_max_agent_turns(&cfg),
+                cfg.resolve_context_window(),
+            )
+            .await?;
         if !cli.no_session {
             session.add_message(MessageRole::User, &msg);
             session.add_message(MessageRole::Assistant, &response);
@@ -192,8 +207,10 @@ async fn main() -> anyhow::Result<()> {
                 permission,
                 ask_tx,
                 sandbox.clone(),
-                #[cfg(feature = "mcp")] mcp_manager.as_ref(),
-            ).await;
+                #[cfg(feature = "mcp")]
+                mcp_manager.as_ref(),
+            )
+            .await;
             return run_headless_loop(agent, &cli, &cfg, &context).await;
         }
 
@@ -205,14 +222,19 @@ async fn main() -> anyhow::Result<()> {
             permission.clone(),
             ask_tx.clone(),
             sandbox.clone(),
-            #[cfg(feature = "mcp")] mcp_manager.as_ref(),
-        ).await;
+            #[cfg(feature = "mcp")]
+            mcp_manager.as_ref(),
+        )
+        .await;
 
         if !cli.resolve_no_tools(&cfg)
-            && let Some(perm) = &permission {
-                let mode = resolve_mode(&cli, &cfg);
-                perm.lock().unwrap_or_else(|e| e.into_inner()).set_mode(mode);
-            }
+            && let Some(perm) = &permission
+        {
+            let mode = resolve_mode(&cli, &cfg);
+            perm.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .set_mode(mode);
+        }
 
         let initial_msg = cli.message.join(" ");
         if !initial_msg.is_empty() {
@@ -229,7 +251,8 @@ async fn main() -> anyhow::Result<()> {
             ask_tx,
             ask_rx,
             sandbox,
-            #[cfg(feature = "mcp")] mcp_manager.as_ref(),
+            #[cfg(feature = "mcp")]
+            mcp_manager.as_ref(),
         )
         .await?;
     }
@@ -294,7 +317,14 @@ async fn run_headless_loop(
         eprintln!("=== {} ===", state.iteration_label());
         eprintln!();
 
-        let response = match agent.run_print(&iteration_prompt, cli.resolve_max_agent_turns(cfg), cfg.resolve_context_window()).await {
+        let response = match agent
+            .run_print(
+                &iteration_prompt,
+                cli.resolve_max_agent_turns(cfg),
+                cfg.resolve_context_window(),
+            )
+            .await
+        {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("[loop] error in iteration {}: {}", state.iteration, e);

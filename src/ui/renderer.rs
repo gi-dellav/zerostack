@@ -276,7 +276,11 @@ impl Renderer {
             let indicator = format!(" SCROLL {}% ", pct);
             let x = cols.saturating_sub(indicator.len() as u16);
             stdout.execute(MoveTo(x, 0))?;
-            write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkYellow)))?;
+            write!(
+                stdout,
+                "{}",
+                SetForegroundColor(self.color(Color::DarkYellow))
+            )?;
             write!(stdout, "{}", indicator)?;
             write!(stdout, "{}", ResetColor)?;
         }
@@ -484,7 +488,11 @@ impl Renderer {
         stdout.execute(MoveTo(0, status_row))?;
         write!(stdout, "{}", " ".repeat(cols as usize))?;
         stdout.execute(MoveTo(0, status_row))?;
-        write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkGrey)))?;
+        write!(
+            stdout,
+            "{}",
+            SetForegroundColor(self.color(Color::DarkGrey))
+        )?;
         let status_display = if self.scroll_offset > 0 {
             format!("-- SCROLL -- {}", status)
         } else {

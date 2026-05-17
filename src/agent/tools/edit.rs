@@ -177,4 +177,3 @@ impl Tool for EditTool {
         Ok(result)
     }
 }
-
