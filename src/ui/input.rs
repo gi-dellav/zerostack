@@ -3,6 +3,27 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::ui::picker::FilePicker;
 
+// `cursor` er en byte-offset inn i `buffer` (som er UTF-8). Hjelperne under
+// flytter cursoren med ett tegn (én char-grense) i hver retning slik at vi
+// aldri lander midt i en multibyte-sekvens — det ville panic-et på neste
+// insert/remove i `CompactString`/`String`.
+fn prev_char_boundary(s: &str, idx: usize) -> usize {
+    let mut i = idx.saturating_sub(1);
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+fn next_char_boundary(s: &str, idx: usize) -> usize {
+    let len = s.len();
+    let mut i = (idx + 1).min(len);
+    while i < len && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 pub struct InputEditor {
     pub buffer: CompactString,
     pub cursor: usize,
@@ -47,13 +68,13 @@ impl InputEditor {
             KeyCode::Char(c) => {
                 picker.char_input(c);
                 self.buffer.insert(self.cursor, c);
-                self.cursor += 1;
+                self.cursor += c.len_utf8();
                 true
             }
             KeyCode::Backspace => {
                 if picker.cursor > 0 {
                     picker.backspace();
-                    self.cursor -= 1;
+                    self.cursor = prev_char_boundary(&self.buffer, self.cursor);
                     self.buffer.remove(self.cursor);
                     true
                 } else {
@@ -141,20 +162,21 @@ impl InputEditor {
             }
             KeyCode::Char(c) => {
                 if c == '@' {
-                    let at_word_start =
-                        self.cursor == 0 || self.buffer.chars().nth(self.cursor - 1) == Some(' ');
+                    // ' ' er ASCII (1 byte), så sjekken kan gjøres byte-vis.
+                    let at_word_start = self.cursor == 0
+                        || self.buffer.as_bytes().get(self.cursor - 1) == Some(&b' ');
                     if at_word_start {
                         self.start_picker();
                     }
                 }
                 self.buffer.insert(self.cursor, c);
-                self.cursor += 1;
+                self.cursor += c.len_utf8();
                 self.history_pos = None;
                 None
             }
             KeyCode::Backspace => {
                 if self.cursor > 0 {
-                    self.cursor -= 1;
+                    self.cursor = prev_char_boundary(&self.buffer, self.cursor);
                     self.buffer.remove(self.cursor);
                 }
                 None
@@ -167,13 +189,13 @@ impl InputEditor {
             }
             KeyCode::Left => {
                 if self.cursor > 0 {
-                    self.cursor -= 1;
+                    self.cursor = prev_char_boundary(&self.buffer, self.cursor);
                 }
                 None
             }
             KeyCode::Right => {
                 if self.cursor < self.buffer.len() {
-                    self.cursor += 1;
+                    self.cursor = next_char_boundary(&self.buffer, self.cursor);
                 }
                 None
             }
@@ -224,5 +246,92 @@ impl InputEditor {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    fn press(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::empty())
+    }
+
+    fn type_str(editor: &mut InputEditor, s: &str) {
+        for c in s.chars() {
+            editor.handle_key(press(KeyCode::Char(c)));
+        }
+    }
+
+    #[test]
+    fn typing_ascii_keeps_cursor_in_sync() {
+        let mut editor = InputEditor::new();
+        type_str(&mut editor, "hello");
+        assert_eq!(editor.buffer.as_str(), "hello");
+        assert_eq!(editor.cursor, 5);
+    }
+
+    #[test]
+    fn typing_multibyte_chars_does_not_panic() {
+        // Regresjon for bug der `cursor += 1` (char-trinn) ble brukt mot
+        // `CompactString::insert(byte_idx, ch)` (byte-grense påkrevd).
+        // To norske bokstaver etter hverandre var nok til å trigge panic.
+        let mut editor = InputEditor::new();
+        type_str(&mut editor, "på "); // hadde panic-et på mellomrommet etter 'å'
+        assert_eq!(editor.buffer.as_str(), "på ");
+        assert_eq!(editor.cursor, editor.buffer.len()); // cursor i bytes
+    }
+
+    #[test]
+    fn typing_mixed_ascii_and_multibyte() {
+        let mut editor = InputEditor::new();
+        type_str(&mut editor, "hei på deg så fin dag æøå");
+        assert_eq!(editor.buffer.as_str(), "hei på deg så fin dag æøå");
+        assert_eq!(editor.cursor, editor.buffer.len());
+    }
+
+    #[test]
+    fn backspace_after_multibyte_does_not_panic() {
+        let mut editor = InputEditor::new();
+        type_str(&mut editor, "å");
+        editor.handle_key(press(KeyCode::Backspace));
+        assert_eq!(editor.buffer.as_str(), "");
+        assert_eq!(editor.cursor, 0);
+    }
+
+    #[test]
+    fn left_arrow_steps_one_char_not_one_byte() {
+        let mut editor = InputEditor::new();
+        type_str(&mut editor, "aåb");
+        // cursor er bak 'b', byte-idx 4 (a=1 + å=2 + b=1)
+        assert_eq!(editor.cursor, 4);
+        editor.handle_key(press(KeyCode::Left));
+        // bak 'å' → byte-idx 3
+        assert_eq!(editor.cursor, 3);
+        editor.handle_key(press(KeyCode::Left));
+        // bak 'a' → byte-idx 1 (hopper over de 2 byte i 'å')
+        assert_eq!(editor.cursor, 1);
+    }
+
+    #[test]
+    fn right_arrow_steps_one_char_not_one_byte() {
+        let mut editor = InputEditor::new();
+        type_str(&mut editor, "aåb");
+        editor.cursor = 0;
+        editor.handle_key(press(KeyCode::Right));
+        assert_eq!(editor.cursor, 1); // bak 'a'
+        editor.handle_key(press(KeyCode::Right));
+        assert_eq!(editor.cursor, 3); // bak 'å' (hoppet 2 byte)
+    }
+
+    #[test]
+    fn enter_returns_buffer_and_resets() {
+        let mut editor = InputEditor::new();
+        type_str(&mut editor, "hei på");
+        let out = editor.handle_key(press(KeyCode::Enter)).unwrap();
+        assert_eq!(out.as_str(), "hei på");
+        assert_eq!(editor.cursor, 0);
+        assert_eq!(editor.buffer.as_str(), "");
     }
 }
