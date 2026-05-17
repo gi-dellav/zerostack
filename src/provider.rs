@@ -248,12 +248,12 @@ pub enum AnyAgent {
 impl AnyAgent {
     pub async fn run_print(&self, prompt: &str, max_turns: usize) -> anyhow::Result<String> {
         match self {
-            AnyAgent::OpenRouter(a) => runner::run_print(a, prompt).await,
-            AnyAgent::OpenAI(a) => runner::run_print(a, prompt).await,
-            AnyAgent::Anthropic(a) => runner::run_print(a, prompt).await,
-            AnyAgent::Gemini(a) => runner::run_print(a, prompt).await,
-            AnyAgent::Ollama(a) => runner::run_print(a, prompt).await,
-            AnyAgent::Custom(a) => runner::run_print(a, prompt).await,
+            AnyAgent::OpenRouter(a) => runner::run_print(a, prompt, max_turns).await,
+            AnyAgent::OpenAI(a) => runner::run_print(a, prompt, max_turns).await,
+            AnyAgent::Anthropic(a) => runner::run_print(a, prompt, max_turns).await,
+            AnyAgent::Gemini(a) => runner::run_print(a, prompt, max_turns).await,
+            AnyAgent::Ollama(a) => runner::run_print(a, prompt, max_turns).await,
+            AnyAgent::Custom(a) => runner::run_print(a, prompt, max_turns).await,
         }
     }
 

@@ -9,7 +9,6 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 - **Permission system**: four configurable modes with per-tool patterns, session allowlists, and external directory policies
 - **Session management**: save/load/resume sessions, auto-compaction to stay within context windows
 - **Terminal UI**: crossterm-based, markdown rendering, mouse selection/copy, scrollback, reasoning visibility toggle
-- **Monochrome mode**: `--no-color` forces the TUI into white/gray output
 - **Prompts system**: switch between system prompt modes at runtime (`code`, `plan`, `review`, `debug`, etc.) to tailor the agent's behavior to the task without having to manage Skills.
 - **MCP support**: connect MCP servers for extended tooling (exposed as an optional compile-time feature)
 - **Integrated Exa search**: allows for WebFetch and WebSearch tools
