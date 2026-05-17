@@ -13,6 +13,10 @@ fn home_fallback() -> PathBuf {
 }
 
 fn dirs_path() -> PathBuf {
+    data_dir()
+}
+
+pub fn data_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("ZS_DATA_DIR") {
         return PathBuf::from(dir);
     }
