@@ -154,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
             .iter()
             .map(|e| (e.tool.clone(), e.pattern.clone()))
             .collect();
-        perm.lock().unwrap().load_session_allowlist(&allowlist);
+        perm.lock().unwrap_or_else(|e| e.into_inner()).load_session_allowlist(&allowlist);
     }
 
     let completion_model = client.completion_model(model.to_string());
@@ -208,7 +208,7 @@ async fn main() -> anyhow::Result<()> {
         if !cli.resolve_no_tools(&cfg)
             && let Some(perm) = &permission {
                 let mode = resolve_mode(&cli, &cfg);
-                perm.lock().unwrap().set_mode(mode);
+                perm.lock().unwrap_or_else(|e| e.into_inner()).set_mode(mode);
             }
 
         let initial_msg = cli.message.join(" ");

@@ -120,7 +120,7 @@ pub async fn run_interactive(
     let mut wt_return_path: Option<String> = None;
 
     let perm_mode = || -> Option<String> {
-        permission.as_ref().map(|p| p.lock().unwrap().mode().to_string())
+        permission.as_ref().map(|p| p.lock().unwrap_or_else(|e| e.into_inner()).mode().to_string())
     };
 
     render_session(&mut renderer, session, cli, cfg, context)?;
