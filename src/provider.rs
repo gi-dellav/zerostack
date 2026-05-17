@@ -106,9 +106,7 @@ fn resolve_api_key(
     }
 
     if kind == ProviderKind::Custom {
-        anyhow::bail!(
-            "No API key found for custom provider. Set the CUSTOM_API_KEY environment variable or pass --api-key."
-        )
+        return Ok(String::new());
     }
 
     anyhow::bail!(
