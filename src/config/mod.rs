@@ -73,16 +73,23 @@ pub fn load() -> Config {
     let mut cfg: Config = if !path.exists() {
         Config::default()
     } else {
-        let content = match std::fs::read_to_string(&path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("warning: failed to read config ({}): {}", path.display(), e);
-                return Config::default();
-            }
-        };
+        let content = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            eprintln!(
+                "error: failed to read config file ({}): {}\n\
+                 Fix the file or remove it to use defaults.",
+                path.display(),
+                e,
+            );
+            std::process::exit(1);
+        });
         serde_json::from_str(&content).unwrap_or_else(|e| {
-            eprintln!("warning: invalid config JSON ({}): {}", path.display(), e);
-            Config::default()
+            eprintln!(
+                "error: {} is not a valid config: {}\n\
+                 Fix the file or remove it to use defaults.",
+                path.display(),
+                e,
+            );
+            std::process::exit(1);
         })
     };
 

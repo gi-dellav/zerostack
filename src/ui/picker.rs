@@ -232,7 +232,7 @@ impl FilePicker {
 
     fn load_files(&mut self) {
         let files = walk_files(".");
-        *self.file_cache.lock().unwrap() = files;
+        *self.file_cache.lock().unwrap_or_else(|e| e.into_inner()) = files;
     }
 
     pub fn char_input(&mut self, c: char) {
@@ -264,7 +264,7 @@ impl FilePicker {
     }
 
     fn filter(&mut self) {
-        let cache = self.file_cache.lock().unwrap();
+        let cache = self.file_cache.lock().unwrap_or_else(|e| e.into_inner());
         if cache.is_empty() {
             self.matches.clear();
             return;
@@ -304,7 +304,7 @@ impl FilePicker {
 
     #[cfg(test)]
     pub fn test_set_cache(&mut self, files: Vec<PathBuf>) {
-        *self.file_cache.lock().unwrap() = files;
+        *self.file_cache.lock().unwrap_or_else(|e| e.into_inner()) = files;
     }
 
     pub fn draw(&self) -> std::io::Result<()> {

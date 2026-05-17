@@ -308,7 +308,7 @@ pub async fn handle_slash(
         "/mode" => {
             let current_mode = permission
                 .as_ref()
-                .map(|p| p.lock().unwrap().mode())
+                .map(|p| p.lock().unwrap_or_else(|e| e.into_inner()).mode())
                 .unwrap_or(SecurityMode::Standard);
 
             if parts.len() < 2 {
@@ -331,7 +331,7 @@ pub async fn handle_slash(
                 match parts[1] {
                     "standard" => {
                         if let Some(p) = permission {
-                            p.lock().unwrap().set_mode(SecurityMode::Standard);
+                            p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(SecurityMode::Standard);
                             renderer.write_line("security mode: standard", C_AGENT)?;
                         } else {
                             renderer.write_line("permission system not active", C_ERROR)?;
@@ -339,7 +339,7 @@ pub async fn handle_slash(
                     }
                     "restrictive" => {
                         if let Some(p) = permission {
-                            p.lock().unwrap().set_mode(SecurityMode::Restrictive);
+                            p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(SecurityMode::Restrictive);
                             renderer.write_line("security mode: restrictive", C_AGENT)?;
                         } else {
                             renderer.write_line("permission system not active", C_ERROR)?;
@@ -347,7 +347,7 @@ pub async fn handle_slash(
                     }
                     "accept" => {
                         if let Some(p) = permission {
-                            p.lock().unwrap().set_mode(SecurityMode::Accept);
+                            p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(SecurityMode::Accept);
                             renderer.write_line(
                                 "security mode: accept (auto-allow within CWD)",
                                 C_AGENT,
@@ -358,7 +358,7 @@ pub async fn handle_slash(
                     }
                     "yolo" => {
                         if let Some(p) = permission {
-                            p.lock().unwrap().set_mode(SecurityMode::Yolo);
+                            p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(SecurityMode::Yolo);
                             renderer.write_line(
                                 "security mode: YOLO (all operations allowed)",
                                 C_AGENT,
@@ -540,7 +540,6 @@ pub async fn handle_slash(
                     let plan_file = std::path::PathBuf::from("LOOP_PLAN.md");
                     let ls = crate::extras::r#loop::LoopState::new(prompt, plan_file, None, None);
                     *loop_state = Some(ls);
-                    *is_running = true;
                     renderer.write_line(
                         "loop started — iteration 1 will run after this message",
                         C_AGENT,
