@@ -244,11 +244,7 @@ pub enum AnyAgent {
 }
 
 impl AnyAgent {
-    pub async fn run_print(
-        &self,
-        prompt: &str,
-        max_turns: usize,
-    ) -> anyhow::Result<String> {
+    pub async fn run_print(&self, prompt: &str, max_turns: usize) -> anyhow::Result<String> {
         match self {
             AnyAgent::OpenRouter(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::OpenAI(a) => runner::run_print(a, prompt, max_turns).await,
