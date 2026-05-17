@@ -1,6 +1,6 @@
 [package]
 name = "zerostack"
-version = "1.0.3"
+version = "1.0.4"
 edition = "2024"
 authors = ["Giuseppe Della Vedova"]
 description = "Minimalistic coding agent written in Rust, optimized for memory footprint and performance"
