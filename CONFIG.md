@@ -60,7 +60,8 @@ Accepted top-level keys:
 | `provider`                | string  | Provider name. Built-ins are `openrouter`, `openai`, `anthropic`, `gemini`/`google`, and `ollama`; custom provider aliases are also accepted. Default: `openrouter`.        |
 | `model`                   | string  | Model name. Default: `deepseek/deepseek-v4-flash`.                                                                                                                          |
 | `max_tokens`              | integer | Maximum response tokens. Default: `8192`.                                                                                                                                   |
-| `temperature`             | number  | Model temperature value. The corresponding CLI flag accepts values from `0.0` to `2.0`.                                                                                     |
+| `max_agent_turns`         | integer | Maximum agent turns per response. Default: `100`.                                                                                                                           |
+| `temperature`             | number  | Model temperature value. Only configurable via the `--temperature` CLI flag (`0.0` to `2.0`). Config-file value is parsed but not currently applied.                        |
 | `no_tools`                | boolean | Disable all tools. Default: `false`.                                                                                                                                        |
 | `no_context_files`        | boolean | Disable loading global/project `AGENTS.md` and `CLAUDE.md` context files. Default: `false`.                                                                                 |
 | `context_window`          | integer | Session context-window size used for status and auto-compaction. Default: `128000`.                                                                                         |
@@ -76,15 +77,17 @@ Accepted top-level keys:
 | `default_permission_mode` | string  | Permission mode when no mode boolean/CLI flag is set. Use `standard`, `restrictive`, `accept`, or `yolo`.                                                                   |
 | `show_tool_details`       | boolean | Show tool-result previews in the TUI. Default: `false`.                                                                                                                     |
 | `default_prompt`          | string  | Prompt name to activate on startup. Default: `code`.                                                                                                                        |
-| `mcp_servers`             | object  | MCP server map when compiled with the `mcp` feature; see below.                                                                                                             |
+| `mcp_servers`             | object  | MCP server map when compiled with the `mcp` feature. When omitted, defaults to a single Exa Web Search server; see below.                                                   |
 
 Permission actions are lowercase strings: `allow`, `ask`, or `deny`. Each tool
 rule can be a single action or an object mapping glob-like patterns to actions.
 Supported permission tool keys are `bash`, `read`, `write`, `edit`, `grep`,
-`find_files`, `list_dir`, and `write_todo_list`. Use `"*"` for the default
-action, `external_directory` for absolute-path rules outside the working
-directory, and `doom_loop` for repeated identical tool calls. If `bash` is
-omitted, zerostack installs its built-in safe bash allow/deny rules.
+`find_files`, `list_dir`, and `write_todo_list`. MCP-backed tools are
+checked under `mcp_tool:{server_name}:{tool_name}`. Use `"*"` for the
+default action, `external_directory` for absolute-path rules outside the
+working directory, and `doom_loop` for repeated identical tool calls
+(default: `ask`). If `bash` is omitted, zerostack installs its built-in
+safe bash allow/deny rules.
 
 When compiled with MCP support, `mcp_servers` accepts command-based and URL-based
 servers:
@@ -107,7 +110,7 @@ servers:
 }
 ```
 
-If `mcp_servers` is omitted and the `mcp` feature is enabled, zerostack adds a
-default Exa Web Search MCP server and passes `EXA_API_KEY` as the `x-api-key`
-header when that environment variable is set. Set `"mcp_servers": {}` to disable
-configured MCP servers.
+If `mcp_servers` is omitted (`null`) and the `mcp` feature is enabled, zerostack
+adds a default Exa Web Search MCP server at `https://mcp.exa.ai/mcp` with the
+`x-api-key` header set to `EXA_API_KEY` when that environment variable is set.
+Set `"mcp_servers": {}` to disable all MCP servers.

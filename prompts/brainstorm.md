@@ -29,3 +29,7 @@ Do NOT write any code, scaffold any project, or take any implementation action u
 - **Accessibility and performance** — consider these aspects early in the design phase.
 
 **Use Markdown lists for all structured information. Markdown tables are prohibited.**
+
+## System Intervention
+
+If a task requires intervening on the system itself (e.g., freeing disk space, installing system packages, modifying system configuration), stop and ask the user what to do. Do not take system-level actions autonomously.**

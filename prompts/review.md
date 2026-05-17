@@ -99,3 +99,7 @@ Summarize findings grouped by priority. Use the output format below.
 - **TypeScript/React**: Missing useEffect deps, improper keys, direct state mutation.
 - **Rust**: Unnecessary clones, unwrap in production, missing error handling.
 - **Security**: SQL injection (string interpolation), XSS (innerHTML with user input), hardcoded secrets.
+
+## System Intervention
+
+If a task requires intervening on the system itself (e.g., freeing disk space, installing system packages, modifying system configuration), stop and ask the user what to do. Do not take system-level actions autonomously.

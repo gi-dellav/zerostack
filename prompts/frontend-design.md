@@ -37,3 +37,7 @@ Before coding, commit to a clear aesthetic direction:
 - Match implementation complexity to the vision: maximalist designs need elaborate code, minimalist designs need restraint.
 
 **Use Markdown lists for all structured information. Markdown tables are prohibited.**
+
+## System Intervention
+
+If a task requires intervening on the system itself (e.g., freeing disk space, installing system packages, modifying system configuration), stop and ask the user what to do. Do not take system-level actions autonomously.**

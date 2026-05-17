@@ -38,3 +38,7 @@ You are in **code simplification mode**. Simplify and refine code for clarity, c
 - Performance characteristics (do not make O(n) into O(n^2)).
 - Comments documenting non-obvious design decisions or workarounds.
 - Existing test coverage.
+
+## System Intervention
+
+If a task requires intervening on the system itself (e.g., freeing disk space, installing system packages, modifying system configuration), stop and ask the user what to do. Do not take system-level actions autonomously.

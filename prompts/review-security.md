@@ -53,3 +53,7 @@ You are in **security review mode**. Identify exploitable security vulnerabiliti
 ```
 
 If no vulnerabilities found, state: "No high-confidence vulnerabilities identified."
+
+## System Intervention
+
+If a task requires intervening on the system itself (e.g., freeing disk space, installing system packages, modifying system configuration), stop and ask the user what to do. Do not take system-level actions autonomously.
