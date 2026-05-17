@@ -1,5 +1,5 @@
 mod bash;
-mod edit;
+pub(crate) mod edit;
 mod find_files;
 mod grep;
 mod list_dir;
@@ -114,7 +114,7 @@ async fn handle_ask_inner(
         Ok(UserDecision::AllowAlways(pattern)) => {
             permission
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .add_session_allowlist(tool.to_string(), &pattern);
             Ok(())
         }
@@ -132,7 +132,7 @@ pub async fn check_perm(
         return Ok(());
     };
     let result = {
-        let mut guard = perm.lock().unwrap();
+        let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
         guard.check(tool, input_key)
     };
     match result {
@@ -161,7 +161,7 @@ pub async fn check_perm_path(
         return Ok(());
     };
     let result = {
-        let mut guard = perm.lock().unwrap();
+        let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
         guard.check_path(tool, path)
     };
     match result {

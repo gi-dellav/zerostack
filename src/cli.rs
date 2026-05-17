@@ -45,6 +45,9 @@ pub struct Cli {
     #[arg(long = "no-tools", help = "Disable all tools")]
     pub no_tools: bool,
 
+    #[arg(long = "no-color", help = "Disable colored TUI output")]
+    pub no_color: bool,
+
     #[arg(
         long = "restrictive",
         short = 'R',

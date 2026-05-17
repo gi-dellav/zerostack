@@ -1,7 +1,7 @@
 mod events;
 mod input;
 mod markdown;
-mod picker;
+pub(crate) mod picker;
 mod renderer;
 mod slash;
 mod status;
@@ -35,6 +35,16 @@ const C_AGENT: Color = Color::White;
 const C_ERROR: Color = Color::Red;
 const C_TOOL: Color = Color::Yellow;
 const C_PERM: Color = Color::Magenta;
+
+#[inline]
+pub(crate) fn resolve_color(color: Color, monochrome: bool) -> Color {
+    if monochrome {
+        let _ = color;
+        Color::Reset
+    } else {
+        color
+    }
+}
 
 /// Formats a tool call showing only the primary file/command parameter.
 /// - read/write/edit → path
@@ -103,7 +113,9 @@ pub async fn run_interactive(
     let _guard = TerminalGuard::new()?;
 
     let mut renderer = Renderer::new()?;
+    renderer.set_monochrome(cli.no_color);
     let mut input = InputEditor::new();
+    input.set_monochrome(cli.no_color);
     let mut is_running = false;
     let mut agent_rx: Option<mpsc::Receiver<AgentEvent>> = None;
     let mut agent_line_started = false;
@@ -120,7 +132,7 @@ pub async fn run_interactive(
     let mut wt_return_path: Option<String> = None;
 
     let perm_mode = || -> Option<String> {
-        permission.as_ref().map(|p| p.lock().unwrap().mode().to_string())
+        permission.as_ref().map(|p| p.lock().unwrap_or_else(|e| e.into_inner()).mode().to_string())
     };
 
     render_session(&mut renderer, session, cli, cfg, context)?;
@@ -474,7 +486,14 @@ pub async fn run_interactive(
                                         renderer.write_line(&format!("error: {}", e), C_ERROR)?;
                                     }
                                     Ok(_) => {
-                                        let _ = crate::session::storage::save_session(session);
+                                        if !cli.no_session
+                                            && let Err(e) = crate::session::storage::save_session(session)
+                                        {
+                                            renderer.write_line(
+                                                &format!("warning: failed to save session: {}", e),
+                                                C_ERROR,
+                                            )?;
+                                        }
                                         #[cfg(feature = "loop")]
                                         if let Some(ref mut ls) = loop_state
                                             && ls.active && ls.iteration == 0 && !is_running
@@ -488,8 +507,13 @@ pub async fn run_interactive(
                                         }
                                     }
                                 }
-                                if !cli.no_session {
-                                    let _ = crate::session::storage::save_session(session);
+                                if !cli.no_session
+                                    && let Err(e) = crate::session::storage::save_session(session)
+                                {
+                                    renderer.write_line(
+                                        &format!("warning: failed to save session: {}", e),
+                                        C_ERROR,
+                                    )?;
                                 }
                             } else {
                                 for line in text.lines() {

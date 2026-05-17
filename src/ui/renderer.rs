@@ -6,6 +6,8 @@ use crossterm::cursor::MoveTo;
 use crossterm::style::{Attribute, Color, ResetColor, SetAttribute, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType, ScrollUp};
 
+use super::resolve_color;
+
 #[derive(Clone)]
 pub struct LineEntry {
     pub text: CompactString,
@@ -21,6 +23,7 @@ pub struct Renderer {
     partial_color: Color,
     scroll_offset: usize,
     input_scroll_offset: usize,
+    monochrome: bool,
     pub selection_active: bool,
     pub selection_start: Option<usize>,
     pub selection_end: Option<usize>,
@@ -37,10 +40,19 @@ impl Renderer {
             partial_color: Color::White,
             scroll_offset: 0,
             input_scroll_offset: 0,
+            monochrome: false,
             selection_active: false,
             selection_start: None,
             selection_end: None,
         })
+    }
+
+    pub fn set_monochrome(&mut self, monochrome: bool) {
+        self.monochrome = monochrome;
+    }
+
+    fn color(&self, color: Color) -> Color {
+        resolve_color(color, self.monochrome)
     }
 
     fn terminal_size(&self) -> (u16, u16) {
@@ -240,7 +252,7 @@ impl Renderer {
                 if is_selected {
                     write!(stdout, "{}", SetAttribute(Attribute::Reverse))?;
                 }
-                write!(stdout, "{}", SetForegroundColor(entry.color))?;
+                write!(stdout, "{}", SetForegroundColor(self.color(entry.color)))?;
                 write!(stdout, "{}", text)?;
                 if is_selected {
                     write!(stdout, "{}", SetAttribute(Attribute::NoReverse))?;
@@ -259,7 +271,7 @@ impl Renderer {
             let indicator = format!(" SCROLL {}% ", pct);
             let x = cols.saturating_sub(indicator.len() as u16);
             stdout.execute(MoveTo(x, 0))?;
-            write!(stdout, "{}", SetForegroundColor(Color::DarkYellow))?;
+            write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkYellow)))?;
             write!(stdout, "{}", indicator)?;
             write!(stdout, "{}", ResetColor)?;
         }
@@ -310,7 +322,7 @@ impl Renderer {
                     let r = self.content_row();
                     stdout.execute(MoveTo(0, r))?;
                     stdout.execute(Clear(ClearType::CurrentLine))?;
-                    write!(stdout, "{}", SetForegroundColor(color))?;
+                    write!(stdout, "{}", SetForegroundColor(self.color(color)))?;
                     writeln!(stdout, "{}", chunk)?;
                     write!(stdout, "{}", ResetColor)?;
                     self.lines = self.lines.saturating_add(1);
@@ -355,7 +367,7 @@ impl Renderer {
                     let r = self.content_row();
                     stdout.execute(MoveTo(self.col, r))?;
                     if !segment.is_empty() {
-                        write!(stdout, "{}", SetForegroundColor(color))?;
+                        write!(stdout, "{}", SetForegroundColor(self.color(color)))?;
                         write!(stdout, "{}", segment)?;
                         write!(stdout, "{}", ResetColor)?;
                     }
@@ -385,7 +397,7 @@ impl Renderer {
                         let mut stdout = io::stdout();
                         let r = self.content_row();
                         stdout.execute(MoveTo(self.col, r))?;
-                        write!(stdout, "{}", SetForegroundColor(color))?;
+                        write!(stdout, "{}", SetForegroundColor(self.color(color)))?;
                         write!(stdout, "{}", chunk)?;
                         write!(stdout, "{}", ResetColor)?;
                         self.col = self.col.saturating_add(chunk.chars().count() as u16);
@@ -443,7 +455,7 @@ impl Renderer {
         stdout.execute(MoveTo(0, input_row))?;
         write!(stdout, "{}", " ".repeat(cols as usize))?;
         stdout.execute(MoveTo(0, input_row))?;
-        write!(stdout, "{}", SetForegroundColor(Color::Cyan))?;
+        write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)))?;
         write!(stdout, "{}", prompt)?;
         write!(stdout, "{}", ResetColor)?;
         let visible_width = cols.saturating_sub(2) as usize;
@@ -467,7 +479,7 @@ impl Renderer {
         stdout.execute(MoveTo(0, status_row))?;
         write!(stdout, "{}", " ".repeat(cols as usize))?;
         stdout.execute(MoveTo(0, status_row))?;
-        write!(stdout, "{}", SetForegroundColor(Color::DarkGrey))?;
+        write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkGrey)))?;
         let status_display = if self.scroll_offset > 0 {
             format!("-- SCROLL -- {}", status)
         } else {

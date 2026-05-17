@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use crate::session::Session;
 
 pub struct StatusLine;
@@ -23,10 +25,9 @@ impl StatusLine {
         perm_mode: Option<&str>,
     ) -> String {
         let state = if is_running { "running" } else { "ready" };
-        let dir = session
-            .working_dir
-            .split('/')
-            .next_back()
+        let dir = Path::new(&session.working_dir)
+            .file_name()
+            .and_then(|n| n.to_str())
             .unwrap_or(&session.working_dir);
 
         let ctx = session.context_window;

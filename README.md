@@ -9,6 +9,7 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 - **Permission system**: four configurable modes with per-tool patterns, session allowlists, and external directory policies
 - **Session management**: save/load/resume sessions, auto-compaction to stay within context windows
 - **Terminal UI**: crossterm-based, markdown rendering, mouse selection/copy, scrollback, reasoning visibility toggle
+- **Monochrome mode**: `--no-color` forces the TUI into white/gray output
 - **Prompts system**: switch between system prompt modes at runtime (`code`, `plan`, `review`, `debug`, etc.) to tailor the agent's behavior to the task without having to manage Skills.
 - **MCP support**: connect MCP servers for extended tooling (exposed as an optional compile-time feature)
 - **Integrated Exa search**: allows for WebFetch and WebSearch tools
@@ -19,7 +20,7 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 
 ## Performance
 
-*zerostack* is one of the smallest and most performant coding agents on the market.
+_zerostack_ is one of the smallest and most performant coding agents on the market.
 
 - Lines of code: ~7k LoC
 - Binary size: 8.9MB
@@ -28,7 +29,7 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 
 ## Installation
 
-In order to install *zerostack*, you must have Cargo and git installed. Then, run:
+In order to install _zerostack_, you must have Cargo and git installed. Then, run:
 
 ```bash
 cargo install zerostack
@@ -62,6 +63,9 @@ export OPENROUTER_API_KEY="[api_key]"
 # Interactive session (default prompt: code)
 zerostack
 
+# Monochrome TUI
+zerostack --no-color
+
 # One-shot mode
 zerostack -p "Explain this project"
 
@@ -72,26 +76,31 @@ zerostack -c
 zerostack --provider openrouter --model deepseek/deepseek-v4-flash
 ```
 
+## Configuration
+
+See [CONFIG.md](CONFIG.md) for config file location, accepted keys, provider
+aliases, permission rules, and MCP server configuration.
+
 ## Prompts system
 
-*zerostack* includes a set of built-in system prompts that change the agent's behavior and tone.  
+_zerostack_ includes a set of built-in system prompts that change the agent's behavior and tone.  
 The idea is to build a complete suite of prompts that can fully substitute skills like [superpower](https://github.com/obra/superpowers) or the [Claude's official skills](https://github.com/anthropics/claude-plugins-official/tree/main).  
-You can switch between different prompts or list all registered prompts using `/prompt`.  
+You can switch between different prompts or list all registered prompts using `/prompt`.
 
 Built-in prompts:
 
-| Prompt | Description |
-|---|---|
-| **`code`** (default) | Coding mode with full file and bash tool access, TDD workflow |
-| **`plan`** | Planning-only mode — explores and produces a plan without writing code |
-| **`review`** | Code review mode — reviews for correctness, design, testing, and impact |
-| **`debug`** | Debug mode — finds root cause before proposing fixes |
-| **`ask`** | Read-only mode — only read/grep/glob permitted, no writes or bash |
-| **`brainstorm`** | Design-only mode — explores ideas and presents designs without code |
-| **`frontend-design`** | Frontend design mode — distinctive, production-grade UI |
-| **`review-security`** | Security review mode — finds exploitable vulnerabilities |
-| **`simplify`** | Code simplification mode — refines for clarity without changing behavior |
-| **`write-prompt`** | Prompt writing mode — creates and optimizes agent prompts |
+| Prompt                | Description                                                              |
+| --------------------- | ------------------------------------------------------------------------ |
+| **`code`** (default)  | Coding mode with full file and bash tool access, TDD workflow            |
+| **`plan`**            | Planning-only mode — explores and produces a plan without writing code   |
+| **`review`**          | Code review mode — reviews for correctness, design, testing, and impact  |
+| **`debug`**           | Debug mode — finds root cause before proposing fixes                     |
+| **`ask`**             | Read-only mode — only read/grep/glob permitted, no writes or bash        |
+| **`brainstorm`**      | Design-only mode — explores ideas and presents designs without code      |
+| **`frontend-design`** | Frontend design mode — distinctive, production-grade UI                  |
+| **`review-security`** | Security review mode — finds exploitable vulnerabilities                 |
+| **`simplify`**        | Code simplification mode — refines for clarity without changing behavior |
+| **`write-prompt`**    | Prompt writing mode — creates and optimizes agent prompts                |
 
 You can also create custom prompts by placing markdown files in
 `$XDG_CONFIG_HOME/zerostack/prompts/` and referencing them by name.
@@ -145,9 +154,9 @@ resume the most recent session, `-r` to browse and select one, or
 
 ## Loop system
 
-*zerostack* includes an iterative coding loop for long-horizon tasks. The agent repeatedly reads the task, picks an item from the plan, works on it, runs tests, updates the plan, and loops until the task is complete or the iteration limit is reached.
+_zerostack_ includes an iterative coding loop for long-horizon tasks. The agent repeatedly reads the task, picks an item from the plan, works on it, runs tests, updates the plan, and loops until the task is complete or the iteration limit is reached.
 
-**NOTE** The loop system is an *experimental* feature.
+**NOTE** The loop system is an _experimental_ feature.
 
 ### Loop usage
 
@@ -169,29 +178,29 @@ Each iteration includes the original task, the evolving `LOOP_PLAN.md`, a summar
 zerostack --loop --loop-prompt "Refactor the API" --loop-max 10 --loop-run "cargo test"
 ```
 
-| Flag | Description |
-|---|---|
-| `--loop` | Enable headless loop mode |
-| `--loop-prompt <text>` | Prompt for each iteration |
-| `--loop-plan <path>` | Custom plan file path (default: `LOOP_PLAN.md`) |
-| `--loop-max <N>` | Maximum iterations (default: unlimited) |
-| `--loop-run <cmd>` | Validation command to run after each iteration |
+| Flag                   | Description                                     |
+| ---------------------- | ----------------------------------------------- |
+| `--loop`               | Enable headless loop mode                       |
+| `--loop-prompt <text>` | Prompt for each iteration                       |
+| `--loop-plan <path>`   | Custom plan file path (default: `LOOP_PLAN.md`) |
+| `--loop-max <N>`       | Maximum iterations (default: unlimited)         |
+| `--loop-run <cmd>`     | Validation command to run after each iteration  |
 
 ## Git worktrees integration
 
-*zerostack* provides a branch-per-task workflow using git worktrees. You can create, work in, merge, and exit worktrees entirely from the chat UI.
+_zerostack_ provides a branch-per-task workflow using git worktrees. You can create, work in, merge, and exit worktrees entirely from the chat UI.
 
-**NOTE** The git worktrees integration is an *experimental* feature.
+**NOTE** The git worktrees integration is an _experimental_ feature.
 
 ### Git worktree usage
 
 The worktrees integrations offers 3 slash commands:
 
-| Command | Description |
-|---|---|
-| `/worktree <name>` | Create a git worktree on branch `<name>` and move into it (skips creating it if it already exists) |
+| Command              | Description                                                                                                       |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `/worktree <name>`   | Create a git worktree on branch `<name>` and move into it (skips creating it if it already exists)                |
 | `/wt-merge [branch]` | Merge the worktree branch into `[branch]` (default: `main`/`master`), push, clean up, and return to the main repo |
-| `/wt-exit` | Return to the main repo without merging |
+| `/wt-exit`           | Return to the main repo without merging                                                                           |
 
 ### Example workflow for git worktrees
 
@@ -209,7 +218,7 @@ The worktrees integrations offers 3 slash commands:
 - Ollama
 
 Custom providers can be configured with any base URL and API key environment
-variable in `$XDG_CONFIG_HOME/zerostack/config.json`.
+variable in  `$XDG_CONFIG_HOME/zerostack/config.json`.
 
 ## License
 

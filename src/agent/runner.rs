@@ -117,7 +117,7 @@ where
     AgentRunner { event_rx }
 }
 
-pub async fn run_print<M, P>(agent: &Agent<M, P>, prompt: &str) -> anyhow::Result<String>
+pub async fn run_print<M, P>(agent: &Agent<M, P>, prompt: &str, max_turns: usize) -> anyhow::Result<String>
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
@@ -125,7 +125,7 @@ where
 {
     let mut stream = agent
         .stream_chat(prompt.to_string(), Vec::<Message>::new())
-        .multi_turn(100)
+        .multi_turn(max_turns)
         .await;
 
     let mut full_response = String::new();

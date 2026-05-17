@@ -7,181 +7,8 @@ use crossterm::cursor::MoveTo;
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use crossterm::terminal::Clear;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+use super::resolve_color;
 
-    #[test]
-    fn test_backspace_empty_query() {
-        let mut picker = FilePicker::new();
-        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
-        // backspace on empty query should not panic
-        picker.backspace();
-        assert!(picker.query.is_empty());
-        assert_eq!(picker.cursor, 0);
-    }
-
-    #[test]
-    fn test_char_input_and_backspace_ascii() {
-        let mut picker = FilePicker::new();
-        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
-        picker.char_input('a');
-        picker.char_input('b');
-        picker.char_input('c');
-        assert_eq!(picker.query, "abc");
-        assert_eq!(picker.cursor, 3);
-
-        picker.backspace();
-        assert_eq!(picker.query, "ab");
-        assert_eq!(picker.cursor, 2);
-
-        picker.backspace();
-        assert_eq!(picker.query, "a");
-        assert_eq!(picker.cursor, 1);
-
-        picker.backspace();
-        assert_eq!(picker.query, "");
-        assert_eq!(picker.cursor, 0);
-
-        // backspace at empty should be no-op
-        picker.backspace();
-        assert_eq!(picker.query, "");
-        assert_eq!(picker.cursor, 0);
-    }
-
-    #[test]
-    fn test_char_input_and_backspace_unicode() {
-        let mut picker = FilePicker::new();
-        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
-
-        // Multi-byte UTF-8: é is 2 bytes, ñ is 2 bytes
-        picker.char_input('é');
-        assert_eq!(picker.query, "é");
-        assert_eq!(picker.cursor, 1);
-
-        picker.char_input('ñ');
-        assert_eq!(picker.query, "éñ");
-        assert_eq!(picker.cursor, 2);
-
-        // Backspace should remove 'ñ' (multi-byte) without panicking
-        picker.backspace();
-        assert_eq!(picker.query, "é");
-        assert_eq!(picker.cursor, 1);
-
-        // Backspace should remove 'é' (multi-byte) without panicking
-        picker.backspace();
-        assert_eq!(picker.query, "");
-        assert_eq!(picker.cursor, 0);
-
-        // Mix ASCII and multi-byte
-        picker.char_input('a');
-        picker.char_input('é');
-        picker.char_input('b');
-        assert_eq!(picker.query, "aéb");
-        assert_eq!(picker.cursor, 3);
-
-        picker.backspace();
-        assert_eq!(picker.query, "aé");
-        assert_eq!(picker.cursor, 2);
-
-        picker.backspace();
-        assert_eq!(picker.query, "a");
-        assert_eq!(picker.cursor, 1);
-
-        picker.backspace();
-        assert_eq!(picker.query, "");
-        assert_eq!(picker.cursor, 0);
-    }
-
-    #[test]
-    fn test_mid_query_insertion_unicode() {
-        let mut picker = FilePicker::new();
-        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
-
-        // Build "ab"
-        picker.char_input('a');
-        picker.char_input('b');
-        assert_eq!(picker.query, "ab");
-        assert_eq!(picker.cursor, 2);
-
-        // Move cursor back with backspace to simulate left-arrow + insert
-        picker.backspace();
-        assert_eq!(picker.query, "a");
-        assert_eq!(picker.cursor, 1);
-
-        // Insert multi-byte char in middle (simulating cursor positioning)
-        // This tests that nth(1) on "a" gives byte_pos = 1 (end of string)
-        picker.char_input('é');
-        assert_eq!(picker.query, "aé");
-        assert_eq!(picker.cursor, 2);
-
-        // Insert 'c' at the end
-        picker.char_input('c');
-        assert_eq!(picker.query, "aéc");
-        assert_eq!(picker.cursor, 3);
-
-        // Remove from the end (multi-byte in middle)
-        picker.backspace();
-        assert_eq!(picker.query, "aé");
-        assert_eq!(picker.cursor, 2);
-
-        picker.backspace();
-        assert_eq!(picker.query, "a");
-        assert_eq!(picker.cursor, 1);
-    }
-
-    #[test]
-    fn test_deactivate_and_reactivate() {
-        let mut picker = FilePicker::new();
-        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
-        picker.char_input('h');
-        picker.char_input('i');
-        assert_eq!(picker.query, "hi");
-
-        picker.deactivate();
-        assert!(!picker.active);
-
-        picker.activate();
-        assert!(picker.active);
-        assert_eq!(picker.query, "");
-        assert_eq!(picker.cursor, 0);
-    }
-
-    #[test]
-    fn test_backspace_cursor_never_negative() {
-        let mut picker = FilePicker::new();
-        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
-        // Multiple backspaces on empty should keep cursor at 0
-        for _ in 0..10 {
-            picker.backspace();
-        }
-        assert_eq!(picker.cursor, 0);
-        assert!(picker.query.is_empty());
-    }
-
-    #[test]
-    fn test_emoji_handling() {
-        let mut picker = FilePicker::new();
-        picker.test_set_cache(vec![PathBuf::from("test.rs")]);
-
-        // Emoji: "🔥" is 4 bytes in UTF-8
-        picker.char_input('🔥');
-        assert_eq!(picker.query, "🔥");
-        assert_eq!(picker.cursor, 1);
-
-        picker.char_input('x');
-        assert_eq!(picker.query, "🔥x");
-        assert_eq!(picker.cursor, 2);
-
-        picker.backspace();
-        assert_eq!(picker.query, "🔥");
-        assert_eq!(picker.cursor, 1);
-
-        picker.backspace();
-        assert_eq!(picker.query, "");
-        assert_eq!(picker.cursor, 0);
-    }
-}
 
 pub struct FilePicker {
     pub active: bool,
@@ -190,6 +17,7 @@ pub struct FilePicker {
     pub matches: Vec<PathBuf>,
     pub selected: usize,
     file_cache: Arc<Mutex<Vec<PathBuf>>>,
+    monochrome: bool,
 }
 
 impl FilePicker {
@@ -201,7 +29,16 @@ impl FilePicker {
             matches: Vec::new(),
             selected: 0,
             file_cache: Arc::new(Mutex::new(Vec::new())),
+            monochrome: false,
         }
+    }
+
+    pub fn set_monochrome(&mut self, monochrome: bool) {
+        self.monochrome = monochrome;
+    }
+
+    fn color(&self, color: Color) -> Color {
+        resolve_color(color, self.monochrome)
     }
 
     pub fn activate(&mut self) {
@@ -220,7 +57,7 @@ impl FilePicker {
 
     fn load_files(&mut self) {
         let files = walk_files(".");
-        *self.file_cache.lock().unwrap() = files;
+        *self.file_cache.lock().unwrap_or_else(|e| e.into_inner()) = files;
     }
 
     pub fn char_input(&mut self, c: char) {
@@ -252,7 +89,7 @@ impl FilePicker {
     }
 
     fn filter(&mut self) {
-        let cache = self.file_cache.lock().unwrap();
+        let cache = self.file_cache.lock().unwrap_or_else(|e| e.into_inner());
         if cache.is_empty() {
             self.matches.clear();
             return;
@@ -292,7 +129,7 @@ impl FilePicker {
 
     #[cfg(test)]
     pub fn test_set_cache(&mut self, files: Vec<PathBuf>) {
-        *self.file_cache.lock().unwrap() = files;
+        *self.file_cache.lock().unwrap_or_else(|e| e.into_inner()) = files;
     }
 
     pub fn draw(&self) -> std::io::Result<()> {
@@ -307,7 +144,7 @@ impl FilePicker {
         if self.matches.is_empty() {
             let r = rows.saturating_sub(3);
             stdout.execute(MoveTo(0, r))?;
-            write!(stdout, "{}", SetForegroundColor(Color::DarkGrey))?;
+            write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkGrey)))?;
             write!(stdout, "{}", "no matches")?;
             write!(stdout, "{}", ResetColor)?;
             stdout.flush()?;
@@ -340,10 +177,10 @@ impl FilePicker {
                 .collect();
 
             if i == self.selected {
-                write!(stdout, "{}", SetForegroundColor(Color::Green))?;
+                write!(stdout, "{}", SetForegroundColor(self.color(Color::Green)))?;
                 write!(stdout, "▸ {}", truncated)?;
             } else {
-                write!(stdout, "{}", SetForegroundColor(Color::DarkGrey))?;
+                write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkGrey)))?;
                 write!(stdout, "  {}", truncated)?;
             }
             write!(stdout, "{}", ResetColor)?;

@@ -10,6 +10,9 @@ mod sandbox;
 mod session;
 mod ui;
 
+#[cfg(test)]
+mod tests;
+
 use clap::Parser;
 use session::MessageRole;
 
@@ -154,7 +157,7 @@ async fn main() -> anyhow::Result<()> {
             .iter()
             .map(|e| (e.tool.clone(), e.pattern.clone()))
             .collect();
-        perm.lock().unwrap().load_session_allowlist(&allowlist);
+        perm.lock().unwrap_or_else(|e| e.into_inner()).load_session_allowlist(&allowlist);
     }
 
     let completion_model = client.completion_model(model.to_string());
@@ -171,7 +174,7 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(feature = "mcp")] mcp_manager.as_ref(),
         ).await;
         let msg = cli.message.join(" ");
-        let response = agent.run_print(&msg).await?;
+        let response = agent.run_print(&msg, cli.resolve_max_agent_turns(&cfg)).await?;
         if !cli.no_session {
             session.add_message(MessageRole::User, &msg);
             session.add_message(MessageRole::Assistant, &response);
@@ -208,7 +211,7 @@ async fn main() -> anyhow::Result<()> {
         if !cli.resolve_no_tools(&cfg)
             && let Some(perm) = &permission {
                 let mode = resolve_mode(&cli, &cfg);
-                perm.lock().unwrap().set_mode(mode);
+                perm.lock().unwrap_or_else(|e| e.into_inner()).set_mode(mode);
             }
 
         let initial_msg = cli.message.join(" ");
@@ -243,7 +246,7 @@ async fn main() -> anyhow::Result<()> {
 async fn run_headless_loop(
     agent: crate::provider::AnyAgent,
     cli: &cli::Cli,
-    _cfg: &config::Config,
+    cfg: &config::Config,
     _context: &context::ContextFiles,
 ) -> anyhow::Result<()> {
     use std::path::PathBuf;
@@ -291,7 +294,7 @@ async fn run_headless_loop(
         eprintln!("=== {} ===", state.iteration_label());
         eprintln!();
 
-        let response = match agent.run_print(&iteration_prompt).await {
+        let response = match agent.run_print(&iteration_prompt, cli.resolve_max_agent_turns(cfg)).await {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("[loop] error in iteration {}: {}", state.iteration, e);
@@ -304,8 +307,10 @@ async fn run_headless_loop(
 
         let validation_output = if let Some(cmd) = &state.run_cmd {
             eprintln!("--- Validation: {} ---", cmd);
-            match tokio::process::Command::new("sh")
-                .arg("-c")
+            let shell = if cfg!(windows) { "powershell" } else { "sh" };
+            let shell_arg = if cfg!(windows) { "-Command" } else { "-c" };
+            match tokio::process::Command::new(shell)
+                .arg(shell_arg)
                 .arg(cmd)
                 .output()
                 .await
@@ -332,14 +337,16 @@ async fn run_headless_loop(
         };
         state.last_run_output = validation_output.clone();
 
-        let _ = loop_mod::transcript::save_iteration(
+        if let Err(e) = loop_mod::transcript::save_iteration(
             &session_id,
             state.iteration,
             &iteration_prompt,
             &response,
             validation_output.as_deref(),
             &summary,
-        );
+        ) {
+            eprintln!("[loop] warning: failed to save transcript: {}", e);
+        }
 
         eprintln!("--- iteration {} complete, looping ---\n", state.iteration);
     }

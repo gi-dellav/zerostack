@@ -7,7 +7,7 @@ use crate::permission::{Action, PermissionConfig, SecurityMode, ToolPerm};
 
 pub type PermCheck = Arc<Mutex<PermissionChecker>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CheckResult {
     Allowed,
     Ask,
@@ -316,3 +316,4 @@ fn resolve_absolute(path: &str, working_dir: &str) -> String {
             .to_string()
     }
 }
+

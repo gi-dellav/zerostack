@@ -13,7 +13,7 @@ impl EditTool {
         EditTool { permission, ask_tx }
     }
 
-    fn show_diff(
+    pub(crate) fn show_diff(
         path: &str,
         content: &str,
         byte_pos: usize,
@@ -178,29 +178,3 @@ impl Tool for EditTool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn test_rejects_empty_old_text() {
-        let tool = EditTool::new(None, None);
-        let args = EditArgs {
-            path: "/tmp/test.txt".to_string(),
-            old_text: String::new(),
-            new_text: "replacement".to_string(),
-            replace_all: None,
-        };
-        let result = tool.call(args).await;
-        assert!(result.is_err());
-        match result {
-            Err(ToolError::Msg(msg)) => {
-                assert!(
-                    msg.contains("old_text must not be empty"),
-                    "unexpected msg: {msg}"
-                );
-            }
-            _ => panic!("expected ToolError::Msg"),
-        }
-    }
-}
