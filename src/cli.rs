@@ -33,6 +33,9 @@ pub struct Cli {
     #[arg(long = "max-tokens", help = "Maximum tokens in response")]
     pub max_tokens: Option<u64>,
 
+    #[arg(long = "max-agent-turns", help = "Maximum agent turns")]
+    pub max_agent_turns: Option<usize>,
+
     #[arg(long = "temperature", help = "Model temperature (0.0 to 2.0)")]
     pub temperature: Option<f64>,
 
@@ -123,6 +126,10 @@ impl Cli {
 
     pub fn resolve_max_tokens(&self, cfg: &config::Config) -> u64 {
         self.max_tokens.or(cfg.max_tokens).unwrap_or(8192)
+    }
+
+    pub fn resolve_max_agent_turns(&self, cfg: &config::Config) -> usize {
+        self.max_agent_turns.or(cfg.max_agent_turns).unwrap_or(100)
     }
 
     pub fn resolve_no_context_files(&self, cfg: &config::Config) -> bool {

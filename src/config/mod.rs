@@ -27,6 +27,7 @@ pub struct Config {
     pub context_window: Option<u64>,
     pub reserve_tokens: Option<u64>,
     pub keep_recent_tokens: Option<u64>,
+    pub max_agent_turns: Option<usize>,
     pub compact_enabled: Option<bool>,
     pub custom_providers: Option<HashMap<String, CustomProviderConfig>>,
     pub permission: Option<serde_json::Value>,
