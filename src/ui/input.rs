@@ -1,5 +1,5 @@
 use compact_str::CompactString;
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::ui::picker::FilePicker;
 
@@ -65,6 +65,23 @@ impl InputEditor {
         };
 
         match key.code {
+            KeyCode::Char(c) if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) => {
+                if picker.cursor > 0 {
+                    picker.backspace();
+                    self.cursor = prev_char_boundary(&self.buffer, self.cursor);
+                    self.buffer.remove(self.cursor);
+                } else {
+                    let at_pos = self.buffer.rfind('@');
+                    if let Some(at) = at_pos {
+                        let before: String = self.buffer.chars().take(at).collect();
+                        let after: String = self.buffer.chars().skip(at + 1).collect();
+                        self.buffer = format!("{}{}", before, after).into();
+                        self.cursor = at;
+                    }
+                    picker.deactivate();
+                }
+                true
+            }
             KeyCode::Char(c) => {
                 picker.char_input(c);
                 self.buffer.insert(self.cursor, c);
@@ -160,9 +177,15 @@ impl InputEditor {
                 self.cursor = 0;
                 if text.is_empty() { None } else { Some(text) }
             }
+            KeyCode::Char(c) if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) => {
+                if self.cursor > 0 {
+                    self.cursor = prev_char_boundary(&self.buffer, self.cursor);
+                    self.buffer.remove(self.cursor);
+                }
+                None
+            }
             KeyCode::Char(c) => {
                 if c == '@' {
-                    // ' ' er ASCII (1 byte), så sjekken kan gjøres byte-vis.
                     let at_word_start = self.cursor == 0
                         || self.buffer.as_bytes().get(self.cursor - 1) == Some(&b' ');
                     if at_word_start {
