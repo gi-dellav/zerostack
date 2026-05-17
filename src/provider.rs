@@ -26,6 +26,7 @@ pub enum ProviderKind {
     Anthropic,
     Gemini,
     Ollama,
+    Custom,
 }
 
 pub fn parse_provider(name: &str) -> Option<ProviderKind> {
@@ -35,6 +36,7 @@ pub fn parse_provider(name: &str) -> Option<ProviderKind> {
         "anthropic" => Some(ProviderKind::Anthropic),
         "gemini" | "google" => Some(ProviderKind::Gemini),
         "ollama" => Some(ProviderKind::Ollama),
+        "custom" => Some(ProviderKind::Custom),
         _ => None,
     }
 }
@@ -72,6 +74,7 @@ fn provider_env_var(kind: ProviderKind) -> &'static str {
         ProviderKind::Gemini => "GEMINI_API_KEY",
         ProviderKind::Ollama => "OLLAMA_API_KEY",
         ProviderKind::OpenRouter => "OPENROUTER_API_KEY",
+        ProviderKind::Custom => "CUSTOM_API_KEY",
     }
 }
 
@@ -102,6 +105,12 @@ fn resolve_api_key(
         return Ok(String::new());
     }
 
+    if kind == ProviderKind::Custom {
+        anyhow::bail!(
+            "No API key found for custom provider. Set the CUSTOM_API_KEY environment variable or pass --api-key."
+        )
+    }
+
     anyhow::bail!(
         "No API key found for {kind:?}. Set the {env_var} environment variable or pass --api-key."
     )
@@ -113,6 +122,7 @@ pub enum AnyClient {
     Anthropic(anthropic::Client),
     Gemini(gemini::Client),
     Ollama(ollama::Client),
+    Custom(openai::CompletionsClient),
 }
 
 impl AnyClient {
@@ -124,6 +134,7 @@ impl AnyClient {
             AnyClient::Anthropic(c) => AnyModel::Anthropic(c.completion_model(name)),
             AnyClient::Gemini(c) => AnyModel::Gemini(c.completion_model(name)),
             AnyClient::Ollama(c) => AnyModel::Ollama(c.completion_model(name)),
+            AnyClient::Custom(c) => AnyModel::Custom(c.completion_model(name)),
         }
     }
 
@@ -161,6 +172,7 @@ async fn summarize_with_model(model: AnyModel, prompt: String) -> anyhow::Result
         AnyModel::Anthropic(m) => run_summarizer(m, prompt).await,
         AnyModel::Gemini(m) => run_summarizer(m, prompt).await,
         AnyModel::Ollama(m) => run_summarizer(m, prompt).await,
+        AnyModel::Custom(m) => run_summarizer(m, prompt).await,
     }
 }
 
@@ -220,6 +232,7 @@ pub enum AnyModel {
     Anthropic(anthropic::completion::CompletionModel),
     Gemini(gemini::completion::CompletionModel),
     Ollama(ollama::CompletionModel),
+    Custom(openai::completion::CompletionModel),
 }
 
 #[derive(Clone)]
@@ -229,6 +242,7 @@ pub enum AnyAgent {
     Anthropic(Agent<anthropic::completion::CompletionModel>),
     Gemini(Agent<gemini::completion::CompletionModel>),
     Ollama(Agent<ollama::CompletionModel>),
+    Custom(Agent<openai::completion::CompletionModel>),
 }
 
 impl AnyAgent {
@@ -239,6 +253,7 @@ impl AnyAgent {
             AnyAgent::Anthropic(a) => runner::run_print(a, prompt).await,
             AnyAgent::Gemini(a) => runner::run_print(a, prompt).await,
             AnyAgent::Ollama(a) => runner::run_print(a, prompt).await,
+            AnyAgent::Custom(a) => runner::run_print(a, prompt).await,
         }
     }
 
@@ -249,6 +264,7 @@ impl AnyAgent {
             AnyAgent::Anthropic(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Gemini(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Ollama(a) => runner::spawn_agent(a, prompt, history),
+            AnyAgent::Custom(a) => runner::spawn_agent(a, prompt, history),
         }
     }
 }
@@ -260,31 +276,37 @@ pub fn create_client(
 ) -> anyhow::Result<AnyClient> {
     let info = resolve_provider_info(provider_name, custom_providers).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: {}. Supported providers: openrouter, openai, anthropic, gemini, ollama",
+            "Unknown provider: {}. Supported providers: openrouter, openai, anthropic, gemini, ollama, custom",
             provider_name
         )
     })?;
 
     let key = resolve_api_key(info.kind, info.api_key_env.as_deref(), api_key)?;
 
+    let base_url = if info.kind == ProviderKind::Custom {
+        std::env::var("CUSTOM_BASE_URL").ok()
+    } else {
+        info.base_url
+    };
+
     match info.kind {
         ProviderKind::OpenAI => {
             let mut b = openai::CompletionsClient::builder().api_key(&key);
-            if let Some(base_url) = &info.base_url {
+            if let Some(base_url) = &base_url {
                 b = b.base_url(base_url);
             }
             Ok(AnyClient::OpenAI(b.build()?))
         }
         ProviderKind::Anthropic => {
             let mut b = anthropic::Client::builder().api_key(&key);
-            if let Some(base_url) = &info.base_url {
+            if let Some(base_url) = &base_url {
                 b = b.base_url(base_url);
             }
             Ok(AnyClient::Anthropic(b.build()?))
         }
         ProviderKind::Gemini => {
             let mut b = gemini::Client::builder().api_key(&key);
-            if let Some(base_url) = &info.base_url {
+            if let Some(base_url) = &base_url {
                 b = b.base_url(base_url);
             }
             Ok(AnyClient::Gemini(b.build()?))
@@ -292,17 +314,24 @@ pub fn create_client(
         ProviderKind::Ollama => {
             let key: ollama::OllamaApiKey = key.as_str().into();
             let mut b = ollama::Client::builder().api_key(key);
-            if let Some(base_url) = &info.base_url {
+            if let Some(base_url) = &base_url {
                 b = b.base_url(base_url);
             }
             Ok(AnyClient::Ollama(b.build()?))
         }
         ProviderKind::OpenRouter => {
             let mut b = openrouter::Client::builder().api_key(&key);
-            if let Some(base_url) = &info.base_url {
+            if let Some(base_url) = &base_url {
                 b = b.base_url(base_url);
             }
             Ok(AnyClient::OpenRouter(b.build()?))
+        }
+        ProviderKind::Custom => {
+            let base_url = base_url.ok_or_else(|| {
+                anyhow::anyhow!("CUSTOM_BASE_URL environment variable must be set for custom provider")
+            })?;
+            let b = openai::CompletionsClient::builder().api_key(&key).base_url(&base_url);
+            Ok(AnyClient::Custom(b.build()?))
         }
     }
 }
@@ -336,6 +365,10 @@ pub async fn build_agent(
         ).await),
         AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_agent_inner(
             m, cli, cfg, context, permission, ask_tx, sandbox,
+            #[cfg(feature = "mcp")] mcp_manager,
+        ).await),
+        AnyModel::Custom(m) => AnyAgent::Custom(builder::build_agent_inner(
+            m, cli, cfg, context, permission, ask_tx, sandbox.clone(),
             #[cfg(feature = "mcp")] mcp_manager,
         ).await),
     }
