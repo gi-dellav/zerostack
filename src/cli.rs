@@ -9,6 +9,9 @@ pub struct Cli {
     #[arg(short = 'p', long = "print", help = "Print response and exit")]
     pub print: bool,
 
+    #[arg(long = "print-config", help = "Print resolved configuration and exit")]
+    pub print_config: bool,
+
     #[arg(short = 'c', long = "continue", help = "Continue most recent session")]
     pub continue_session: bool,
 

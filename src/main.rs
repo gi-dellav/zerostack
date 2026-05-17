@@ -77,6 +77,12 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = cli::Cli::parse();
     let cfg = config::load();
+
+    if cli.print_config {
+        print_config(&cli, &cfg);
+        return Ok(());
+    }
+
     let mut context = context::load(cli.resolve_no_context_files(&cfg));
 
     let default_prompt = cfg.default_prompt.as_deref().unwrap_or("code");
@@ -259,6 +265,74 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_section(title: &str, entries: &[(&str, String)]) {
+    println!("{}:", title);
+    let width = entries.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
+    for (k, v) in entries {
+        println!("  {k:<width$}  {v}");
+    }
+    println!();
+}
+
+fn print_config(cli: &cli::Cli, cfg: &config::Config) {
+    let config_dir = session::storage::config_path();
+    let data_dir = session::storage::data_dir();
+    let sessions_dir = data_dir.join("sessions");
+    let config_file = config::config_file_path();
+
+    let model = cli.resolve_model(cfg);
+    let provider = cli.resolve_provider(cfg);
+    let max_tokens = cli.resolve_max_tokens(cfg);
+    let max_agent_turns = cli.resolve_max_agent_turns(cfg);
+    let context_window = cfg.resolve_context_window();
+    let temperature = cli.temperature.or(cfg.temperature);
+    let no_tools = cli.resolve_no_tools(cfg);
+    let no_context_files = cli.resolve_no_context_files(cfg);
+    let sandbox = cli.resolve_sandbox(cfg);
+    let compact = cfg.resolve_compact_enabled();
+
+    let mode = if cli.yolo || cfg.yolo.unwrap_or(false) {
+        "yolo"
+    } else if cli.accept_all || cfg.accept_all.unwrap_or(false) {
+        "accept"
+    } else if cli.restrictive || cfg.restrictive.unwrap_or(false) {
+        "restrictive"
+    } else {
+        cfg.default_permission_mode.as_deref().unwrap_or("standard")
+    };
+
+    print_section("Directories", &[
+        ("config", config_dir.display().to_string()),
+        ("data", data_dir.display().to_string()),
+        ("sessions", sessions_dir.display().to_string()),
+        ("config file", config_file.display().to_string()),
+    ]);
+
+    let mut model_entries = vec![
+        ("provider", provider.to_string()),
+        ("model", model.to_string()),
+    ];
+    if let Some(temp) = temperature {
+        model_entries.push(("temperature", temp.to_string()));
+    }
+    print_section("Model", &model_entries);
+
+    print_section("Limits", &[
+        ("max-tokens", max_tokens.to_string()),
+        ("max-agent-turns", max_agent_turns.to_string()),
+        ("context-window", context_window.to_string()),
+        ("reserve-tokens", cfg.resolve_reserve_tokens().to_string()),
+    ]);
+
+    print_section("Behavior", &[
+        ("permission-mode", mode.to_string()),
+        ("sandbox", sandbox.to_string()),
+        ("no-tools", no_tools.to_string()),
+        ("no-context-files", no_context_files.to_string()),
+        ("compact", compact.to_string()),
+    ]);
 }
 
 #[cfg(feature = "loop")]
