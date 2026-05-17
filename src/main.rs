@@ -174,7 +174,7 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(feature = "mcp")] mcp_manager.as_ref(),
         ).await;
         let msg = cli.message.join(" ");
-        let response = agent.run_print(&msg, cli.resolve_max_agent_turns(&cfg)).await?;
+        let response = agent.run_print(&msg, cli.resolve_max_agent_turns(&cfg), cfg.resolve_context_window()).await?;
         if !cli.no_session {
             session.add_message(MessageRole::User, &msg);
             session.add_message(MessageRole::Assistant, &response);
@@ -294,7 +294,7 @@ async fn run_headless_loop(
         eprintln!("=== {} ===", state.iteration_label());
         eprintln!();
 
-        let response = match agent.run_print(&iteration_prompt, cli.resolve_max_agent_turns(cfg)).await {
+        let response = match agent.run_print(&iteration_prompt, cli.resolve_max_agent_turns(cfg), cfg.resolve_context_window()).await {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("[loop] error in iteration {}: {}", state.iteration, e);
