@@ -9,6 +9,7 @@ pub struct InputEditor {
     history: Vec<CompactString>,
     history_pos: Option<usize>,
     pub picker: Option<FilePicker>,
+    monochrome: bool,
 }
 
 impl InputEditor {
@@ -19,11 +20,20 @@ impl InputEditor {
             history: Vec::new(),
             history_pos: None,
             picker: None,
+            monochrome: false,
+        }
+    }
+
+    pub fn set_monochrome(&mut self, monochrome: bool) {
+        self.monochrome = monochrome;
+        if let Some(picker) = self.picker.as_mut() {
+            picker.set_monochrome(monochrome);
         }
     }
 
     pub fn start_picker(&mut self) {
         let picker = self.picker.get_or_insert_with(FilePicker::new);
+        picker.set_monochrome(self.monochrome);
         picker.activate();
     }
 
