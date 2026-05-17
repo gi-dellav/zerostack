@@ -261,7 +261,9 @@ pub async fn run_interactive(
                     UserEvent::Key(key) => {
                         let is_ctrl_c = key.code == KeyCode::Char('c')
                             && key.modifiers.contains(KeyModifiers::CONTROL);
-                        if is_ctrl_c {
+                        let is_ctrl_d = key.code == KeyCode::Char('d')
+                            && key.modifiers.contains(KeyModifiers::CONTROL);
+                        if is_ctrl_c || is_ctrl_d {
                             if is_running {
                                 is_running = false;
                                 agent_rx = None;

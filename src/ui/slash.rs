@@ -865,7 +865,7 @@ pub async fn handle_slash(
                 C_RESULT,
             )?;
             renderer.write_line("  Ctrl+R                 toggle reasoning", C_RESULT)?;
-            renderer.write_line("  Ctrl+C                 interrupt/quit", C_RESULT)?;
+            renderer.write_line("  Ctrl+C / Ctrl+D        interrupt/quit", C_RESULT)?;
             renderer.write_line("  mouse scroll           scroll chat", C_RESULT)?;
         }
         _ => {
