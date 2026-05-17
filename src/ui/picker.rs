@@ -7,6 +7,8 @@ use crossterm::cursor::MoveTo;
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use crossterm::terminal::Clear;
 
+use super::resolve_color;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,6 +192,7 @@ pub struct FilePicker {
     pub matches: Vec<PathBuf>,
     pub selected: usize,
     file_cache: Arc<Mutex<Vec<PathBuf>>>,
+    monochrome: bool,
 }
 
 impl FilePicker {
@@ -201,7 +204,16 @@ impl FilePicker {
             matches: Vec::new(),
             selected: 0,
             file_cache: Arc::new(Mutex::new(Vec::new())),
+            monochrome: false,
         }
+    }
+
+    pub fn set_monochrome(&mut self, monochrome: bool) {
+        self.monochrome = monochrome;
+    }
+
+    fn color(&self, color: Color) -> Color {
+        resolve_color(color, self.monochrome)
     }
 
     pub fn activate(&mut self) {
@@ -307,7 +319,7 @@ impl FilePicker {
         if self.matches.is_empty() {
             let r = rows.saturating_sub(3);
             stdout.execute(MoveTo(0, r))?;
-            write!(stdout, "{}", SetForegroundColor(Color::DarkGrey))?;
+            write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkGrey)))?;
             write!(stdout, "{}", "no matches")?;
             write!(stdout, "{}", ResetColor)?;
             stdout.flush()?;
@@ -340,10 +352,10 @@ impl FilePicker {
                 .collect();
 
             if i == self.selected {
-                write!(stdout, "{}", SetForegroundColor(Color::Green))?;
+                write!(stdout, "{}", SetForegroundColor(self.color(Color::Green)))?;
                 write!(stdout, "▸ {}", truncated)?;
             } else {
-                write!(stdout, "{}", SetForegroundColor(Color::DarkGrey))?;
+                write!(stdout, "{}", SetForegroundColor(self.color(Color::DarkGrey)))?;
                 write!(stdout, "  {}", truncated)?;
             }
             write!(stdout, "{}", ResetColor)?;

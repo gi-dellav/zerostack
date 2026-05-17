@@ -36,6 +36,16 @@ const C_ERROR: Color = Color::Red;
 const C_TOOL: Color = Color::Yellow;
 const C_PERM: Color = Color::Magenta;
 
+#[inline]
+pub(crate) fn resolve_color(color: Color, monochrome: bool) -> Color {
+    if monochrome {
+        let _ = color;
+        Color::Reset
+    } else {
+        color
+    }
+}
+
 /// Formats a tool call showing only the primary file/command parameter.
 /// - read/write/edit → path
 /// - grep → pattern (and path if both present)
@@ -103,7 +113,9 @@ pub async fn run_interactive(
     let _guard = TerminalGuard::new()?;
 
     let mut renderer = Renderer::new()?;
+    renderer.set_monochrome(cli.no_color);
     let mut input = InputEditor::new();
+    input.set_monochrome(cli.no_color);
     let mut is_running = false;
     let mut agent_rx: Option<mpsc::Receiver<AgentEvent>> = None;
     let mut agent_line_started = false;
