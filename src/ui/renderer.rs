@@ -137,6 +137,11 @@ impl Renderer {
     }
 
     fn wrap_line(&self, line: &str, max_width: usize) -> Vec<CompactString> {
+        // `chars.chunks(0)` panic-er ("chunk size must be non-zero"). Kan
+        // skje ved oppstart i en ikke-initialisert PTY eller midt i resize.
+        if max_width == 0 {
+            return vec![CompactString::new(line)];
+        }
         let chars: Vec<char> = line.chars().collect();
         if chars.len() <= max_width {
             return vec![CompactString::new(line)];
