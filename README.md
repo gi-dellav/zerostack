@@ -214,7 +214,7 @@ The worktrees integrations offers 3 slash commands:
 - Ollama
 
 Custom providers can be configured with any base URL and API key environment
-variable in [CONFIG.md](CONFIG.md).
+variable in  `$XDG_CONFIG_HOME/zerostack/config.json`.
 
 ## License
 
