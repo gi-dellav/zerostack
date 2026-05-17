@@ -474,7 +474,12 @@ pub async fn run_interactive(
                                         renderer.write_line(&format!("error: {}", e), C_ERROR)?;
                                     }
                                     Ok(_) => {
-                                        let _ = crate::session::storage::save_session(session);
+                                        if let Err(e) = crate::session::storage::save_session(session) {
+                                            renderer.write_line(
+                                                &format!("warning: failed to save session: {}", e),
+                                                C_ERROR,
+                                            )?;
+                                        }
                                         #[cfg(feature = "loop")]
                                         if let Some(ref mut ls) = loop_state
                                             && ls.active && ls.iteration == 0 && !is_running
@@ -488,8 +493,13 @@ pub async fn run_interactive(
                                         }
                                     }
                                 }
-                                if !cli.no_session {
-                                    let _ = crate::session::storage::save_session(session);
+                                if !cli.no_session
+                                    && let Err(e) = crate::session::storage::save_session(session)
+                                {
+                                    renderer.write_line(
+                                        &format!("warning: failed to save session: {}", e),
+                                        C_ERROR,
+                                    )?;
                                 }
                             } else {
                                 for line in text.lines() {

@@ -540,7 +540,6 @@ pub async fn handle_slash(
                     let plan_file = std::path::PathBuf::from("LOOP_PLAN.md");
                     let ls = crate::extras::r#loop::LoopState::new(prompt, plan_file, None, None);
                     *loop_state = Some(ls);
-                    *is_running = true;
                     renderer.write_line(
                         "loop started — iteration 1 will run after this message",
                         C_AGENT,
