@@ -19,6 +19,8 @@ use crate::session::SessionMessage;
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::McpClientManager;
 
+const ZIMA_BASE_URL: &str = "https://zimalabs.io/api/v1";
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ProviderKind {
     OpenRouter,
@@ -26,6 +28,7 @@ pub enum ProviderKind {
     Anthropic,
     Gemini,
     Ollama,
+    Zima,
 }
 
 pub fn parse_provider(name: &str) -> Option<ProviderKind> {
@@ -35,6 +38,7 @@ pub fn parse_provider(name: &str) -> Option<ProviderKind> {
         "anthropic" => Some(ProviderKind::Anthropic),
         "gemini" | "google" => Some(ProviderKind::Gemini),
         "ollama" => Some(ProviderKind::Ollama),
+        "zima" | "zimalabs" => Some(ProviderKind::Zima),
         _ => None,
     }
 }
@@ -72,6 +76,7 @@ fn provider_env_var(kind: ProviderKind) -> &'static str {
         ProviderKind::Gemini => "GEMINI_API_KEY",
         ProviderKind::Ollama => "OLLAMA_API_KEY",
         ProviderKind::OpenRouter => "OPENROUTER_API_KEY",
+        ProviderKind::Zima => "ZIMA_API_KEY",
     }
 }
 
@@ -260,7 +265,7 @@ pub fn create_client(
 ) -> anyhow::Result<AnyClient> {
     let info = resolve_provider_info(provider_name, custom_providers).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: {}. Supported providers: openrouter, openai, anthropic, gemini, ollama",
+            "Unknown provider: {}. Supported providers: openrouter, openai, anthropic, gemini, ollama, zima",
             provider_name
         )
     })?;
@@ -303,6 +308,12 @@ pub fn create_client(
                 b = b.base_url(base_url);
             }
             Ok(AnyClient::OpenRouter(b.build()?))
+        }
+        ProviderKind::Zima => {
+            let b = openai::CompletionsClient::builder()
+                .api_key(&key)
+                .base_url(info.base_url.as_deref().unwrap_or(ZIMA_BASE_URL));
+            Ok(AnyClient::OpenAI(b.build()?))
         }
     }
 }
