@@ -5,6 +5,8 @@ use smallvec::SmallVec;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 use crate::permission::SecurityMode;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
@@ -14,8 +16,6 @@ use crate::session::{MessageRole, Session};
 use crate::ui::events::{format_time, render_session};
 use crate::ui::input::InputEditor;
 use crate::ui::renderer::Renderer;
-#[cfg(feature = "mcp")]
-use crate::extras::mcp::McpClientManager;
 
 const C_AGENT: Color = Color::White;
 const C_RESULT: Color = Color::DarkGrey;
@@ -115,8 +115,10 @@ pub async fn handle_compress(
         permission.clone(),
         ask_tx.clone(),
         sandbox.clone(),
-        #[cfg(feature = "mcp")] mcp_manager,
-    ).await;
+        #[cfg(feature = "mcp")]
+        mcp_manager,
+    )
+    .await;
     renderer.write_line("prompt cleared (back to default behavior)", C_AGENT)?;
 
     render_session(renderer, session, cli, cfg, context)?;
@@ -167,8 +169,10 @@ pub async fn handle_slash(
                     permission.clone(),
                     ask_tx.clone(),
                     sandbox.clone(),
-                    #[cfg(feature = "mcp")] mcp_manager,
-                ).await;
+                    #[cfg(feature = "mcp")]
+                    mcp_manager,
+                )
+                .await;
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
                 renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
@@ -331,7 +335,9 @@ pub async fn handle_slash(
                 match parts[1] {
                     "standard" => {
                         if let Some(p) = permission {
-                            p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(SecurityMode::Standard);
+                            p.lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .set_mode(SecurityMode::Standard);
                             renderer.write_line("security mode: standard", C_AGENT)?;
                         } else {
                             renderer.write_line("permission system not active", C_ERROR)?;
@@ -339,7 +345,9 @@ pub async fn handle_slash(
                     }
                     "restrictive" => {
                         if let Some(p) = permission {
-                            p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(SecurityMode::Restrictive);
+                            p.lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .set_mode(SecurityMode::Restrictive);
                             renderer.write_line("security mode: restrictive", C_AGENT)?;
                         } else {
                             renderer.write_line("permission system not active", C_ERROR)?;
@@ -347,7 +355,9 @@ pub async fn handle_slash(
                     }
                     "accept" => {
                         if let Some(p) = permission {
-                            p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(SecurityMode::Accept);
+                            p.lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .set_mode(SecurityMode::Accept);
                             renderer.write_line(
                                 "security mode: accept (auto-allow within CWD)",
                                 C_AGENT,
@@ -358,7 +368,9 @@ pub async fn handle_slash(
                     }
                     "yolo" => {
                         if let Some(p) = permission {
-                            p.lock().unwrap_or_else(|e| e.into_inner()).set_mode(SecurityMode::Yolo);
+                            p.lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .set_mode(SecurityMode::Yolo);
                             renderer.write_line(
                                 "security mode: YOLO (all operations allowed)",
                                 C_AGENT,
@@ -368,10 +380,7 @@ pub async fn handle_slash(
                         }
                     }
                     _ => {
-                        renderer.write_line(
-                            &format!("unknown mode: {}", parts[1]),
-                            C_ERROR,
-                        )?;
+                        renderer.write_line(&format!("unknown mode: {}", parts[1]), C_ERROR)?;
                     }
                 }
             }
@@ -413,15 +422,9 @@ pub async fn handle_slash(
                                     C_AGENT,
                                 )?;
                             } else {
-                                renderer.write_line(
-                                    &format!("tools on '{}':", name),
-                                    C_AGENT,
-                                )?;
+                                renderer.write_line(&format!("tools on '{}':", name), C_AGENT)?;
                                 for tool in &tools {
-                                    let desc = tool
-                                        .description
-                                        .as_deref()
-                                        .unwrap_or("");
+                                    let desc = tool.description.as_deref().unwrap_or("");
                                     renderer.write_line(
                                         &format!("  {}  {}", tool.name, desc),
                                         C_RESULT,
@@ -437,10 +440,7 @@ pub async fn handle_slash(
                         }
                     }
                 } else {
-                    renderer.write_line(
-                        &format!("unknown MCP server: '{}'", name),
-                        C_ERROR,
-                    )?;
+                    renderer.write_line(&format!("unknown MCP server: '{}'", name), C_ERROR)?;
                 }
             }
         }
@@ -457,10 +457,8 @@ pub async fn handle_slash(
                     Some("on") => true,
                     Some("off") => false,
                     Some(other) => {
-                        renderer.write_line(
-                            &format!("invalid: '{}', use on or off", other),
-                            C_ERROR,
-                        )?;
+                        renderer
+                            .write_line(&format!("invalid: '{}', use on or off", other), C_ERROR)?;
                         return Ok(());
                     }
                     None => !*todo_tools_enabled,
@@ -484,8 +482,10 @@ pub async fn handle_slash(
                         permission.clone(),
                         ask_tx.clone(),
                         sandbox.clone(),
-                        #[cfg(feature = "mcp")] mcp_manager,
-                    ).await;
+                        #[cfg(feature = "mcp")]
+                        mcp_manager,
+                    )
+                    .await;
                     renderer.write_line(
                         &format!(
                             "todo tools: {}",
@@ -497,14 +497,14 @@ pub async fn handle_slash(
             }
         }
         "/compress" | "/compact" => {
-                        let instructions = if parts.len() > 1 {
-                            Some(parts[1..].join(" "))
-                        } else {
-                            None
-                        };
-                        let instr_str = instructions.clone().unwrap_or_default();
-                        return Err(anyhow::anyhow!("DEFER_COMPRESS:{}", instr_str));
-                    }
+            let instructions = if parts.len() > 1 {
+                Some(parts[1..].join(" "))
+            } else {
+                None
+            };
+            let instr_str = instructions.clone().unwrap_or_default();
+            return Err(anyhow::anyhow!("DEFER_COMPRESS:{}", instr_str));
+        }
         "/loop" => {
             #[cfg(feature = "loop")]
             {
@@ -587,8 +587,10 @@ pub async fn handle_slash(
                         permission.clone(),
                         ask_tx.clone(),
                         sandbox.clone(),
-                        #[cfg(feature = "mcp")] mcp_manager,
-                    ).await;
+                        #[cfg(feature = "mcp")]
+                        mcp_manager,
+                    )
+                    .await;
                 }
             } else {
                 let name = parts[1].trim();
@@ -604,8 +606,10 @@ pub async fn handle_slash(
                         permission.clone(),
                         ask_tx.clone(),
                         sandbox.clone(),
-                        #[cfg(feature = "mcp")] mcp_manager,
-                    ).await;
+                        #[cfg(feature = "mcp")]
+                        mcp_manager,
+                    )
+                    .await;
                     renderer.write_line(&format!("active prompt: {}", name), C_AGENT)?;
                 } else {
                     renderer.write_line(&format!("unknown prompt: '{}'", name), C_ERROR)?;
@@ -648,8 +652,10 @@ pub async fn handle_slash(
                         permission.clone(),
                         ask_tx.clone(),
                         sandbox.clone(),
-                        #[cfg(feature = "mcp")] mcp_manager,
-                    ).await;
+                        #[cfg(feature = "mcp")]
+                        mcp_manager,
+                    )
+                    .await;
                     render_session(renderer, session, cli, cfg, context)?;
                     renderer.write_line(
                         &format!("worktree created: branch '{}' at {}", name, path.display()),

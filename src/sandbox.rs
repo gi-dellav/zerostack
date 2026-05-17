@@ -22,12 +22,7 @@ impl Sandbox {
         }
 
         let mut cmd = Command::new("bwrap");
-        cmd.args([
-            "--ro-bind",
-            "/",
-            "/",
-            "--bind",
-        ]);
+        cmd.args(["--ro-bind", "/", "/", "--bind"]);
         cmd.arg(self.cwd.as_os_str());
         cmd.arg(self.cwd.as_os_str());
         cmd.args([

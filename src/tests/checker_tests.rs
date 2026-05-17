@@ -144,7 +144,11 @@ fn external_absolute_path_outside_cwd_is_detected() {
         "/etc/shadow"
     };
     let result = checker.check_path("write", external_path);
-    assert!(matches!(result, CheckResult::Ask), "expected Ask, got {:?}", result,);
+    assert!(
+        matches!(result, CheckResult::Ask),
+        "expected Ask, got {:?}",
+        result,
+    );
 }
 
 #[test]
@@ -160,8 +164,11 @@ fn relative_path_is_not_external() {
 fn explicit_granular_rules_take_effect() {
     let config = PermissionConfig {
         read: Some(ToolPerm::Granular(
-            [("*.md".to_string(), Action::Allow), ("*.rs".to_string(), Action::Ask)]
-                .into(),
+            [
+                ("*.md".to_string(), Action::Allow),
+                ("*.rs".to_string(), Action::Ask),
+            ]
+            .into(),
         )),
         ..PermissionConfig::default()
     };

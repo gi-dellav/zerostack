@@ -12,10 +12,7 @@ pub struct McpClientHandle {
 }
 
 impl McpClientHandle {
-    pub async fn connect(
-        server_name: String,
-        config: &McpServerConfig,
-    ) -> anyhow::Result<Self> {
+    pub async fn connect(server_name: String, config: &McpServerConfig) -> anyhow::Result<Self> {
         match config {
             McpServerConfig::Command { command, args, env } => {
                 let mut cmd = Command::new(command);
@@ -24,22 +21,27 @@ impl McpClientHandle {
                     cmd.env(k, v);
                 }
                 let transport = TokioChildProcess::new(cmd)?;
-                let running_service = serve_client((), transport)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("MCP connection failed for '{server_name}': {e}"))?;
-                Ok(Self { server_name, running_service })
+                let running_service = serve_client((), transport).await.map_err(|e| {
+                    anyhow::anyhow!("MCP connection failed for '{server_name}': {e}")
+                })?;
+                Ok(Self {
+                    server_name,
+                    running_service,
+                })
             }
             McpServerConfig::Url { url, headers } => {
                 let custom_headers = parse_headers(headers)?;
                 let cfg = rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig::with_uri(url.as_str())
                     .custom_headers(custom_headers);
-                type HttpClient =
-                    rmcp::transport::StreamableHttpClientTransport<reqwest::Client>;
+                type HttpClient = rmcp::transport::StreamableHttpClientTransport<reqwest::Client>;
                 let transport = HttpClient::from_config(cfg);
-                let running_service = serve_client((), transport)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("MCP HTTP connection failed for '{server_name}': {e}"))?;
-                Ok(Self { server_name, running_service })
+                let running_service = serve_client((), transport).await.map_err(|e| {
+                    anyhow::anyhow!("MCP HTTP connection failed for '{server_name}': {e}")
+                })?;
+                Ok(Self {
+                    server_name,
+                    running_service,
+                })
             }
         }
     }

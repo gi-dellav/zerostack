@@ -200,11 +200,12 @@ impl PermissionChecker {
             SecurityMode::Yolo => unreachable!(),
         };
 
-        let action = if matched.is_empty() && action == Action::Allow && self.is_external_path(&abs_path) {
-            Action::Ask
-        } else {
-            action
-        };
+        let action =
+            if matched.is_empty() && action == Action::Allow && self.is_external_path(&abs_path) {
+                Action::Ask
+            } else {
+                action
+            };
 
         if action != Action::Deny {
             self.track_doom_loop(tool, path);
@@ -310,10 +311,6 @@ fn resolve_absolute(path: &str, working_dir: &str) -> String {
     if p.is_absolute() {
         p.to_string_lossy().to_string()
     } else {
-        Path::new(working_dir)
-            .join(p)
-            .to_string_lossy()
-            .to_string()
+        Path::new(working_dir).join(p).to_string_lossy().to_string()
     }
 }
-

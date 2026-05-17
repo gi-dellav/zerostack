@@ -13,7 +13,11 @@ pub struct BashTool {
 
 impl BashTool {
     pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>, sandbox: Sandbox) -> Self {
-        BashTool { permission, ask_tx, sandbox }
+        BashTool {
+            permission,
+            ask_tx,
+            sandbox,
+        }
     }
 }
 

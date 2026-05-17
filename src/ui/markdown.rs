@@ -27,10 +27,14 @@ fn word_wrap(text: &str, max_width: usize) -> Vec<CompactString> {
             if break_at == start {
                 break_at = end;
             }
-            lines.push(CompactString::from(chars[start..break_at].iter().collect::<String>()));
+            lines.push(CompactString::from(
+                chars[start..break_at].iter().collect::<String>(),
+            ));
             start = break_at;
         } else {
-            lines.push(CompactString::from(chars[start..].iter().collect::<String>()));
+            lines.push(CompactString::from(
+                chars[start..].iter().collect::<String>(),
+            ));
             break;
         }
     }
@@ -50,10 +54,7 @@ fn flush_acc(acc: &str, color: Color, max_width: usize, out: &mut Vec<LineEntry>
             });
         } else {
             for chunk in word_wrap(trimmed, max_width) {
-                out.push(LineEntry {
-                    text: chunk,
-                    color,
-                });
+                out.push(LineEntry { text: chunk, color });
             }
         }
     }
@@ -207,18 +208,12 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                         } else if first {
                             let prefixed = format!("{}{}", bullet, trimmed);
                             for chunk in word_wrap(&prefixed, max_width) {
-                                item_lines.push(LineEntry {
-                                    text: chunk,
-                                    color,
-                                });
+                                item_lines.push(LineEntry { text: chunk, color });
                             }
                             first = false;
                         } else {
                             for chunk in word_wrap(trimmed, max_width) {
-                                item_lines.push(LineEntry {
-                                    text: chunk,
-                                    color,
-                                });
+                                item_lines.push(LineEntry { text: chunk, color });
                             }
                         }
                     }
@@ -264,9 +259,7 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
             Event::Rule => {
                 flush_acc(&acc, Color::White, max_width, &mut result);
                 acc.clear();
-                let rule: String = std::iter::repeat('─')
-                    .take(max_width.min(40))
-                    .collect();
+                let rule: String = std::iter::repeat('─').take(max_width.min(40)).collect();
                 result.push(LineEntry {
                     text: CompactString::from(rule),
                     color: Color::DarkGrey,
