@@ -84,11 +84,9 @@ pub fn load() -> Config {
         });
         serde_json::from_str(&content).unwrap_or_else(|e| {
             eprintln!(
-                "error: {} contains invalid JSON at line {} column {}: {}\n\
+                "error: {} is not a valid config: {}\n\
                  Fix the file or remove it to use defaults.",
                 path.display(),
-                e.line(),
-                e.column(),
                 e,
             );
             std::process::exit(1);

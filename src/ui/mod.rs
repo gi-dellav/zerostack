@@ -474,7 +474,9 @@ pub async fn run_interactive(
                                         renderer.write_line(&format!("error: {}", e), C_ERROR)?;
                                     }
                                     Ok(_) => {
-                                        if let Err(e) = crate::session::storage::save_session(session) {
+                                        if !cli.no_session
+                                            && let Err(e) = crate::session::storage::save_session(session)
+                                        {
                                             renderer.write_line(
                                                 &format!("warning: failed to save session: {}", e),
                                                 C_ERROR,

@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn standard_returns_ask_for_unknown_tool() {
+    fn standard_allows_unknown_tool_with_default() {
         let mut checker = make_checker(SecurityMode::Standard);
         // No rules for "some_tool" + default is Allow
         let result = checker.check("some_tool", "any input");
@@ -358,8 +358,16 @@ mod tests {
 
     #[test]
     fn accept_auto_allows_inside_working_dir() {
-        let mut checker = make_checker(SecurityMode::Accept);
-        // In Accept mode, Ask for path tools within CWD → Auto-Allow
+        // Set write to Ask so Accept mode's Ask→Allow conversion is actually exercised
+        let config = PermissionConfig {
+            write: Some(ToolPerm::Simple(Action::Ask)),
+            ..PermissionConfig::default()
+        };
+        let mut checker = PermissionChecker::new(
+            &config,
+            SecurityMode::Accept,
+            Some(std::path::PathBuf::from("/home/user/project")),
+        );
         let result = checker.check_path("write", "/home/user/project/src/main.rs");
         assert!(matches!(result, CheckResult::Allowed));
     }
