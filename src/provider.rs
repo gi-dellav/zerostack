@@ -81,6 +81,10 @@ fn resolve_api_key(
     cli_key: Option<&str>,
 ) -> anyhow::Result<String> {
     if let Some(key) = cli_key.filter(|k| !k.is_empty()) {
+        tracing::warn!(
+            "API key provided via --api-key is visible in process listings (/proc/*/cmdline). Use the {} environment variable instead.",
+            provider_env_var(kind)
+        );
         return Ok(key.to_string());
     }
 
