@@ -121,29 +121,13 @@ pub async fn run_print<M, P>(
     agent: &Agent<M, P>,
     prompt: &str,
     max_turns: usize,
-    context_window: u64,
+
 ) -> anyhow::Result<String>
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
     P: rig::agent::PromptHook<M> + 'static,
 {
-    let preamble_len = agent.preamble.as_deref().map(|s| s.len()).unwrap_or(0);
-    let total_chars = preamble_len + prompt.len();
-    let estimated_prompt_tokens = (total_chars as u64 / 4).max(1);
-    let user_max_tokens = agent.max_tokens.unwrap_or(8192);
-    let adjusted_max_tokens = user_max_tokens
-        .min(context_window.saturating_sub(estimated_prompt_tokens))
-        .max(1);
-
-    let agent = if adjusted_max_tokens != user_max_tokens {
-        let mut clone = agent.clone();
-        clone.max_tokens = Some(adjusted_max_tokens);
-        clone
-    } else {
-        agent.clone()
-    };
-
     let mut stream = agent
         .stream_chat(prompt.to_string(), Vec::<Message>::new())
         .multi_turn(max_turns)

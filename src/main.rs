@@ -184,11 +184,7 @@ async fn main() -> anyhow::Result<()> {
         .await;
         let msg = cli.message.join(" ");
         let response = agent
-            .run_print(
-                &msg,
-                cli.resolve_max_agent_turns(&cfg),
-                cfg.resolve_context_window(),
-            )
+            .run_print(&msg, cli.resolve_max_agent_turns(&cfg))
             .await?;
         if !cli.no_session {
             session.add_message(MessageRole::User, &msg);
@@ -318,11 +314,7 @@ async fn run_headless_loop(
         eprintln!();
 
         let response = match agent
-            .run_print(
-                &iteration_prompt,
-                cli.resolve_max_agent_turns(cfg),
-                cfg.resolve_context_window(),
-            )
+            .run_print(&iteration_prompt, cli.resolve_max_agent_turns(cfg))
             .await
         {
             Ok(r) => r,
