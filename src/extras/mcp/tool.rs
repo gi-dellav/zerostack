@@ -7,9 +7,9 @@ use rig::wasm_compat::WasmBoxedFuture;
 use rmcp::model::{CallToolRequestParams, JsonObject, RawContent};
 use rmcp::service::{Peer, RoleClient};
 
+use crate::agent::tools::check_perm;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
-use crate::agent::tools::check_perm;
 
 #[derive(Debug)]
 pub struct McpToolError(pub String);
@@ -71,10 +71,9 @@ impl ToolDyn for McpTool {
                 .map(|a| CallToolRequestParams::new(tool_name.clone()).with_arguments(a))
                 .unwrap_or_else(|| CallToolRequestParams::new(tool_name.clone()));
 
-            let result = peer
-                .call_tool(params)
-                .await
-                .map_err(|e| ToolError::ToolCallError(Box::new(McpToolError(format!("MCP tool error: {e}")))))?;
+            let result = peer.call_tool(params).await.map_err(|e| {
+                ToolError::ToolCallError(Box::new(McpToolError(format!("MCP tool error: {e}"))))
+            })?;
 
             if result.is_error.unwrap_or(false) {
                 let error_msg = result

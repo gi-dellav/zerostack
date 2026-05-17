@@ -12,12 +12,12 @@ use crate::agent::runner::{self, AgentRunner};
 use crate::cli::Cli;
 use crate::config::{Config, CustomProviderConfig};
 use crate::context::ContextFiles;
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
 use crate::sandbox::Sandbox;
 use crate::session::SessionMessage;
-#[cfg(feature = "mcp")]
-use crate::extras::mcp::McpClientManager;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ProviderKind {
@@ -246,9 +246,16 @@ pub enum AnyAgent {
 }
 
 impl AnyAgent {
-    pub async fn run_print(&self, prompt: &str, max_turns: usize, context_window: u64) -> anyhow::Result<String> {
+    pub async fn run_print(
+        &self,
+        prompt: &str,
+        max_turns: usize,
+        context_window: u64,
+    ) -> anyhow::Result<String> {
         match self {
-            AnyAgent::OpenRouter(a) => runner::run_print(a, prompt, max_turns, context_window).await,
+            AnyAgent::OpenRouter(a) => {
+                runner::run_print(a, prompt, max_turns, context_window).await
+            }
             AnyAgent::OpenAI(a) => runner::run_print(a, prompt, max_turns, context_window).await,
             AnyAgent::Anthropic(a) => runner::run_print(a, prompt, max_turns, context_window).await,
             AnyAgent::Gemini(a) => runner::run_print(a, prompt, max_turns, context_window).await,
@@ -328,9 +335,13 @@ pub fn create_client(
         }
         ProviderKind::Custom => {
             let base_url = base_url.ok_or_else(|| {
-                anyhow::anyhow!("CUSTOM_BASE_URL environment variable must be set for custom provider")
+                anyhow::anyhow!(
+                    "CUSTOM_BASE_URL environment variable must be set for custom provider"
+                )
             })?;
-            let b = openai::CompletionsClient::builder().api_key(&key).base_url(&base_url);
+            let b = openai::CompletionsClient::builder()
+                .api_key(&key)
+                .base_url(&base_url);
             Ok(AnyClient::Custom(b.build()?))
         }
     }
@@ -347,29 +358,89 @@ pub async fn build_agent(
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> AnyAgent {
     match model {
-        AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(builder::build_agent_inner(
-            m, cli, cfg, context, permission, ask_tx, sandbox.clone(),
-            #[cfg(feature = "mcp")] mcp_manager,
-        ).await),
-        AnyModel::OpenAI(m) => AnyAgent::OpenAI(builder::build_agent_inner(
-            m, cli, cfg, context, permission, ask_tx, sandbox.clone(),
-            #[cfg(feature = "mcp")] mcp_manager,
-        ).await),
-        AnyModel::Anthropic(m) => AnyAgent::Anthropic(builder::build_agent_inner(
-            m, cli, cfg, context, permission, ask_tx, sandbox.clone(),
-            #[cfg(feature = "mcp")] mcp_manager,
-        ).await),
-        AnyModel::Gemini(m) => AnyAgent::Gemini(builder::build_agent_inner(
-            m, cli, cfg, context, permission, ask_tx, sandbox.clone(),
-            #[cfg(feature = "mcp")] mcp_manager,
-        ).await),
-        AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_agent_inner(
-            m, cli, cfg, context, permission, ask_tx, sandbox,
-            #[cfg(feature = "mcp")] mcp_manager,
-        ).await),
-        AnyModel::Custom(m) => AnyAgent::Custom(builder::build_agent_inner(
-            m, cli, cfg, context, permission, ask_tx, sandbox.clone(),
-            #[cfg(feature = "mcp")] mcp_manager,
-        ).await),
+        AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox.clone(),
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
+        AnyModel::OpenAI(m) => AnyAgent::OpenAI(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox.clone(),
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
+        AnyModel::Anthropic(m) => AnyAgent::Anthropic(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox.clone(),
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
+        AnyModel::Gemini(m) => AnyAgent::Gemini(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox.clone(),
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
+        AnyModel::Ollama(m) => AnyAgent::Ollama(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox,
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
+        AnyModel::Custom(m) => AnyAgent::Custom(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox.clone(),
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
     }
 }

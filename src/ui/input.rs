@@ -65,7 +65,9 @@ impl InputEditor {
         };
 
         match key.code {
-            KeyCode::Char(c) if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) => {
+            KeyCode::Char(c)
+                if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) =>
+            {
                 if picker.cursor > 0 {
                     picker.backspace();
                     self.cursor = prev_char_boundary(&self.buffer, self.cursor);
@@ -177,7 +179,9 @@ impl InputEditor {
                 self.cursor = 0;
                 if text.is_empty() { None } else { Some(text) }
             }
-            KeyCode::Char(c) if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) => {
+            KeyCode::Char(c)
+                if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) =>
+            {
                 if self.cursor > 0 {
                     self.cursor = prev_char_boundary(&self.buffer, self.cursor);
                     self.buffer.remove(self.cursor);

@@ -7,16 +7,18 @@ mod slash;
 mod status;
 mod terminal;
 
+use compact_str::CompactString;
 use crossterm::event;
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 use crossterm::style::Color;
-use compact_str::CompactString;
 use tokio::sync::mpsc;
 
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
 use crate::event::{AgentEvent, UserEvent};
+#[cfg(feature = "mcp")]
+use crate::extras::mcp::McpClientManager;
 use crate::permission::ask::{AskReceiver, AskSender, UserDecision};
 use crate::permission::checker::PermCheck;
 use crate::provider::{AnyAgent, AnyClient};
@@ -28,8 +30,6 @@ use crate::ui::renderer::{Renderer, copy_to_clipboard};
 use crate::ui::slash::{handle_compress, handle_slash};
 use crate::ui::status::StatusLine;
 use crate::ui::terminal::TerminalGuard;
-#[cfg(feature = "mcp")]
-use crate::extras::mcp::McpClientManager;
 
 const C_AGENT: Color = Color::White;
 const C_ERROR: Color = Color::Red;
@@ -132,11 +132,28 @@ pub async fn run_interactive(
     let mut wt_return_path: Option<String> = None;
 
     let perm_mode = || -> Option<String> {
-        permission.as_ref().map(|p| p.lock().unwrap_or_else(|e| e.into_inner()).mode().to_string())
+        permission.as_ref().map(|p| {
+            p.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .mode()
+                .to_string()
+        })
     };
 
     render_session(&mut renderer, session, cli, cfg, context)?;
-    renderer.draw_bottom("", 0, &StatusLine::render(session, false, 0, None, context.current_prompt_name.as_deref(), perm_mode().as_deref()), false)?;
+    renderer.draw_bottom(
+        "",
+        0,
+        &StatusLine::render(
+            session,
+            false,
+            0,
+            None,
+            context.current_prompt_name.as_deref(),
+            perm_mode().as_deref(),
+        ),
+        false,
+    )?;
 
     let (user_tx, mut user_rx) = mpsc::channel::<UserEvent>(64);
     let user_tx_clone = user_tx.clone();

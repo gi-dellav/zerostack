@@ -25,31 +25,33 @@ pub fn load() -> HashMap<String, String> {
 
     let global = global_prompts_dir();
     if global.exists()
-        && let Ok(entries) = std::fs::read_dir(&global) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|e| e == "md")
-                    && let Some(name) = path.file_stem().and_then(|s| s.to_str())
-                    && let Ok(content) = std::fs::read_to_string(&path)
-                {
-                    prompts.insert(name.to_string(), content);
-                }
+        && let Ok(entries) = std::fs::read_dir(&global)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "md")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+                && let Ok(content) = std::fs::read_to_string(&path)
+            {
+                prompts.insert(name.to_string(), content);
             }
         }
+    }
 
     let local = PathBuf::from("prompts");
     if local.exists()
-        && let Ok(entries) = std::fs::read_dir(&local) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|e| e == "md")
-                    && let Some(name) = path.file_stem().and_then(|s| s.to_str())
-                    && let Ok(content) = std::fs::read_to_string(&path)
-                {
-                    prompts.insert(name.to_string(), content);
-                }
+        && let Ok(entries) = std::fs::read_dir(&local)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|e| e == "md")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+                && let Ok(content) = std::fs::read_to_string(&path)
+            {
+                prompts.insert(name.to_string(), content);
             }
         }
+    }
 
     prompts
 }
