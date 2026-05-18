@@ -6,6 +6,7 @@ use crossterm::cursor::MoveTo;
 use crossterm::style::{Attribute, Color, ResetColor, SetAttribute, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType, ScrollUp};
 
+use super::markdown::word_wrap;
 use super::resolve_color;
 
 #[derive(Clone)]
@@ -92,7 +93,8 @@ impl Renderer {
     }
 
     pub fn buffer_line_at_row(&self, row: u16) -> Option<usize> {
-        let (_, rows) = self.terminal_size();
+        let (cols, rows) = self.terminal_size();
+        let max_width = cols.saturating_sub(1) as usize;
         let visible = rows.saturating_sub(2) as usize;
         let total = self.buffer.len();
         if total == 0 {
@@ -104,8 +106,29 @@ impl Renderer {
             total.saturating_sub(self.scroll_offset + visible)
         };
         let start = start.min(total.saturating_sub(visible));
-        let idx = start + row as usize;
-        if idx < total { Some(idx) } else { None }
+
+        let mut visual_row: u16 = 0;
+        let mut buf_idx = start;
+
+        while buf_idx < total {
+            let entry = &self.buffer[buf_idx];
+            let text = &entry.text;
+
+            let wrapped_rows = if text.chars().count() > max_width {
+                word_wrap(text, max_width).len() as u16
+            } else {
+                1
+            };
+
+            if visual_row + wrapped_rows > row {
+                return Some(buf_idx);
+            }
+
+            visual_row += wrapped_rows;
+            buf_idx += 1;
+        }
+
+        None
     }
 
     pub fn clear_selection(&mut self) {
@@ -137,19 +160,7 @@ impl Renderer {
     }
 
     fn wrap_line(&self, line: &str, max_width: usize) -> Vec<CompactString> {
-        // `chars.chunks(0)` panic-er ("chunk size must be non-zero"). Kan
-        // skje ved oppstart i en ikke-initialisert PTY eller midt i resize.
-        if max_width == 0 {
-            return vec![CompactString::new(line)];
-        }
-        let chars: Vec<char> = line.chars().collect();
-        if chars.len() <= max_width {
-            return vec![CompactString::new(line)];
-        }
-        chars
-            .chunks(max_width)
-            .map(|c| CompactString::new(c.iter().collect::<String>()))
-            .collect()
+        word_wrap(line, max_width)
     }
 
     fn commit_partial(&mut self) {
@@ -220,6 +231,7 @@ impl Renderer {
 
     pub fn render_viewport(&mut self) -> io::Result<()> {
         let (cols, rows) = self.terminal_size();
+        let max_width = cols.saturating_sub(1) as usize;
         let visible = rows.saturating_sub(2) as usize;
         let total = self.buffer.len();
         let mut stdout = io::stdout();
@@ -230,18 +242,26 @@ impl Renderer {
             total.saturating_sub(self.scroll_offset + visible)
         };
         let start = start.min(total.saturating_sub(visible));
-        let end = (start + visible).min(total);
 
-        for i in 0..visible {
-            stdout.execute(MoveTo(0, i as u16))?;
-            if start + i < end {
-                let entry = &self.buffer[start + i];
-                let line_idx = start + i;
-                let text: String = entry
-                    .text
-                    .chars()
-                    .take(cols.saturating_sub(1) as usize)
-                    .collect();
+        let mut visual_row: u16 = 0;
+        let mut buf_idx = start;
+
+        while (visual_row as usize) < visible && buf_idx < total {
+            let entry = &self.buffer[buf_idx];
+            let text = &entry.text;
+
+            let wrapped = if text.chars().count() > max_width {
+                word_wrap(text, max_width)
+            } else {
+                vec![text.clone()]
+            };
+
+            for chunk in &wrapped {
+                if (visual_row as usize) >= visible {
+                    break;
+                }
+
+                stdout.execute(MoveTo(0, visual_row))?;
 
                 let is_selected = self.selection_active
                     && self.selection_start.is_some()
@@ -251,20 +271,30 @@ impl Renderer {
                         let e = self.selection_end.unwrap();
                         let lo = s.min(e);
                         let hi = s.max(e);
-                        line_idx >= lo && line_idx <= hi
+                        buf_idx >= lo && buf_idx <= hi
                     };
 
                 if is_selected {
                     write!(stdout, "{}", SetAttribute(Attribute::Reverse))?;
                 }
                 write!(stdout, "{}", SetForegroundColor(self.color(entry.color)))?;
-                write!(stdout, "{}", text)?;
+                write!(stdout, "{}", chunk)?;
                 if is_selected {
                     write!(stdout, "{}", SetAttribute(Attribute::NoReverse))?;
                 }
                 write!(stdout, "{}", ResetColor)?;
+                write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+
+                visual_row += 1;
             }
+
+            buf_idx += 1;
+        }
+
+        while (visual_row as usize) < visible {
+            stdout.execute(MoveTo(0, visual_row))?;
             write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+            visual_row += 1;
         }
 
         if self.scroll_offset > 0 {
@@ -405,7 +435,19 @@ impl Renderer {
                         }
                         continue;
                     }
-                    let end = (idx + avail).min(chars.len());
+                    let mut end = (idx + avail).min(chars.len());
+                    if end < chars.len() {
+                        let mut break_at = end;
+                        for i in (idx..end).rev() {
+                            if chars[i] == ' ' {
+                                break_at = i + 1;
+                                break;
+                            }
+                        }
+                        if break_at != idx {
+                            end = break_at;
+                        }
+                    }
                     let chunk: String = chars[idx..end].iter().collect();
                     self.partial_color = color;
                     self.partial.push_str(&chunk);

@@ -4,9 +4,9 @@ use pulldown_cmark::{Event, Tag, TagEnd};
 
 use super::renderer::LineEntry;
 
-fn word_wrap(text: &str, max_width: usize) -> Vec<CompactString> {
-    if text.is_empty() {
-        return vec![CompactString::new("")];
+pub(crate) fn word_wrap(text: &str, max_width: usize) -> Vec<CompactString> {
+    if text.is_empty() || max_width == 0 {
+        return vec![CompactString::from(text)];
     }
     let chars: Vec<char> = text.chars().collect();
     if chars.len() <= max_width {
