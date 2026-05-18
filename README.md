@@ -26,6 +26,32 @@ _zerostack_ is one of the smallest and most performant coding agents on the mark
 - Binary size: 8.9MB
 - RAM footprint: ~8MB on an empty session, ~12MB when working (vs ~300MB for opencode or other JS-based coding agents)
 - CPU usage: 0.0% on idle, ~1.5% when using tools (measured on an Intel i5 7th gen, vs ~2% on idle and ~20% when working for opencode)
+## Comparison
+
+| Feature | zerostack | pi | opencode |
+|---|---|---|---|
+| **Language** | Rust | TypeScript/Node.js | TypeScript/Bun |
+| **Lines of code** | ~7k | Monorepo (5+ packages) | Large monorepo (13k+ commits) |
+| **Binary size** | 8.9 MB | npm pkg (requires Node.js) | ~84 MB (desktop app) |
+| **Runtime deps** | None (static binary) | Node.js 18+ | Bun runtime |
+| **Startup time** | ~10 ms | 360–910 ms | <2 s |
+| **RAM (idle)** | ~8 MB | ~100–200 MB | ~180 MB (desktop) / 1 GB+ (TUI) |
+| **RAM (working)** | ~12 MB | — | Multiple GB reported |
+| **CPU (idle)** | 0.0% | — | — |
+| **CPU (working)** | ~1.5% | — | High (especially daemon mode) |
+| **Providers** | 6+ | 25+ | 75+ |
+| **Permission system** | 4 modes, granular patterns, doom-loop detection | YOLO default (extensible) | allow/deny/ask per tool |
+| **Session mgmt** | JSON file, auto-compaction | Tree-structured JSONL, branching | SQLite, multi-session, auto-compaction |
+| **TUI** | crossterm-based, markdown rendering, mouse select/copy | Differential rendering, flicker-free | Bubble Tea / custom React rendering |
+| **MCP** | Optional compile-time feature | Via extension | Full (stdio, SSE, OAuth) |
+| **ACP** | Optional feature (JSON-RPC Agent server) | RPC mode (stdin/stdout JSON) | — |
+| **Skills system** | Via prompts (code/plan/review/debug, etc.) | 60+ community skills, on-demand loading | Custom agents (JSON/Markdown) |
+| **Prompts** | 9 built-in modes + custom Markdown prompts, runtime switching | Prompt templates, expandable via `/name` | Custom commands with named arguments |
+| **AGENTS.md** | Hierarchical (cwd → ancestors → global) | Hierarchical (~/.pi/agent/ → ancestors → cwd) | — |
+| **LSP integration** | — | — | 40+ languages, auto-detected |
+| **Sub-agents** | — | Via extension | Built-in (Build, Plan, General, Explore, Scout) |
+| **Session DB growth** | Bounded (per-session JSON) | Bounded (per-session JSONL) | Unbounded (SQLite, can reach GBs) |
+| **License** | GPL-3.0 | — | — |
 
 ## Installation
 
