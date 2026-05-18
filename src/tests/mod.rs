@@ -6,3 +6,5 @@ mod edit_tests;
 mod input_tests;
 #[cfg(test)]
 mod picker_tests;
+#[cfg(test)]
+mod provider_tests;

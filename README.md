@@ -4,7 +4,7 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 
 ## Features
 
-- **Multi-provider**: OpenRouter, OpenAI, Anthropic, Gemini, Ollama, plus custom providers
+- **Multi-provider**: OpenRouter, OpenAI, Anthropic, Gemini, Ollama, MiniMax, plus custom providers
 - **Standard tools**: all of the standard tools exposed to coding agents, as described by the opencode documentation.
 - **Permission system**: four configurable modes with per-tool patterns, session allowlists, and external directory policies
 - **Session management**: save/load/resume sessions, auto-compaction to stay within context windows
@@ -261,6 +261,7 @@ and API key env vars apply). Without it, zerostack cannot process prompts.
 - Anthropic
 - Gemini
 - Ollama
+- MiniMax (MiniMax)
 
 Custom providers can be configured with any base URL and API key environment
 variable in  `$XDG_CONFIG_HOME/zerostack/config.json`.

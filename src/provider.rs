@@ -26,6 +26,7 @@ pub enum ProviderKind {
     Anthropic,
     Gemini,
     Ollama,
+    MiniMax,
     Custom,
 }
 
@@ -36,6 +37,7 @@ pub fn parse_provider(name: &str) -> Option<ProviderKind> {
         "anthropic" => Some(ProviderKind::Anthropic),
         "gemini" | "google" => Some(ProviderKind::Gemini),
         "ollama" => Some(ProviderKind::Ollama),
+        "minimax" | "MiniMax" => Some(ProviderKind::MiniMax),
         "custom" => Some(ProviderKind::Custom),
         _ => None,
     }
@@ -74,6 +76,7 @@ fn provider_env_var(kind: ProviderKind) -> &'static str {
         ProviderKind::Gemini => "GEMINI_API_KEY",
         ProviderKind::Ollama => "OLLAMA_API_KEY",
         ProviderKind::OpenRouter => "OPENROUTER_API_KEY",
+        ProviderKind::MiniMax => "MINIMAX_API_KEY",
         ProviderKind::Custom => "CUSTOM_API_KEY",
     }
 }
@@ -120,6 +123,7 @@ pub enum AnyClient {
     Anthropic(anthropic::Client),
     Gemini(gemini::Client),
     Ollama(ollama::Client),
+    MiniMax(openai::CompletionsClient),
     Custom(openai::CompletionsClient),
 }
 
@@ -132,6 +136,7 @@ impl AnyClient {
             AnyClient::Anthropic(c) => AnyModel::Anthropic(c.completion_model(name)),
             AnyClient::Gemini(c) => AnyModel::Gemini(c.completion_model(name)),
             AnyClient::Ollama(c) => AnyModel::Ollama(c.completion_model(name)),
+            AnyClient::MiniMax(c) => AnyModel::MiniMax(c.completion_model(name)),
             AnyClient::Custom(c) => AnyModel::Custom(c.completion_model(name)),
         }
     }
@@ -170,6 +175,7 @@ async fn summarize_with_model(model: AnyModel, prompt: String) -> anyhow::Result
         AnyModel::Anthropic(m) => run_summarizer(m, prompt).await,
         AnyModel::Gemini(m) => run_summarizer(m, prompt).await,
         AnyModel::Ollama(m) => run_summarizer(m, prompt).await,
+        AnyModel::MiniMax(m) => run_summarizer(m, prompt).await,
         AnyModel::Custom(m) => run_summarizer(m, prompt).await,
     }
 }
@@ -230,6 +236,7 @@ pub enum AnyModel {
     Anthropic(anthropic::completion::CompletionModel),
     Gemini(gemini::completion::CompletionModel),
     Ollama(ollama::CompletionModel),
+    MiniMax(openai::completion::CompletionModel),
     Custom(openai::completion::CompletionModel),
 }
 
@@ -240,6 +247,7 @@ pub enum AnyAgent {
     Anthropic(Agent<anthropic::completion::CompletionModel>),
     Gemini(Agent<gemini::completion::CompletionModel>),
     Ollama(Agent<ollama::CompletionModel>),
+    MiniMax(Agent<openai::completion::CompletionModel>),
     Custom(Agent<openai::completion::CompletionModel>),
 }
 
@@ -255,6 +263,7 @@ impl AnyAgent {
             AnyAgent::Anthropic(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::Gemini(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::Ollama(a) => runner::run_print(a, prompt, max_turns).await,
+            AnyAgent::MiniMax(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::Custom(a) => runner::run_print(a, prompt, max_turns).await,
         }
     }
@@ -266,6 +275,7 @@ impl AnyAgent {
             AnyAgent::Anthropic(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Gemini(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Ollama(a) => runner::spawn_agent(a, prompt, history),
+            AnyAgent::MiniMax(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Custom(a) => runner::spawn_agent(a, prompt, history),
         }
     }
@@ -278,7 +288,7 @@ pub fn create_client(
 ) -> anyhow::Result<AnyClient> {
     let info = resolve_provider_info(provider_name, custom_providers).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: {}. Supported providers: openrouter, openai, anthropic, gemini, ollama, custom",
+            "Unknown provider: {}. Supported providers: openrouter, openai, anthropic, gemini, ollama, minimax, custom",
             provider_name
         )
     })?;
@@ -287,6 +297,8 @@ pub fn create_client(
 
     let base_url = if info.kind == ProviderKind::Custom {
         std::env::var("CUSTOM_BASE_URL").ok()
+    } else if info.kind == ProviderKind::MiniMax {
+        std::env::var("MINIMAX_BASE_URL").ok().or(info.base_url)
     } else {
         info.base_url
     };
@@ -327,6 +339,12 @@ pub fn create_client(
                 b = b.base_url(base_url);
             }
             Ok(AnyClient::OpenRouter(b.build()?))
+        }
+        ProviderKind::MiniMax => {
+            let b = openai::CompletionsClient::builder()
+                .api_key(&key)
+                .base_url(base_url.as_deref().unwrap_or("https://api.minimax.io/v1"));
+            Ok(AnyClient::MiniMax(b.build()?))
         }
         ProviderKind::Custom => {
             let base_url = base_url.ok_or_else(|| {
@@ -418,6 +436,20 @@ pub async fn build_agent(
                 permission,
                 ask_tx,
                 sandbox,
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
+        AnyModel::MiniMax(m) => AnyAgent::MiniMax(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox.clone(),
                 #[cfg(feature = "mcp")]
                 mcp_manager,
             )
