@@ -53,7 +53,7 @@ add-tag:
 remove-tag VERSION="":
     #!/usr/bin/env bash
     set -e
-    tag="{{VERSION}}"
+    tag="{{ VERSION }}"
     if [ -z "$tag" ]; then
         tag=$(git tag | sort -V | fzf --prompt="Select tag to remove: ")
     fi
