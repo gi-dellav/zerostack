@@ -43,6 +43,7 @@ pub struct Config {
     pub default_prompt: Option<String>,
     pub shell: Option<String>,
     pub editor: Option<String>,
+    pub api_keys: Option<std::collections::HashMap<String, String>>,
     #[cfg(feature = "mcp")]
     pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
 

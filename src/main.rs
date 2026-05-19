@@ -141,6 +141,7 @@ async fn main() -> anyhow::Result<()> {
         &provider,
         cli.api_key.as_deref(),
         &cfg.custom_providers_map(),
+        cfg.api_keys.as_ref(),
     )?;
 
     #[cfg(feature = "mcp")]

@@ -78,10 +78,22 @@ fn provider_env_var(kind: ProviderKind) -> &'static str {
     }
 }
 
+fn provider_kind_slug(kind: ProviderKind) -> &'static str {
+    match kind {
+        ProviderKind::OpenRouter => "openrouter",
+        ProviderKind::OpenAI => "openai",
+        ProviderKind::Anthropic => "anthropic",
+        ProviderKind::Gemini => "gemini",
+        ProviderKind::Ollama => "ollama",
+        ProviderKind::Custom => "custom",
+    }
+}
+
 fn resolve_api_key(
     kind: ProviderKind,
     api_key_env_override: Option<&str>,
     cli_key: Option<&str>,
+    config_api_keys: Option<&std::collections::HashMap<String, String>>,
 ) -> anyhow::Result<String> {
     if let Some(key) = cli_key.filter(|k| !k.is_empty()) {
         tracing::warn!(
@@ -101,6 +113,14 @@ fn resolve_api_key(
         return Ok(key);
     }
 
+    let slug = provider_kind_slug(kind);
+    if let Some(key) = config_api_keys
+        .and_then(|m| m.get(slug))
+        .filter(|k| !k.is_empty())
+    {
+        return Ok(key.clone());
+    }
+
     if kind == ProviderKind::Ollama {
         return Ok(String::new());
     }
@@ -110,7 +130,7 @@ fn resolve_api_key(
     }
 
     anyhow::bail!(
-        "No API key found for {kind:?}. Set the {env_var} environment variable or pass --api-key."
+        "No API key found for {kind:?}. Set the {env_var} environment variable, add it to config.api_keys, or pass --api-key."
     )
 }
 
@@ -271,6 +291,7 @@ pub fn create_client(
     provider_name: &str,
     api_key: Option<&str>,
     custom_providers: &HashMap<String, CustomProviderConfig>,
+    config_api_keys: Option<&HashMap<String, String>>,
 ) -> anyhow::Result<AnyClient> {
     let info = resolve_provider_info(provider_name, custom_providers).ok_or_else(|| {
         anyhow::anyhow!(
@@ -279,7 +300,7 @@ pub fn create_client(
         )
     })?;
 
-    let key = resolve_api_key(info.kind, info.api_key_env.as_deref(), api_key)?;
+    let key = resolve_api_key(info.kind, info.api_key_env.as_deref(), api_key, config_api_keys)?;
 
     let base_url = info.base_url.or_else(|| {
         if info.kind == ProviderKind::Custom {
