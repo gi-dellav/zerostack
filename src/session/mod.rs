@@ -1,3 +1,4 @@
+pub mod chat_history;
 pub mod storage;
 
 use compact_str::CompactString;

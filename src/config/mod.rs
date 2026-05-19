@@ -41,6 +41,7 @@ pub struct Config {
     pub default_permission_mode: Option<String>,
     pub show_tool_details: Option<bool>,
     pub default_prompt: Option<String>,
+    pub shell: Option<String>,
     #[cfg(feature = "mcp")]
     pub mcp_servers: Option<HashMap<String, McpServerConfig>>,
 

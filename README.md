@@ -22,9 +22,9 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 
 _zerostack_ is one of the smallest and most performant coding agents on the market.
 
-- Lines of code: ~7k LoC
+- Lines of code: ~9k LoC
 - Binary size: 8.9MB
-- RAM footprint: ~8MB on an empty session, ~12MB when working (vs ~300MB for opencode or other JS-based coding agents)
+- RAM footprint: ~10MB on an empty session, ~13MB when working (vs ~300MB for opencode or other JS-based coding agents)
 - CPU usage: 0.0% on idle, ~1.5% when using tools (measured on an Intel i5 7th gen, vs ~2% on idle and ~20% when working for opencode)
 
 ## Installation
@@ -37,9 +37,6 @@ cargo install zerostack
 
 # With ACP (Agent Communication Protocol) support for editor integration
 cargo install zerostack --features acp
-
-# All features
-cargo install zerostack --features "acp,loop,git-worktree,mcp"
 ```
 
 You are now ready to work with a lightweight coding agent! (Note: you can also find pre-built binaries on Github Releases)

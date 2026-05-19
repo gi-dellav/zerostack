@@ -281,11 +281,13 @@ pub fn create_client(
 
     let key = resolve_api_key(info.kind, info.api_key_env.as_deref(), api_key)?;
 
-    let base_url = if info.kind == ProviderKind::Custom {
-        std::env::var("CUSTOM_BASE_URL").ok()
-    } else {
-        info.base_url
-    };
+    let base_url = info.base_url.or_else(|| {
+        if info.kind == ProviderKind::Custom {
+            std::env::var("CUSTOM_BASE_URL").ok()
+        } else {
+            None
+        }
+    });
 
     match info.kind {
         ProviderKind::OpenAI => {
@@ -347,6 +349,7 @@ pub async fn build_agent(
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
     sandbox: Sandbox,
+    reasoning_enabled: bool,
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> AnyAgent {
     match model {
@@ -359,6 +362,7 @@ pub async fn build_agent(
                 permission,
                 ask_tx,
                 sandbox.clone(),
+                reasoning_enabled,
                 #[cfg(feature = "mcp")]
                 mcp_manager,
             )
@@ -373,6 +377,7 @@ pub async fn build_agent(
                 permission,
                 ask_tx,
                 sandbox.clone(),
+                reasoning_enabled,
                 #[cfg(feature = "mcp")]
                 mcp_manager,
             )
@@ -387,6 +392,7 @@ pub async fn build_agent(
                 permission,
                 ask_tx,
                 sandbox.clone(),
+                reasoning_enabled,
                 #[cfg(feature = "mcp")]
                 mcp_manager,
             )
@@ -401,6 +407,7 @@ pub async fn build_agent(
                 permission,
                 ask_tx,
                 sandbox.clone(),
+                reasoning_enabled,
                 #[cfg(feature = "mcp")]
                 mcp_manager,
             )
@@ -415,6 +422,7 @@ pub async fn build_agent(
                 permission,
                 ask_tx,
                 sandbox,
+                reasoning_enabled,
                 #[cfg(feature = "mcp")]
                 mcp_manager,
             )
@@ -429,6 +437,7 @@ pub async fn build_agent(
                 permission,
                 ask_tx,
                 sandbox.clone(),
+                reasoning_enabled,
                 #[cfg(feature = "mcp")]
                 mcp_manager,
             )

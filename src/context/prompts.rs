@@ -6,7 +6,7 @@ use include_dir::{Dir, include_dir};
 static EMBEDDED: Dir = include_dir!("$CARGO_MANIFEST_DIR/prompts");
 
 pub fn global_prompts_dir() -> PathBuf {
-    crate::session::storage::config_path().join("prompts")
+    crate::session::storage::data_dir().join("prompts")
 }
 
 pub fn load() -> HashMap<String, String> {

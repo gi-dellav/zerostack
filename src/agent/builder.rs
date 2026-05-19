@@ -26,9 +26,15 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
     sandbox: Sandbox,
+    reasoning_enabled: bool,
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> Agent<M> {
-    let mut preamble = SYSTEM_PROMPT.to_string();
+    let mut preamble = if reasoning_enabled {
+        "You reason carefully and think step-by-step.\n\n".to_string()
+    } else {
+        "You respond concisely without showing your reasoning.\n\n".to_string()
+    };
+    preamble.push_str(SYSTEM_PROMPT);
     preamble.push('\n');
     preamble.push_str(TODO_TOOLS_PROMPT);
     if let Some(agents) = &context.agents {

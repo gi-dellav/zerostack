@@ -24,6 +24,7 @@ pub enum UserEvent {
     Key(crossterm::event::KeyEvent),
     ScrollUp,
     ScrollDown,
+    Resize(u16, u16),
     #[allow(dead_code)]
     MouseDown {
         row: u16,

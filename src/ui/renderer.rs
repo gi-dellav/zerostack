@@ -6,6 +6,7 @@ use crossterm::cursor::MoveTo;
 use crossterm::style::{Attribute, Color, ResetColor, SetAttribute, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType, ScrollUp};
 
+use super::markdown::word_wrap;
 use super::resolve_color;
 
 #[derive(Clone)]
@@ -92,7 +93,8 @@ impl Renderer {
     }
 
     pub fn buffer_line_at_row(&self, row: u16) -> Option<usize> {
-        let (_, rows) = self.terminal_size();
+        let (cols, rows) = self.terminal_size();
+        let max_width = cols.saturating_sub(1) as usize;
         let visible = rows.saturating_sub(2) as usize;
         let total = self.buffer.len();
         if total == 0 {
@@ -104,8 +106,29 @@ impl Renderer {
             total.saturating_sub(self.scroll_offset + visible)
         };
         let start = start.min(total.saturating_sub(visible));
-        let idx = start + row as usize;
-        if idx < total { Some(idx) } else { None }
+
+        let mut visual_row: u16 = 0;
+        let mut buf_idx = start;
+
+        while buf_idx < total {
+            let entry = &self.buffer[buf_idx];
+            let text = &entry.text;
+
+            let wrapped_rows = if text.chars().count() > max_width {
+                word_wrap(text, max_width).len() as u16
+            } else {
+                1
+            };
+
+            if visual_row + wrapped_rows > row {
+                return Some(buf_idx);
+            }
+
+            visual_row += wrapped_rows;
+            buf_idx += 1;
+        }
+
+        None
     }
 
     pub fn clear_selection(&mut self) {
@@ -137,19 +160,7 @@ impl Renderer {
     }
 
     fn wrap_line(&self, line: &str, max_width: usize) -> Vec<CompactString> {
-        // `chars.chunks(0)` panic-er ("chunk size must be non-zero"). Kan
-        // skje ved oppstart i en ikke-initialisert PTY eller midt i resize.
-        if max_width == 0 {
-            return vec![CompactString::new(line)];
-        }
-        let chars: Vec<char> = line.chars().collect();
-        if chars.len() <= max_width {
-            return vec![CompactString::new(line)];
-        }
-        chars
-            .chunks(max_width)
-            .map(|c| CompactString::new(c.iter().collect::<String>()))
-            .collect()
+        word_wrap(line, max_width)
     }
 
     fn commit_partial(&mut self) {
@@ -220,6 +231,7 @@ impl Renderer {
 
     pub fn render_viewport(&mut self) -> io::Result<()> {
         let (cols, rows) = self.terminal_size();
+        let max_width = cols.saturating_sub(1) as usize;
         let visible = rows.saturating_sub(2) as usize;
         let total = self.buffer.len();
         let mut stdout = io::stdout();
@@ -230,18 +242,26 @@ impl Renderer {
             total.saturating_sub(self.scroll_offset + visible)
         };
         let start = start.min(total.saturating_sub(visible));
-        let end = (start + visible).min(total);
 
-        for i in 0..visible {
-            stdout.execute(MoveTo(0, i as u16))?;
-            if start + i < end {
-                let entry = &self.buffer[start + i];
-                let line_idx = start + i;
-                let text: String = entry
-                    .text
-                    .chars()
-                    .take(cols.saturating_sub(1) as usize)
-                    .collect();
+        let mut visual_row: u16 = 0;
+        let mut buf_idx = start;
+
+        while (visual_row as usize) < visible && buf_idx < total {
+            let entry = &self.buffer[buf_idx];
+            let text = &entry.text;
+
+            let wrapped = if text.chars().count() > max_width {
+                word_wrap(text, max_width)
+            } else {
+                vec![text.clone()]
+            };
+
+            for chunk in &wrapped {
+                if (visual_row as usize) >= visible {
+                    break;
+                }
+
+                stdout.execute(MoveTo(0, visual_row))?;
 
                 let is_selected = self.selection_active
                     && self.selection_start.is_some()
@@ -251,20 +271,30 @@ impl Renderer {
                         let e = self.selection_end.unwrap();
                         let lo = s.min(e);
                         let hi = s.max(e);
-                        line_idx >= lo && line_idx <= hi
+                        buf_idx >= lo && buf_idx <= hi
                     };
 
                 if is_selected {
                     write!(stdout, "{}", SetAttribute(Attribute::Reverse))?;
                 }
                 write!(stdout, "{}", SetForegroundColor(self.color(entry.color)))?;
-                write!(stdout, "{}", text)?;
+                write!(stdout, "{}", chunk)?;
                 if is_selected {
                     write!(stdout, "{}", SetAttribute(Attribute::NoReverse))?;
                 }
                 write!(stdout, "{}", ResetColor)?;
+                write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+
+                visual_row += 1;
             }
+
+            buf_idx += 1;
+        }
+
+        while (visual_row as usize) < visible {
+            stdout.execute(MoveTo(0, visual_row))?;
             write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+            visual_row += 1;
         }
 
         if self.scroll_offset > 0 {
@@ -313,6 +343,14 @@ impl Renderer {
     fn content_row(&self) -> u16 {
         let (_, rows) = self.terminal_size();
         self.lines.min(rows.saturating_sub(3))
+    }
+
+    pub fn resize(&mut self) {
+        let visible = self.visible_lines();
+        let max_offset = self.buffer.len().saturating_sub(visible);
+        if self.scroll_offset > max_offset {
+            self.scroll_offset = max_offset;
+        }
     }
 
     pub fn write_line(&mut self, text: &str, color: Color) -> io::Result<()> {
@@ -397,7 +435,19 @@ impl Renderer {
                         }
                         continue;
                     }
-                    let end = (idx + avail).min(chars.len());
+                    let mut end = (idx + avail).min(chars.len());
+                    if end < chars.len() {
+                        let mut break_at = end;
+                        for i in (idx..end).rev() {
+                            if chars[i] == ' ' {
+                                break_at = i + 1;
+                                break;
+                            }
+                        }
+                        if break_at != idx {
+                            end = break_at;
+                        }
+                    }
                     let chunk: String = chars[idx..end].iter().collect();
                     self.partial_color = color;
                     self.partial.push_str(&chunk);
@@ -452,59 +502,113 @@ impl Renderer {
         let (cols, rows) = crossterm::terminal::size()?;
         let mut stdout = io::stdout();
 
-        let input_row = rows.saturating_sub(2);
         let status_row = rows.saturating_sub(1);
+
+        let lines: Vec<&str> = input_line.split('\n').collect();
+        let line_count = lines.len();
+
+        let last_line = rows.saturating_sub(2) as usize - 1;
+        let available_rows = last_line + 1; // rows from 0 to last_line
+        let need_scroll = line_count > available_rows;
+        let first_visible = if need_scroll {
+            line_count - available_rows
+        } else {
+            0
+        };
+
         let prompt = if is_running {
             self.spinner_tick = !self.spinner_tick;
             if self.spinner_tick { ". " } else { ": " }
         } else {
             "> "
         };
+        let prompt_width = prompt.chars().count();
 
-        stdout.execute(MoveTo(0, input_row))?;
-        write!(stdout, "{}", " ".repeat(cols as usize))?;
-        stdout.execute(MoveTo(0, input_row))?;
-        write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)))?;
-        write!(stdout, "{}", prompt)?;
-        write!(stdout, "{}", ResetColor)?;
-        let visible_width = cols.saturating_sub(2) as usize;
-        let input_len = input_line.len();
-
-        if cursor_pos < self.input_scroll_offset {
-            self.input_scroll_offset = cursor_pos;
-        } else if cursor_pos >= self.input_scroll_offset + visible_width {
-            self.input_scroll_offset = cursor_pos - visible_width + 1;
+        // Clear input area
+        let visible_line_count = if need_scroll {
+            available_rows
+        } else {
+            line_count
+        };
+        for r in 0..visible_line_count {
+            let row = (rows.saturating_sub(2) - visible_line_count as u16 + 1) + r as u16;
+            let _ = stdout.execute(MoveTo(0, row));
+            let _ = write!(stdout, "{}", " ".repeat(cols as usize));
         }
-        let max_scroll = input_len.saturating_sub(visible_width);
-        self.input_scroll_offset = self.input_scroll_offset.min(max_scroll);
 
-        let visible: String = input_line
-            .chars()
-            .skip(self.input_scroll_offset)
-            .take(visible_width)
-            .collect();
-        write!(stdout, "{}", visible)?;
+        let (cursor_line, cursor_col) =
+            crate::ui::input::cursor_to_line_col(input_line, cursor_pos);
 
-        stdout.execute(MoveTo(0, status_row))?;
-        write!(stdout, "{}", " ".repeat(cols as usize))?;
-        stdout.execute(MoveTo(0, status_row))?;
-        write!(
+        // Compute horizontal scroll for the cursor line
+        let visible_width = cols.saturating_sub(prompt_width as u16) as usize;
+        let cursor_line_text = lines.get(cursor_line).unwrap_or(&"");
+        let cursor_line_len = cursor_line_text.chars().count();
+        let mut h_scroll = 0usize;
+        if cursor_line_len > visible_width {
+            if cursor_col < self.input_scroll_offset {
+                self.input_scroll_offset = cursor_col;
+            } else if cursor_col >= self.input_scroll_offset + visible_width {
+                self.input_scroll_offset = cursor_col - visible_width + 1;
+            }
+            let max_h_scroll = cursor_line_len.saturating_sub(visible_width);
+            h_scroll = self.input_scroll_offset.min(max_h_scroll);
+        } else {
+            self.input_scroll_offset = 0;
+        }
+
+        for (i, line) in lines
+            .iter()
+            .enumerate()
+            .take(line_count)
+            .skip(first_visible)
+        {
+            let render_row = (rows.saturating_sub(2) - visible_line_count as u16 + 1)
+                + (i - first_visible) as u16;
+            let _ = stdout.execute(MoveTo(0, render_row));
+
+            if i == first_visible {
+                let _ = write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)));
+                let _ = write!(stdout, "{}", prompt);
+                let _ = write!(stdout, "{}", ResetColor);
+            } else {
+                let _ = write!(stdout, "{}", " ".repeat(prompt_width));
+            }
+
+            let line_chars: Vec<char> = line.chars().collect();
+            let h_offset = if i == cursor_line { h_scroll } else { 0 };
+            let display: String = line_chars
+                .iter()
+                .skip(h_offset)
+                .take(visible_width)
+                .collect();
+            let _ = write!(stdout, "{}", display);
+        }
+
+        // Status line
+        let _ = stdout.execute(MoveTo(0, status_row));
+        let _ = write!(stdout, "{}", " ".repeat(cols as usize));
+        let _ = stdout.execute(MoveTo(0, status_row));
+        let _ = write!(
             stdout,
             "{}",
             SetForegroundColor(self.color(Color::DarkGrey))
-        )?;
+        );
         let status_display = if self.scroll_offset > 0 {
             format!("-- SCROLL -- {}", status)
         } else {
             status.to_string()
         };
         let truncated: String = status_display.chars().take(cols as usize).collect();
-        write!(stdout, "{}", truncated)?;
-        write!(stdout, "{}", ResetColor)?;
+        let _ = write!(stdout, "{}", truncated);
+        let _ = write!(stdout, "{}", ResetColor);
 
-        let cursor_x = (2 + cursor_pos.saturating_sub(self.input_scroll_offset)) as u16;
-        stdout.execute(MoveTo(cursor_x, input_row))?;
-        stdout.flush()?;
+        // Cursor
+        let cursor_render_idx = cursor_line.saturating_sub(first_visible);
+        let cursor_row =
+            (rows.saturating_sub(2) - visible_line_count as u16 + 1) + cursor_render_idx as u16;
+        let cursor_x = (prompt_width + cursor_col.saturating_sub(h_scroll)) as u16;
+        let _ = stdout.execute(MoveTo(cursor_x, cursor_row));
+        let _ = stdout.flush();
         Ok(())
     }
 }

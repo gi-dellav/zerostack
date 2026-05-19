@@ -9,6 +9,9 @@ pub struct Cli {
     #[arg(short = 'p', long = "print", help = "Print response and exit")]
     pub print: bool,
 
+    #[arg(long = "print-config", help = "Print resolved configuration and exit")]
+    pub print_config: bool,
+
     #[arg(short = 'c', long = "continue", help = "Continue most recent session")]
     pub continue_session: bool,
 
@@ -75,6 +78,12 @@ pub struct Cli {
         help = "Run bash commands inside bubblewrap (bwrap) sandbox"
     )]
     pub sandbox: bool,
+
+    #[arg(
+        long = "shell",
+        help = "Shell binary to use for bash tool (default: bash)"
+    )]
+    pub shell: Option<String>,
 
     #[arg(
         long = "no-context-files",
@@ -163,5 +172,12 @@ impl Cli {
 
     pub fn resolve_sandbox(&self, cfg: &config::Config) -> bool {
         self.sandbox || cfg.sandbox.unwrap_or(false)
+    }
+
+    pub fn resolve_shell(&self, cfg: &config::Config) -> String {
+        self.shell
+            .clone()
+            .or_else(|| cfg.shell.clone())
+            .unwrap_or_else(|| "bash".to_string())
     }
 }

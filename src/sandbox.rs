@@ -6,17 +6,29 @@ use tokio::process::Command;
 pub struct Sandbox {
     enabled: bool,
     cwd: PathBuf,
+    shell: String,
 }
 
 impl Sandbox {
     pub fn new(enabled: bool) -> Self {
         let cwd = std::env::current_dir().unwrap_or_default();
-        Sandbox { enabled, cwd }
+        Sandbox {
+            enabled,
+            cwd,
+            shell: "bash".to_string(),
+        }
+    }
+
+    pub fn with_shell(mut self, shell: &str) -> Self {
+        if !shell.is_empty() {
+            self.shell = shell.to_string();
+        }
+        self
     }
 
     pub fn wrap_command(&self, command: &str) -> Command {
         if !self.enabled {
-            let mut cmd = Command::new("bash");
+            let mut cmd = Command::new(&self.shell);
             cmd.arg("-c").arg(command);
             return cmd;
         }
@@ -34,7 +46,7 @@ impl Sandbox {
             "/tmp",
             "--unshare-all",
             "--die-with-parent",
-            "bash",
+            &self.shell,
             "-c",
             command,
         ]);

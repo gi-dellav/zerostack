@@ -154,7 +154,8 @@ async fn run_prompt(
     let model = client.completion_model(model_str.to_string());
 
     let (permission, ask_tx) = build_acp_permission(state);
-    let sandbox = Sandbox::new(state.cli.resolve_sandbox(&state.cfg));
+    let sandbox = Sandbox::new(state.cli.resolve_sandbox(&state.cfg))
+        .with_shell(&state.cli.resolve_shell(&state.cfg));
 
     let agent = crate::provider::build_agent(
         model,
@@ -164,6 +165,7 @@ async fn run_prompt(
         permission,
         ask_tx,
         sandbox,
+        false,
         #[cfg(feature = "mcp")]
         None::<&crate::extras::mcp::McpClientManager>,
     )
