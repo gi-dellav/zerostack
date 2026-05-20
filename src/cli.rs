@@ -30,6 +30,9 @@ pub struct Cli {
     #[arg(long = "model", env = "ZS_MODEL", help = "Model name")]
     pub model: Option<String>,
 
+    #[arg(long = "quick-model", help = "Use a named quick model from config")]
+    pub quick_model: Option<String>,
+
     #[arg(
         long = "api-key",
         help = "API key for the provider (WARNING: visible to other users via ps/htop; prefer env vars)"
@@ -138,6 +141,16 @@ pub struct Cli {
 }
 
 impl Cli {
+    pub fn resolve_quick_model<'a>(
+        &self,
+        cfg: &'a config::Config,
+    ) -> Option<&'a config::QuickModelConfig> {
+        let name = self.quick_model.as_deref()?;
+        cfg.quick_models
+            .as_ref()
+            .and_then(|m| m.get(name))
+    }
+
     pub fn resolve_model(&self, cfg: &config::Config) -> CompactString {
         self.model
             .as_deref()

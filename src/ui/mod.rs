@@ -9,10 +9,13 @@ mod status;
 mod terminal;
 
 use std::io;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 use compact_str::CompactString;
 use crossterm::event;
-use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use crossterm::style::Color;
 use tokio::sync::mpsc;
 
@@ -118,9 +121,66 @@ fn refresh_display(
     Ok(())
 }
 
+fn spawn_event_thread(
+    user_tx: mpsc::Sender<UserEvent>,
+    running: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        while running.load(Ordering::Relaxed) {
+            if let Ok(true) = event::poll(Duration::from_millis(50)) {
+                match event::read() {
+                    Ok(event::Event::Key(key)) => {
+                        if key.kind == KeyEventKind::Press
+                            && user_tx.blocking_send(UserEvent::Key(key)).is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Ok(event::Event::Mouse(m)) => match m.kind {
+                        MouseEventKind::ScrollUp => {
+                            if user_tx.blocking_send(UserEvent::ScrollUp).is_err() {
+                                break;
+                            }
+                        }
+                        MouseEventKind::ScrollDown => {
+                            if user_tx.blocking_send(UserEvent::ScrollDown).is_err() {
+                                break;
+                            }
+                        }
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            let _ = user_tx.blocking_send(UserEvent::MouseDown {
+                                row: m.row,
+                                col: m.column,
+                            });
+                        }
+                        MouseEventKind::Drag(MouseButton::Left) => {
+                            let _ = user_tx.blocking_send(UserEvent::MouseDrag {
+                                row: m.row,
+                                col: m.column,
+                            });
+                        }
+                        MouseEventKind::Up(MouseButton::Left) => {
+                            let _ = user_tx.blocking_send(UserEvent::MouseUp {
+                                row: m.row,
+                                col: m.column,
+                            });
+                        }
+                        _ => {}
+                    },
+                    Ok(event::Event::Resize(cols, rows)) => {
+                        let _ = user_tx.blocking_send(UserEvent::Resize(cols, rows));
+                    }
+                    Err(_) => break,
+                    _ => {}
+                }
+            }
+        }
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_interactive(
-    client: AnyClient,
+    mut client: AnyClient,
     mut agent: AnyAgent,
     cli: &Cli,
     cfg: &Config,
@@ -139,6 +199,15 @@ pub async fn run_interactive(
     let mut input = InputEditor::new();
     input.set_monochrome(cli.no_color);
     input.set_prompt_names(context.prompts.keys().cloned().collect());
+    if let Some(editor) = &cfg.editor {
+        input.set_editor(editor.clone());
+    }
+    input.set_quick_model_names(
+        cfg.quick_models
+            .as_ref()
+            .map(|m| m.keys().cloned().collect())
+            .unwrap_or_default(),
+    );
     input.load_global_history();
     let mut is_running = false;
     let mut agent_rx: Option<mpsc::Receiver<AgentEvent>> = None;
@@ -176,55 +245,9 @@ pub async fn run_interactive(
         perm_mode().as_deref(),
     )?;
 
-    let (user_tx, mut user_rx) = mpsc::channel::<UserEvent>(64);
-    let user_tx_clone = user_tx.clone();
-    std::thread::spawn(move || {
-        loop {
-            match event::read() {
-                Ok(event::Event::Key(key)) => {
-                    if user_tx_clone.blocking_send(UserEvent::Key(key)).is_err() {
-                        break;
-                    }
-                }
-                Ok(event::Event::Mouse(m)) => match m.kind {
-                    MouseEventKind::ScrollUp => {
-                        if user_tx_clone.blocking_send(UserEvent::ScrollUp).is_err() {
-                            break;
-                        }
-                    }
-                    MouseEventKind::ScrollDown => {
-                        if user_tx_clone.blocking_send(UserEvent::ScrollDown).is_err() {
-                            break;
-                        }
-                    }
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        let _ = user_tx_clone.blocking_send(UserEvent::MouseDown {
-                            row: m.row,
-                            col: m.column,
-                        });
-                    }
-                    MouseEventKind::Drag(MouseButton::Left) => {
-                        let _ = user_tx_clone.blocking_send(UserEvent::MouseDrag {
-                            row: m.row,
-                            col: m.column,
-                        });
-                    }
-                    MouseEventKind::Up(MouseButton::Left) => {
-                        let _ = user_tx_clone.blocking_send(UserEvent::MouseUp {
-                            row: m.row,
-                            col: m.column,
-                        });
-                    }
-                    _ => {}
-                },
-                Ok(event::Event::Resize(cols, rows)) => {
-                    let _ = user_tx_clone.blocking_send(UserEvent::Resize(cols, rows));
-                }
-                Err(_) => break,
-                _ => {}
-            }
-        }
-    });
+    let (mut user_tx, mut user_rx) = mpsc::channel::<UserEvent>(64);
+    let mut running = Arc::new(AtomicBool::new(true));
+    let mut event_handle = Some(spawn_event_thread(user_tx.clone(), running.clone()));
 
     loop {
         tokio::select! {
@@ -356,6 +379,21 @@ pub async fn run_interactive(
                                 continue;
                             }
 
+                        if key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                            if let Some(h) = event_handle.take() {
+                                running.store(false, Ordering::Relaxed);
+                                let _ = h.join();
+                            }
+                            input.open_in_editor();
+                            running = Arc::new(AtomicBool::new(true));
+                            let (new_tx, new_rx) = mpsc::channel(64);
+                            user_tx = new_tx;
+                            user_rx = new_rx;
+                            event_handle = Some(spawn_event_thread(user_tx.clone(), running.clone()));
+                            refresh_display(&mut renderer, &input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            continue;
+                        }
+
                         if let Some(text) = input.handle_key(key) {
                             #[cfg(feature = "loop")]
                             if loop_state.as_ref().is_some_and(|ls| ls.active) && !text.starts_with('/') {
@@ -372,7 +410,7 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), Color::Green)?;
                                 }
                                 renderer.write_line("", Color::White)?;
-                                let result = handle_slash(&text, &mut agent, &client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut reasoning_enabled, &mut is_running, &mut input, &permission, &ask_tx, &mut todo_tools_enabled, &sandbox, #[cfg(feature = "loop")] &mut loop_state, #[cfg(feature = "mcp")] mcp_manager).await;
+                                let result = handle_slash(&text, &mut agent, &mut client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut reasoning_enabled, &mut is_running, &mut input, &permission, &ask_tx, &mut todo_tools_enabled, &sandbox, #[cfg(feature = "loop")] &mut loop_state, #[cfg(feature = "mcp")] mcp_manager).await;
                                 match result {
                                 Err(e) if e.to_string().starts_with("DEFER_COMPRESS:") => {
                                     let err_msg = e.to_string();
@@ -382,7 +420,7 @@ pub async fn run_interactive(
                                     });
                                         let compress_result = handle_compress(
                                             instructions.as_deref(),
-                                            &mut agent, &client, &mut renderer, session, cli, cfg, context,
+                                            &mut agent, &mut client, &mut renderer, session, cli, cfg, context,
                                             reasoning_enabled,
                                             &permission, &ask_tx, &sandbox,
                                             #[cfg(feature = "mcp")] mcp_manager,
@@ -639,7 +677,7 @@ pub async fn run_interactive(
                             renderer.write_line("auto-compacting...", Color::DarkGrey)?;
                             let compress_result = handle_compress(
                                 None,
-                                &mut agent, &client, &mut renderer, session, cli, cfg, context,
+                                &mut agent, &mut client, &mut renderer, session, cli, cfg, context,
                                 reasoning_enabled,
                                 &permission, &ask_tx, &sandbox,
                                 #[cfg(feature = "mcp")] mcp_manager,

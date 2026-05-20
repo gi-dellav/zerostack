@@ -1,7 +1,9 @@
+use std::io::Write;
+
 use compact_str::CompactString;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use crate::ui::cmd_picker::{CommandPicker, PromptPicker};
+use crate::ui::cmd_picker::{CommandPicker, ModelsPicker, PromptPicker};
 use crate::ui::picker::FilePicker;
 
 fn prev_char_boundary(s: &str, idx: usize) -> usize {
@@ -42,6 +44,7 @@ pub enum Picker {
     File(FilePicker),
     Command(CommandPicker),
     Prompt(PromptPicker),
+    Models(ModelsPicker),
 }
 
 impl Picker {
@@ -50,6 +53,7 @@ impl Picker {
             Picker::File(p) => p.active,
             Picker::Command(p) => p.active,
             Picker::Prompt(p) => p.active,
+            Picker::Models(p) => p.active,
         }
     }
 
@@ -58,6 +62,7 @@ impl Picker {
             Picker::File(p) => p.set_monochrome(monochrome),
             Picker::Command(p) => p.set_monochrome(monochrome),
             Picker::Prompt(p) => p.set_monochrome(monochrome),
+            Picker::Models(p) => p.set_monochrome(monochrome),
         }
     }
 
@@ -66,6 +71,7 @@ impl Picker {
             Picker::File(p) => p.draw(),
             Picker::Command(p) => p.draw(),
             Picker::Prompt(p) => p.draw(),
+            Picker::Models(p) => p.draw(),
         }
     }
 }
@@ -78,6 +84,8 @@ pub struct InputEditor {
     pub picker: Option<Picker>,
     monochrome: bool,
     prompt_names: Vec<String>,
+    quick_model_names: Vec<String>,
+    editor: Option<String>,
 }
 
 impl InputEditor {
@@ -90,7 +98,17 @@ impl InputEditor {
             picker: None,
             monochrome: false,
             prompt_names: Vec::new(),
+            quick_model_names: Vec::new(),
+            editor: None,
         }
+    }
+
+    pub fn set_quick_model_names(&mut self, names: Vec<String>) {
+        self.quick_model_names = names;
+    }
+
+    pub fn set_editor(&mut self, editor: String) {
+        self.editor = Some(editor);
     }
 
     pub fn set_monochrome(&mut self, monochrome: bool) {
@@ -128,6 +146,16 @@ impl InputEditor {
         self.picker = Some(Picker::Command(picker));
     }
 
+    pub fn start_models_picker(&mut self) {
+        let mut picker = ModelsPicker::new();
+        picker.set_monochrome(self.monochrome);
+        if !self.quick_model_names.is_empty() {
+            picker.set_items(self.quick_model_names.clone());
+        }
+        picker.activate();
+        self.picker = Some(Picker::Models(picker));
+    }
+
     pub fn start_prompt_picker(&mut self) {
         let mut picker = PromptPicker::new();
         picker.set_monochrome(self.monochrome);
@@ -148,6 +176,7 @@ impl InputEditor {
                     &mut self.buffer,
                     &mut self.cursor,
                     &self.prompt_names,
+                    &self.quick_model_names,
                     p,
                     key,
                 );
@@ -159,8 +188,63 @@ impl InputEditor {
             Some(Picker::Prompt(p)) => {
                 handle_prompt_picker_key(&mut self.buffer, &mut self.cursor, p, key)
             }
+            Some(Picker::Models(p)) => {
+                handle_models_picker_key(&mut self.buffer, &mut self.cursor, p, key)
+            }
             _ => false,
         }
+    }
+
+    pub fn open_in_editor(&mut self) {
+        let editor = self
+            .editor
+            .clone()
+            .or_else(|| std::env::var("EDITOR").ok())
+            .unwrap_or_else(|| "editor".to_string());
+
+        let tmp = std::env::temp_dir().join(format!("zerostack-{}.md", std::process::id()));
+
+        let _ = std::fs::write(&tmp, self.buffer.as_bytes());
+
+        let _ = crossterm::terminal::disable_raw_mode();
+        let mut stdout = std::io::stdout();
+        let _ = crossterm::ExecutableCommand::execute(
+            &mut stdout,
+            crossterm::event::DisableMouseCapture,
+        );
+        let _ = crossterm::ExecutableCommand::execute(
+            &mut stdout,
+            crossterm::terminal::LeaveAlternateScreen,
+        );
+        let _ = stdout.flush();
+
+        let _ = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(format!("{} \"$1\"", editor))
+            .arg("sh")
+            .arg(&tmp)
+            .status();
+
+        let _ = crossterm::ExecutableCommand::execute(
+            &mut stdout,
+            crossterm::terminal::EnterAlternateScreen,
+        );
+        let _ = crossterm::ExecutableCommand::execute(
+            &mut stdout,
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+        );
+        let _ = crossterm::ExecutableCommand::execute(
+            &mut stdout,
+            crossterm::event::EnableMouseCapture,
+        );
+        let _ = crossterm::terminal::enable_raw_mode();
+
+        if let Ok(content) = std::fs::read_to_string(&tmp) {
+            self.buffer = CompactString::new(content.trim_end().to_string());
+            self.cursor = self.buffer.len();
+        }
+
+        let _ = std::fs::remove_file(&tmp);
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> Option<CompactString> {
@@ -213,7 +297,7 @@ impl InputEditor {
                 self.cursor += c.len_utf8();
                 self.history_pos = None;
 
-                // Check if we should activate prompt picker after typing /prompt
+                // Check if we should activate pickers after typing certain prefixes
                 if (self.picker.is_none() || !self.picker.as_ref().is_some_and(|p| p.active()))
                     && self.buffer.starts_with("/prompt ")
                 {
@@ -224,6 +308,20 @@ impl InputEditor {
                             self.start_prompt_picker();
                             if let Some(Picker::Prompt(ref mut pp)) = self.picker {
                                 pp.char_input(c);
+                            }
+                        }
+                    }
+                }
+                if (self.picker.is_none() || !self.picker.as_ref().is_some_and(|p| p.active()))
+                    && self.buffer.starts_with("/models ")
+                {
+                    let after_prefix: String = self.buffer.chars().skip("/models ".len()).collect();
+                    if !after_prefix.is_empty() && c != ' ' {
+                        let query_len = after_prefix.len();
+                        if query_len == 1 {
+                            self.start_models_picker();
+                            if let Some(Picker::Models(ref mut mp)) = self.picker {
+                                mp.char_input(c);
                             }
                         }
                     }
@@ -410,6 +508,7 @@ fn handle_command_picker_key(
     buffer: &mut CompactString,
     cursor: &mut usize,
     prompt_names: &[String],
+    quick_model_names: &[String],
     picker: &mut CommandPicker,
     key: KeyEvent,
 ) -> (bool, Option<Picker>) {
@@ -498,6 +597,13 @@ fn handle_command_picker_key(
                     pp.activate();
                     return (true, Some(Picker::Prompt(pp)));
                 }
+                if selected == "/models" && !quick_model_names.is_empty() {
+                    picker.deactivate();
+                    let mut mp = ModelsPicker::new();
+                    mp.set_items(quick_model_names.to_vec());
+                    mp.activate();
+                    return (true, Some(Picker::Models(mp)));
+                }
             }
             picker.deactivate();
             (true, None)
@@ -515,6 +621,115 @@ fn handle_command_picker_key(
             (true, None)
         }
         _ => (false, None),
+    }
+}
+
+fn handle_models_picker_key(
+    buffer: &mut CompactString,
+    cursor: &mut usize,
+    picker: &mut ModelsPicker,
+    key: KeyEvent,
+) -> bool {
+    match key.code {
+        KeyCode::Char(c)
+            if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) =>
+        {
+            if picker.cursor > 0 {
+                picker.backspace();
+                *cursor = prev_char_boundary(buffer, *cursor);
+                buffer.remove(*cursor);
+            } else {
+                let prefix = "/models ";
+                let prefix_len = prefix.len();
+                let after_offset = prefix_len + picker.query.len();
+                if buffer.len() >= after_offset {
+                    let before: String = buffer.chars().take(prefix_len).collect();
+                    let after: String = buffer.chars().skip(after_offset).collect();
+                    *buffer = format!("{}{}", before, after).into();
+                    *cursor = prefix_len;
+                }
+                picker.deactivate();
+            }
+            true
+        }
+        KeyCode::Char(c) => {
+            picker.char_input(c);
+            let insert_pos = "/models ".len() + picker.cursor.saturating_sub(1);
+            buffer.insert(insert_pos, c);
+            *cursor += c.len_utf8();
+            true
+        }
+        KeyCode::Backspace => {
+            if picker.cursor > 0 {
+                picker.backspace();
+                let prefix = "/models ";
+                let prefix_len = prefix.len();
+                let remove_pos = prefix_len + picker.cursor;
+                if remove_pos < buffer.len() {
+                    buffer.remove(remove_pos);
+                }
+                *cursor = prev_char_boundary(buffer, *cursor);
+                true
+            } else {
+                let prefix = "/models ";
+                let prefix_len = prefix.len();
+                let after_offset = prefix_len + picker.query.len();
+                if buffer.len() >= after_offset {
+                    let before: String = buffer.chars().take(prefix_len).collect();
+                    let after: String = buffer.chars().skip(after_offset).collect();
+                    *buffer = format!("{}{}", before, after).into();
+                    *cursor = prefix_len;
+                }
+                picker.deactivate();
+                true
+            }
+        }
+        KeyCode::Tab => {
+            if key
+                .modifiers
+                .contains(crossterm::event::KeyModifiers::SHIFT)
+            {
+                picker.select_prev();
+            } else {
+                picker.select_next();
+            }
+            true
+        }
+        KeyCode::Up => {
+            picker.select_prev();
+            true
+        }
+        KeyCode::Down => {
+            picker.select_next();
+            true
+        }
+        KeyCode::Enter => {
+            if let Some(name) = picker.selected_name() {
+                let prefix = "/models ";
+                let prefix_len = prefix.len();
+                let after_offset = prefix_len + picker.query.len();
+                let before: String = buffer.chars().take(prefix_len).collect();
+                let after: String = buffer.chars().skip(after_offset).collect();
+                *buffer = format!("{}{}{}", before, name, after).into();
+                *cursor = prefix_len + name.len();
+            }
+            picker.deactivate();
+            true
+        }
+        KeyCode::Esc => {
+            let prefix = "/models ";
+            let prefix_len = prefix.len();
+            let after_offset = prefix_len + picker.query.len();
+            if buffer.len() >= after_offset {
+                let before: String = buffer.chars().take(prefix_len).collect();
+                let after: String = buffer.chars().skip(after_offset).collect();
+                *buffer = format!("{}{}", before, after).into();
+                *cursor = prefix_len;
+            }
+            picker.deactivate();
+            true
+        }
+        _ => false,
     }
 }
 

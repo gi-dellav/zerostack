@@ -147,9 +147,13 @@ async fn run_prompt(
     let provider_str = state.cli.resolve_provider(&state.cfg);
     let model_str = state.cli.resolve_model(&state.cfg);
 
-    let client =
-        crate::provider::create_client(&provider_str, None, &state.cfg.custom_providers_map())
-            .map_err(|e| agent_client_protocol::Error::new(-32603, e.to_string()))?;
+    let client = crate::provider::create_client(
+        &provider_str,
+        None,
+        &state.cfg.custom_providers_map(),
+        state.cfg.api_keys.as_ref(),
+    )
+    .map_err(|e| agent_client_protocol::Error::new(-32603, e.to_string()))?;
 
     let model = client.completion_model(model_str.to_string());
 

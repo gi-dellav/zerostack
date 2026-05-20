@@ -49,7 +49,7 @@ pub fn undo_last(session: &mut Session) -> usize {
 pub async fn handle_compress(
     instructions: Option<&str>,
     agent: &mut AnyAgent,
-    client: &AnyClient,
+    client: &mut AnyClient,
     renderer: &mut Renderer,
     session: &mut Session,
     cli: &Cli,
@@ -139,7 +139,7 @@ pub async fn handle_compress(
 pub async fn handle_slash(
     text: &str,
     agent: &mut AnyAgent,
-    client: &AnyClient,
+    client: &mut AnyClient,
     renderer: &mut Renderer,
     session: &mut Session,
     cli: &Cli,
@@ -158,6 +158,47 @@ pub async fn handle_slash(
 ) -> anyhow::Result<()> {
     let parts: SmallVec<[&str; 3]> = text.trim().splitn(3, ' ').collect();
     match parts[0] {
+        "/provider" => {
+            if parts.len() < 2 {
+                renderer.write_line(&format!("current provider: {}", session.provider), C_AGENT)?;
+            } else {
+                let new_provider = parts[1].trim();
+                if crate::provider::parse_provider(new_provider).is_none()
+                    && !cfg.custom_providers_map().contains_key(new_provider)
+                {
+                    renderer.write_line(
+                        &format!("unknown provider: '{}'", new_provider),
+                        C_ERROR,
+                    )?;
+                    return Ok(());
+                }
+                *client = crate::provider::create_client(
+                    new_provider,
+                    cli.api_key.as_deref(),
+                    &cfg.custom_providers_map(),
+                    cfg.api_keys.as_ref(),
+                )?;
+                let model = client.completion_model(session.model.to_string());
+                *agent = crate::provider::build_agent(
+                    model,
+                    cli,
+                    cfg,
+                    context,
+                    permission.clone(),
+                    ask_tx.clone(),
+                    sandbox.clone(),
+                    *reasoning_enabled,
+                    #[cfg(feature = "mcp")]
+                    mcp_manager,
+                )
+                .await;
+                session.provider = CompactString::new(new_provider);
+                renderer.write_line(
+                    &format!("switched to provider: {}", new_provider),
+                    C_AGENT,
+                )?;
+            }
+        }
         "/model" => {
             if parts.len() < 2 {
                 renderer.write_line(&format!("current model: {}", session.model), C_AGENT)?;
@@ -180,6 +221,117 @@ pub async fn handle_slash(
                 session.model = new_model.clone();
                 session.provider = cli.resolve_provider(cfg);
                 renderer.write_line(&format!("switched to model: {}", new_model), C_AGENT)?;
+            }
+        }
+        "/models" => {
+            let qm = crate::config::quick_models_map(cfg);
+            let mut sorted: Vec<&String> = qm.keys().collect();
+            sorted.sort();
+            if parts.len() < 2 {
+                if sorted.is_empty() {
+                    renderer.write_line("no quick models defined", C_AGENT)?;
+                } else {
+                    renderer.write_line(
+                        &format!(
+                            "quick models (current: {} | {}):",
+                            session.provider, session.model
+                        ),
+                        C_AGENT,
+                    )?;
+                    for name in &sorted {
+                        let q = &qm[name.as_str()];
+                        renderer.write_line(
+                            &format!("  {}  ({} / {})", name, q.provider, q.model),
+                            C_RESULT,
+                        )?;
+                    }
+                }
+            } else {
+                let name = parts[1].trim();
+                if let Some(q) = qm.get(name) {
+                    *client = crate::provider::create_client(
+                        &q.provider,
+                        cli.api_key.as_deref(),
+                        &cfg.custom_providers_map(),
+                        cfg.api_keys.as_ref(),
+                    )?;
+                    let model = client.completion_model(q.model.to_string());
+                    *agent = crate::provider::build_agent(
+                        model,
+                        cli,
+                        cfg,
+                        context,
+                        permission.clone(),
+                        ask_tx.clone(),
+                        sandbox.clone(),
+                        *reasoning_enabled,
+                        #[cfg(feature = "mcp")]
+                        mcp_manager,
+                    )
+                    .await;
+                    session.provider = CompactString::new(&q.provider);
+                    session.model = CompactString::new(&q.model);
+                    renderer.write_line(
+                        &format!("switched to quick model: {} ({} / {})", name, q.provider, q.model),
+                        C_AGENT,
+                    )?;
+                } else {
+                    renderer.write_line(
+                        &format!("unknown quick model: '{}'", name),
+                        C_ERROR,
+                    )?;
+                    if !sorted.is_empty() {
+                        renderer.write_line("available quick models:", C_AGENT)?;
+                        for n in &sorted {
+                            renderer.write_line(&format!("  {}", n), C_RESULT)?;
+                        }
+                    }
+                }
+            }
+        }
+        "/models-add" => {
+            if parts.len() < 3 {
+                renderer.write_line(
+                    "usage: /models-add <name> <provider> <model>",
+                    C_AGENT,
+                )?;
+            } else {
+                let name = parts[1].trim().to_string();
+                let rest = parts[2].trim();
+                let (provider, model) = match rest.split_once(' ') {
+                    Some((p, m)) => (p.trim().to_string(), m.trim().to_string()),
+                    None => {
+                        renderer.write_line(
+                            "usage: /models-add <name> <provider> <model>",
+                            C_AGENT,
+                        )?;
+                        return Ok(());
+                    }
+                };
+                if name.is_empty() || provider.is_empty() || model.is_empty() {
+                    renderer.write_line(
+                        "usage: /models-add <name> <provider> <model>",
+                        C_AGENT,
+                    )?;
+                    return Ok(());
+                }
+                match crate::config::save_quick_model(&name, &provider, &model) {
+                    Ok(()) => {
+                        renderer.write_line(
+                            &format!(
+                                "saved quick model: {} ({} / {})",
+                                name, provider, model
+                            ),
+                            C_AGENT,
+                        )?;
+                    }
+                    Err(e) => {
+                        renderer.write_line(
+                            &format!("failed to save quick model: {}", e),
+                            C_ERROR,
+                        )?;
+                    }
+                }
             }
         }
         "/sessions" => {
@@ -820,6 +972,19 @@ pub async fn handle_slash(
         "/help" => {
             renderer.write_line("commands:", C_AGENT)?;
             renderer.write_line("  /model [name]          show or switch model", C_RESULT)?;
+            renderer.write_line(
+                "  /provider [name]       show or switch provider",
+                C_RESULT,
+            )?;
+            renderer.write_line("  /models                list quick models", C_RESULT)?;
+            renderer.write_line(
+                "  /models <name>         switch to a quick model",
+                C_RESULT,
+            )?;
+            renderer.write_line(
+                "  /models-add <n> <p> <m> save a quick model",
+                C_RESULT,
+            )?;
             renderer.write_line("  /sessions              list recent sessions", C_RESULT)?;
             renderer.write_line(
                 "  /sessions <id>         load a session (by ID prefix)",

@@ -14,6 +14,7 @@ mod ui;
 mod tests;
 
 use clap::Parser;
+use compact_str::CompactString;
 use session::MessageRole;
 
 use crate::permission::ask::AskSender;
@@ -91,8 +92,14 @@ async fn main() -> anyhow::Result<()> {
         context.current_prompt_name = Some(default_prompt.to_string());
     }
 
-    let provider = cli.resolve_provider(&cfg);
-    let model = cli.resolve_model(&cfg);
+    let mut provider = cli.resolve_provider(&cfg);
+    let mut model = cli.resolve_model(&cfg);
+
+    // --quick-model overrides provider + model
+    if let Some(qm) = cli.resolve_quick_model(&cfg) {
+        provider = CompactString::new(&qm.provider);
+        model = CompactString::new(&qm.model);
+    }
 
     let mut session = session::Session::new(&provider, &model, cfg.resolve_context_window());
 
@@ -141,6 +148,7 @@ async fn main() -> anyhow::Result<()> {
         &provider,
         cli.api_key.as_deref(),
         &cfg.custom_providers_map(),
+        cfg.api_keys.as_ref(),
     )?;
 
     #[cfg(feature = "mcp")]

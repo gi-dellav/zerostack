@@ -207,6 +207,17 @@ impl PermissionChecker {
                 action
             };
 
+        // In Standard mode, always allow file operations within the working directory.
+        // This overrides any configured deny rules for read/write/edit/list_dir on CWD paths.
+        let action = if self.mode == SecurityMode::Standard
+            && self.is_path_tool(tool)
+            && !self.is_external_path(&abs_path)
+        {
+            Action::Allow
+        } else {
+            action
+        };
+
         if action != Action::Deny {
             self.track_doom_loop(tool, path);
             if self.is_doom_loop(tool, path) {

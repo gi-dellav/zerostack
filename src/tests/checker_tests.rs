@@ -176,3 +176,84 @@ fn explicit_granular_rules_take_effect() {
     assert_eq!(checker.check("read", "README.md"), CheckResult::Allowed);
     assert_eq!(checker.check("read", "main.rs"), CheckResult::Ask);
 }
+
+// --- Standard mode: always allow read/write/edit/list_dir within CWD ---
+
+#[test]
+fn standard_allows_path_tools_in_cwd_despite_deny_rules() {
+    let config = PermissionConfig {
+        read: Some(ToolPerm::Simple(Action::Deny)),
+        ..PermissionConfig::default()
+    };
+    let mut checker = PermissionChecker::new(
+        &config,
+        SecurityMode::Standard,
+        Some(std::path::PathBuf::from("/home/user/project")),
+    );
+    // Deny rule is overridden — CWD paths are always allowed in Standard mode
+    let result = checker.check_path("read", "/home/user/project/src/main.rs");
+    assert!(
+        matches!(result, CheckResult::Allowed),
+        "expected Allowed for CWD path, got {:?}",
+        result,
+    );
+}
+
+#[test]
+fn standard_allows_write_in_cwd_despite_deny_rules() {
+    let config = PermissionConfig {
+        write: Some(ToolPerm::Simple(Action::Deny)),
+        ..PermissionConfig::default()
+    };
+    let mut checker = PermissionChecker::new(
+        &config,
+        SecurityMode::Standard,
+        Some(std::path::PathBuf::from("/home/user/project")),
+    );
+    let result = checker.check_path("write", "/home/user/project/new_file.rs");
+    assert!(
+        matches!(result, CheckResult::Allowed),
+        "expected Allowed for CWD path, got {:?}",
+        result,
+    );
+}
+
+#[test]
+fn standard_asks_external_path_even_for_path_tools() {
+    // External paths should still trigger Ask in Standard mode
+    let mut checker = make_checker(SecurityMode::Standard);
+    let external = if cfg!(windows) {
+        "D:\\outside\\file.txt"
+    } else {
+        "/etc/config.conf"
+    };
+    let result = checker.check_path("read", external);
+    assert!(
+        matches!(result, CheckResult::Ask),
+        "expected Ask for external path, got {:?}",
+        result,
+    );
+}
+
+#[test]
+fn standard_deny_still_works_for_non_path_tools() {
+    // Non-path tools (bash, grep, etc.) should still respect deny rules
+    let mut checker = make_checker(SecurityMode::Standard);
+    let result = checker.check("bash", "rm -rf /home/user/project");
+    assert!(
+        matches!(result, CheckResult::Denied(_)),
+        "expected Denied for bash deny rule, got {:?}",
+        result,
+    );
+}
+
+#[test]
+fn standard_list_dir_in_cwd_is_allowed() {
+    let mut checker = make_checker(SecurityMode::Standard);
+    let result = checker.check_path("list_dir", "/home/user/project/src");
+    assert!(
+        matches!(result, CheckResult::Allowed),
+        "expected Allowed for list_dir in CWD, got {:?}",
+        result,
+    );
+}
