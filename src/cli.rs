@@ -164,6 +164,10 @@ impl Cli {
             .as_deref()
             .or(cfg.provider.as_deref())
             .map(CompactString::new)
+            .or_else(|| {
+                crate::provider::auto_detect_provider()
+                    .map(|k| CompactString::new(crate::provider::provider_kind_slug(k)))
+            })
             .unwrap_or_else(|| CompactString::new("openrouter"))
     }
 

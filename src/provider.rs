@@ -25,6 +25,7 @@ pub enum ProviderKind {
     OpenAI,
     Anthropic,
     Gemini,
+    DeepSeek,
     Ollama,
     Custom,
 }
@@ -35,6 +36,7 @@ pub fn parse_provider(name: &str) -> Option<ProviderKind> {
         "openai" => Some(ProviderKind::OpenAI),
         "anthropic" => Some(ProviderKind::Anthropic),
         "gemini" | "google" => Some(ProviderKind::Gemini),
+        "deepseek" => Some(ProviderKind::DeepSeek),
         "ollama" => Some(ProviderKind::Ollama),
         "custom" => Some(ProviderKind::Custom),
         _ => None,
@@ -72,18 +74,41 @@ fn provider_env_var(kind: ProviderKind) -> &'static str {
         ProviderKind::OpenAI => "OPENAI_API_KEY",
         ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
         ProviderKind::Gemini => "GEMINI_API_KEY",
+        ProviderKind::DeepSeek => "DEEPSEEK_API_KEY",
         ProviderKind::Ollama => "OLLAMA_API_KEY",
         ProviderKind::OpenRouter => "OPENROUTER_API_KEY",
         ProviderKind::Custom => "CUSTOM_API_KEY",
     }
 }
 
-fn provider_kind_slug(kind: ProviderKind) -> &'static str {
+/// Auto-detect provider from environment variables when none is explicitly
+/// configured. Checks each known provider's API key env var and returns the
+/// first match, so users only need to set an API key without also specifying
+/// `--provider`.
+pub fn auto_detect_provider() -> Option<ProviderKind> {
+    let candidates: &[(&str, ProviderKind)] = &[
+        ("OPENAI_API_KEY", ProviderKind::OpenAI),
+        ("ANTHROPIC_API_KEY", ProviderKind::Anthropic),
+        ("GEMINI_API_KEY", ProviderKind::Gemini),
+        ("DEEPSEEK_API_KEY", ProviderKind::DeepSeek),
+        ("OLLAMA_API_KEY", ProviderKind::Ollama),
+        ("OPENROUTER_API_KEY", ProviderKind::OpenRouter),
+    ];
+    for (env_var, kind) in candidates {
+        if std::env::var(env_var).map(|v| !v.is_empty()).unwrap_or(false) {
+            return Some(*kind);
+        }
+    }
+    None
+}
+
+pub fn provider_kind_slug(kind: ProviderKind) -> &'static str {
     match kind {
         ProviderKind::OpenRouter => "openrouter",
         ProviderKind::OpenAI => "openai",
         ProviderKind::Anthropic => "anthropic",
         ProviderKind::Gemini => "gemini",
+        ProviderKind::DeepSeek => "deepseek",
         ProviderKind::Ollama => "ollama",
         ProviderKind::Custom => "custom",
     }
@@ -137,6 +162,7 @@ fn resolve_api_key(
 pub enum AnyClient {
     OpenRouter(openrouter::Client),
     OpenAI(openai::CompletionsClient),
+    DeepSeek(openai::CompletionsClient),
     Anthropic(anthropic::Client),
     Gemini(gemini::Client),
     Ollama(ollama::Client),
@@ -149,6 +175,7 @@ impl AnyClient {
         match self {
             AnyClient::OpenRouter(c) => AnyModel::OpenRouter(c.completion_model(name)),
             AnyClient::OpenAI(c) => AnyModel::OpenAI(c.completion_model(name)),
+            AnyClient::DeepSeek(c) => AnyModel::DeepSeek(c.completion_model(name)),
             AnyClient::Anthropic(c) => AnyModel::Anthropic(c.completion_model(name)),
             AnyClient::Gemini(c) => AnyModel::Gemini(c.completion_model(name)),
             AnyClient::Ollama(c) => AnyModel::Ollama(c.completion_model(name)),
@@ -187,6 +214,7 @@ async fn summarize_with_model(model: AnyModel, prompt: String) -> anyhow::Result
     match model {
         AnyModel::OpenRouter(m) => run_summarizer(m, prompt).await,
         AnyModel::OpenAI(m) => run_summarizer(m, prompt).await,
+        AnyModel::DeepSeek(m) => run_summarizer(m, prompt).await,
         AnyModel::Anthropic(m) => run_summarizer(m, prompt).await,
         AnyModel::Gemini(m) => run_summarizer(m, prompt).await,
         AnyModel::Ollama(m) => run_summarizer(m, prompt).await,
@@ -247,6 +275,7 @@ fn serialize_conversation(messages: &[SessionMessage]) -> String {
 pub enum AnyModel {
     OpenRouter(openrouter::completion::CompletionModel),
     OpenAI(openai::completion::CompletionModel),
+    DeepSeek(openai::completion::CompletionModel),
     Anthropic(anthropic::completion::CompletionModel),
     Gemini(gemini::completion::CompletionModel),
     Ollama(ollama::CompletionModel),
@@ -257,6 +286,7 @@ pub enum AnyModel {
 pub enum AnyAgent {
     OpenRouter(Agent<openrouter::completion::CompletionModel>),
     OpenAI(Agent<openai::completion::CompletionModel>),
+    DeepSeek(Agent<openai::completion::CompletionModel>),
     Anthropic(Agent<anthropic::completion::CompletionModel>),
     Gemini(Agent<gemini::completion::CompletionModel>),
     Ollama(Agent<ollama::CompletionModel>),
@@ -268,6 +298,7 @@ impl AnyAgent {
         match self {
             AnyAgent::OpenRouter(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::OpenAI(a) => runner::run_print(a, prompt, max_turns).await,
+            AnyAgent::DeepSeek(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::Anthropic(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::Gemini(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::Ollama(a) => runner::run_print(a, prompt, max_turns).await,
@@ -279,6 +310,7 @@ impl AnyAgent {
         match self {
             AnyAgent::OpenRouter(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::OpenAI(a) => runner::spawn_agent(a, prompt, history),
+            AnyAgent::DeepSeek(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Anthropic(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Gemini(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Ollama(a) => runner::spawn_agent(a, prompt, history),
@@ -331,6 +363,13 @@ pub fn create_client(
                 b = b.base_url(base_url);
             }
             Ok(AnyClient::Gemini(b.build()?))
+        }
+        ProviderKind::DeepSeek => {
+            let base_url = base_url.unwrap_or_else(|| "https://api.deepseek.com/v1".to_string());
+            let b = openai::CompletionsClient::builder()
+                .api_key(&key)
+                .base_url(&base_url);
+            Ok(AnyClient::DeepSeek(b.build()?))
         }
         ProviderKind::Ollama => {
             let key: ollama::OllamaApiKey = key.as_str().into();
@@ -390,6 +429,21 @@ pub async fn build_agent(
             .await,
         ),
         AnyModel::OpenAI(m) => AnyAgent::OpenAI(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox.clone(),
+                reasoning_enabled,
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
+        AnyModel::DeepSeek(m) => AnyAgent::DeepSeek(
             builder::build_agent_inner(
                 m,
                 cli,
@@ -464,5 +518,67 @@ pub async fn build_agent(
             )
             .await,
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn clean_env() {
+        for var in &[
+            "DEEPSEEK_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "GEMINI_API_KEY",
+            "OLLAMA_API_KEY",
+            "OPENROUTER_API_KEY",
+        ] {
+            unsafe { std::env::remove_var(var) };
+        }
+    }
+
+    #[test]
+    fn auto_detect_returns_none_when_no_vars_set() {
+        clean_env();
+        assert_eq!(auto_detect_provider(), None);
+    }
+
+    #[test]
+    fn auto_detect_finds_deepseek() {
+        clean_env();
+        unsafe { std::env::set_var("DEEPSEEK_API_KEY", "sk-test-123") };
+        assert_eq!(auto_detect_provider(), Some(ProviderKind::DeepSeek));
+    }
+
+    #[test]
+    fn auto_detect_finds_openai() {
+        clean_env();
+        unsafe { std::env::set_var("OPENAI_API_KEY", "sk-test-456") };
+        assert_eq!(auto_detect_provider(), Some(ProviderKind::OpenAI));
+    }
+
+    #[test]
+    fn auto_detect_skips_empty_var() {
+        clean_env();
+        unsafe { std::env::set_var("DEEPSEEK_API_KEY", "") };
+        assert_eq!(auto_detect_provider(), None);
+    }
+
+    #[test]
+    fn auto_detect_returns_first_match() {
+        clean_env();
+        unsafe {
+            std::env::set_var("OPENAI_API_KEY", "sk-first");
+            std::env::set_var("DEEPSEEK_API_KEY", "sk-second");
+        }
+        assert_eq!(auto_detect_provider(), Some(ProviderKind::OpenAI));
+    }
+
+    #[test]
+    fn parse_provider_recognizes_deepseek() {
+        assert_eq!(parse_provider("deepseek"), Some(ProviderKind::DeepSeek));
+        assert_eq!(parse_provider("DeepSeek"), Some(ProviderKind::DeepSeek));
+        assert_eq!(parse_provider("DEEPSEEK"), Some(ProviderKind::DeepSeek));
     }
 }
