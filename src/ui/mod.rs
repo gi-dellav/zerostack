@@ -52,6 +52,43 @@ pub(crate) fn resolve_color(color: Color, monochrome: bool) -> Color {
     }
 }
 
+pub(crate) fn parse_color(s: &str) -> Option<Color> {
+    let s = s.trim().to_lowercase();
+    match s.as_str() {
+        "reset" => Some(Color::Reset),
+        "black" => Some(Color::Black),
+        "dark_grey" | "darkgrey" | "dark_gray" | "darkgray" => Some(Color::DarkGrey),
+        "red" => Some(Color::Red),
+        "dark_red" | "darkred" => Some(Color::DarkRed),
+        "green" => Some(Color::Green),
+        "dark_green" | "darkgreen" => Some(Color::DarkGreen),
+        "yellow" => Some(Color::Yellow),
+        "dark_yellow" | "darkyellow" => Some(Color::DarkYellow),
+        "blue" => Some(Color::Blue),
+        "dark_blue" | "darkblue" => Some(Color::DarkBlue),
+        "magenta" => Some(Color::Magenta),
+        "dark_magenta" | "darkmagenta" => Some(Color::DarkMagenta),
+        "cyan" => Some(Color::Cyan),
+        "dark_cyan" | "darkcyan" => Some(Color::DarkCyan),
+        "white" => Some(Color::White),
+        "grey" | "gray" => Some(Color::Grey),
+        _ => {
+            if let Some(hex) = s.strip_prefix('#') {
+                if hex.len() == 6 {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        u8::from_str_radix(&hex[0..2], 16),
+                        u8::from_str_radix(&hex[2..4], 16),
+                        u8::from_str_radix(&hex[4..6], 16),
+                    ) {
+                        return Some(Color::Rgb { r, g, b });
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
 /// Formats a tool call showing only the primary file/command parameter.
 /// - read/write/edit → path
 /// - grep → pattern (and path if both present)
@@ -196,6 +233,12 @@ pub async fn run_interactive(
 
     let mut renderer = Renderer::new()?;
     renderer.set_monochrome(cli.no_color);
+    if let Some(colors) = &cfg.colors {
+        let chat_bg = colors.chat_background.as_deref().and_then(parse_color);
+        let input_bg = colors.input_background.as_deref().and_then(parse_color);
+        let status_bg = colors.status_background.as_deref().and_then(parse_color);
+        renderer.set_background_colors(chat_bg, input_bg, status_bg);
+    }
     let mut input = InputEditor::new();
     input.set_monochrome(cli.no_color);
     input.set_prompt_names(context.prompts.keys().cloned().collect());

@@ -27,9 +27,9 @@ You are in **default mode** — the general-purpose fallback. Use the most appro
 
 - **read** — before editing any file.
 - **write** — new files or complete rewrites only.
-- **edit** — prefer for small, targeted changes to existing files.
+- **edit** — prefer for small, targeted changes to existing files. Limit each edit to ~50 lines when working on pre-existing files.
 - **bash** — for tests, linters, git, builds. Not for file operations.
-- **grep** — for finding symbols, definitions, imports.
+- **grep** — for finding symbols, imports.
 - **glob** — for finding files by name pattern.
 
 ## System Intervention

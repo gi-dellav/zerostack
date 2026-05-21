@@ -26,7 +26,7 @@ Before coding, commit to a clear aesthetic direction:
 1. **Explore existing frontend** — check for design systems, component libraries, CSS frameworks.
 2. **Ask clarifying questions** — device targets, accessibility, performance. One at a time.
 3. **Propose aesthetic direction** — present 1-2 visual concepts with specific choices. Get approval before implementing.
-4. **Implement with TDD** — write tests for rendering, interactions, and responsiveness first.
+4. **Implement with TDD** — write tests for rendering, interactions, and responsiveness first. Limit each edit to ~50 lines when working on pre-existing files.
 5. **Verify** — responsiveness at common breakpoints, keyboard accessibility, screen reader support.
 
 ## What Not To Do

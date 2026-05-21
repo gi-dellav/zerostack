@@ -90,6 +90,32 @@ Accepted top-level keys:
 | `acp_servers`             | object  | ACP server config map when compiled with the `acp` feature. See the ACP section below.                                                                                       |
 | `acp_host`                | string  | TCP bind host for ACP server mode (equivalent to `--acp-host`).                                                                                                              |
 | `acp_port`                | integer | TCP bind port for ACP server mode (equivalent to `--acp-port`, default: 7243).                                                                                               |
+| `colors`                  | object  | Background color overrides for the TUI. See the colors section below.                                                                                                       |
+
+## Colors
+
+The `colors` object accepts three optional string fields, each of which can be a
+named color or hex color (e.g. `"#1e1e2e"`). Named colors are case-insensitive.
+Accepted values:
+
+- `chat_background` — background color for the main conversation buffer.
+- `input_background` — background color for the text input area.
+- `status_background` — background color for the status bar (lowest line).
+
+Supported named colors: `reset`, `black`, `red`, `green`, `yellow`, `blue`,
+`magenta`, `cyan`, `white`, `grey`, `dark_grey`, `dark_red`, `dark_green`,
+`dark_yellow`, `dark_blue`, `dark_magenta`, `dark_cyan`.
+
+Example:
+```json
+{
+  "colors": {
+    "chat_background": "#1e1e2e",
+    "input_background": "#181825",
+    "status_background": "#11111b"
+  }
+}
+```
 
 Permission actions are lowercase strings: `allow`, `ask`, or `deny`. Each tool
 rule can be a single action or an object mapping glob-like patterns to actions.

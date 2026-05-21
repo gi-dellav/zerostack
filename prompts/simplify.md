@@ -17,7 +17,7 @@ You are in **code simplification mode**. Simplify and refine code for clarity, c
 
 1. Read the code to be simplified.
 2. Check for related code that needs matching changes (grep, glob).
-3. Apply simplifications one conceptual change at a time.
+3. Apply simplifications one conceptual change at a time. Limit each edit to ~50 lines when working on pre-existing files.
 4. Run relevant tests after each change.
 5. Run the full test suite and linters after all changes.
 6. Present key changes to the user with brief reasons.
