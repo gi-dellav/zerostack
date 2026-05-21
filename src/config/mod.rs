@@ -24,22 +24,12 @@ pub struct CustomProviderConfig {
     pub api_key_env: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ColorsConfig {
     pub chat_background: Option<String>,
     pub input_background: Option<String>,
     pub status_background: Option<String>,
-}
-
-impl Default for ColorsConfig {
-    fn default() -> Self {
-        ColorsConfig {
-            chat_background: None,
-            input_background: None,
-            status_background: None,
-        }
-    }
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
