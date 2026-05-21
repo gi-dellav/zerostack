@@ -240,7 +240,7 @@ impl InputEditor {
         let _ = crossterm::terminal::enable_raw_mode();
 
         if let Ok(content) = std::fs::read_to_string(&tmp) {
-            self.buffer = CompactString::new(content.trim_end().to_string());
+            self.buffer = CompactString::new(content.trim_end());
             self.cursor = self.buffer.len();
         }
 
