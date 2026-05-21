@@ -143,6 +143,29 @@ async fn handle_ask_inner(
     }
 }
 
+async fn resolve_perm_check(
+    result: CheckResult,
+    permission: &PermCheck,
+    ask_tx: &Option<AskSender>,
+    tool: &str,
+    input_key: &str,
+) -> Result<(), ToolError> {
+    match result {
+        CheckResult::Allowed => Ok(()),
+        CheckResult::Denied(reason) => {
+            Err(ToolError::Msg(format!("Permission denied: {}", reason)))
+        }
+        CheckResult::Ask => {
+            let Some(tx) = ask_tx else {
+                return Err(ToolError::Msg(
+                    "Permission denied (non-interactive mode)".to_string(),
+                ));
+            };
+            handle_ask_inner(tx, permission, tool, input_key).await
+        }
+    }
+}
+
 pub async fn check_perm(
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
@@ -156,20 +179,7 @@ pub async fn check_perm(
         let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
         guard.check(tool, input_key)
     };
-    match result {
-        CheckResult::Allowed => Ok(()),
-        CheckResult::Denied(reason) => {
-            Err(ToolError::Msg(format!("Permission denied: {}", reason)))
-        }
-        CheckResult::Ask => {
-            let Some(tx) = ask_tx else {
-                return Err(ToolError::Msg(
-                    "Permission denied (non-interactive mode)".to_string(),
-                ));
-            };
-            handle_ask_inner(tx, perm, tool, input_key).await
-        }
-    }
+    resolve_perm_check(result, perm, ask_tx, tool, input_key).await
 }
 
 pub async fn check_perm_path(
@@ -185,18 +195,5 @@ pub async fn check_perm_path(
         let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
         guard.check_path(tool, path)
     };
-    match result {
-        CheckResult::Allowed => Ok(()),
-        CheckResult::Denied(reason) => {
-            Err(ToolError::Msg(format!("Permission denied: {}", reason)))
-        }
-        CheckResult::Ask => {
-            let Some(tx) = ask_tx else {
-                return Err(ToolError::Msg(
-                    "Permission denied (non-interactive mode)".to_string(),
-                ));
-            };
-            handle_ask_inner(tx, perm, tool, path).await
-        }
-    }
+    resolve_perm_check(result, perm, ask_tx, tool, path).await
 }
