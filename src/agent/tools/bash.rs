@@ -1,5 +1,6 @@
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
+use std::process::Output;
 use tokio::time::{Duration, timeout};
 
 use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm};
@@ -9,6 +10,27 @@ pub struct BashTool {
     pub permission: Option<PermCheck>,
     pub ask_tx: Option<AskSender>,
     pub sandbox: Sandbox,
+}
+
+fn format_command_output(output: &Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let exit_code = output.status.code().unwrap_or(-1);
+
+    let mut result = String::new();
+    if !stdout.is_empty() {
+        result.push_str(&stdout);
+    }
+    if !stderr.is_empty() {
+        if !result.is_empty() {
+            result.push('\n');
+        }
+        result.push_str(&stderr);
+    }
+    if exit_code != 0 {
+        result.push_str(&format!("\nExit code: {}", exit_code));
+    }
+    result
 }
 
 impl BashTool {
@@ -57,23 +79,6 @@ impl Tool for BashTool {
             self.sandbox.wrap_command(&args.command).output().await
         }?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let exit_code = output.status.code().unwrap_or(-1);
-
-        let mut result = String::new();
-        if !stdout.is_empty() {
-            result.push_str(&stdout);
-        }
-        if !stderr.is_empty() {
-            if !result.is_empty() {
-                result.push('\n');
-            }
-            result.push_str(&stderr);
-        }
-        if exit_code != 0 {
-            result.push_str(&format!("\nExit code: {}", exit_code));
-        }
-        Ok(result)
+        Ok(format_command_output(&output))
     }
 }

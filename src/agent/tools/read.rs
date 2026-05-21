@@ -3,6 +3,9 @@ use rig::tool::Tool;
 
 use crate::agent::tools::{AskSender, PermCheck, ReadArgs, ToolError, check_perm_path};
 
+const MAX_READ_BYTES: u64 = 10 * 1024 * 1024;
+const DEFAULT_READ_LIMIT: usize = 2000;
+
 pub struct ReadTool {
     pub permission: Option<PermCheck>,
     pub ask_tx: Option<AskSender>,
@@ -42,7 +45,7 @@ impl Tool for ReadTool {
 
         let metadata = tokio::fs::metadata(&args.path).await?;
         let file_size = metadata.len();
-        if file_size > 10 * 1024 * 1024 {
+        if file_size > MAX_READ_BYTES {
             return Err(ToolError::Msg(format!(
                 "File too large ({} bytes). Max 10MB.",
                 file_size
@@ -52,7 +55,7 @@ impl Tool for ReadTool {
         let total_lines = content.lines().count();
 
         let offset = args.offset.unwrap_or(1).max(1) - 1;
-        let limit = args.limit.unwrap_or(2000);
+        let limit = args.limit.unwrap_or(DEFAULT_READ_LIMIT);
         let end = (offset + limit).min(total_lines);
 
         let excerpt: String = content

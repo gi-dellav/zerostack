@@ -374,15 +374,7 @@ async fn run_headless_loop(
 
     use crate::extras::r#loop as loop_mod;
 
-    let prompt = cli
-        .loop_prompt
-        .clone()
-        .or_else(|| {
-            let msg = cli.message.join(" ");
-            if msg.is_empty() { None } else { Some(msg) }
-        })
-        .ok_or_else(|| anyhow::anyhow!("No loop prompt. Use --loop-prompt or pass a message."))?;
-
+    let prompt = resolve_loop_prompt(cli)?;
     let plan_file = cli
         .loop_plan
         .clone()
@@ -391,10 +383,7 @@ async fn run_headless_loop(
     let run_cmd = cli.loop_run.clone();
     let session_id = Uuid::new_v4().to_string();
 
-    let use_existing = loop_mod::plan::handle_startup(&plan_file)?;
-    if !use_existing {
-        // No plan exists — agent will generate one on first iteration
-    }
+    loop_mod::plan::handle_startup(&plan_file)?;
 
     let mut state = loop_mod::LoopState::new(prompt, plan_file, max_iterations, run_cmd);
 
@@ -428,35 +417,9 @@ async fn run_headless_loop(
         let summary: String = response.chars().take(300).collect();
         state.last_summary = Some(summary.clone());
 
-        let validation_output = if let Some(cmd) = &state.run_cmd {
-            eprintln!("--- Validation: {} ---", cmd);
-            let shell = if cfg!(windows) { "powershell" } else { "sh" };
-            let shell_arg = if cfg!(windows) { "-Command" } else { "-c" };
-            match tokio::process::Command::new(shell)
-                .arg(shell_arg)
-                .arg(cmd)
-                .output()
-                .await
-            {
-                Ok(output) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                    let combined = if stderr.is_empty() {
-                        stdout
-                    } else {
-                        format!("{}\n{}", stdout, stderr)
-                    };
-                    eprintln!("{}", combined);
-                    Some(combined)
-                }
-                Err(e) => {
-                    let msg = format!("error: {}", e);
-                    eprintln!("{}", msg);
-                    Some(msg)
-                }
-            }
-        } else {
-            None
+        let validation_output = match &state.run_cmd {
+            Some(cmd) => run_loop_validation(cmd).await,
+            None => None,
         };
         state.last_run_output = validation_output.clone();
 
@@ -475,4 +438,52 @@ async fn run_headless_loop(
     }
 
     Ok(())
+}
+
+#[cfg(feature = "loop")]
+fn resolve_loop_prompt(cli: &cli::Cli) -> anyhow::Result<String> {
+    cli.loop_prompt
+        .clone()
+        .or_else(|| {
+            let msg = cli.message.join(" ");
+            if msg.is_empty() { None } else { Some(msg) }
+        })
+        .ok_or_else(|| anyhow::anyhow!("No loop prompt. Use --loop-prompt or pass a message."))
+}
+
+#[cfg(feature = "loop")]
+async fn run_loop_validation(cmd: &str) -> Option<String> {
+    eprintln!("--- Validation: {} ---", cmd);
+    let shell = if cfg!(windows) { "powershell" } else { "sh" };
+    let shell_arg = if cfg!(windows) { "-Command" } else { "-c" };
+
+    match tokio::process::Command::new(shell)
+        .arg(shell_arg)
+        .arg(cmd)
+        .output()
+        .await
+    {
+        Ok(output) => {
+            let combined = combine_command_output(&output);
+            eprintln!("{}", combined);
+            Some(combined)
+        }
+        Err(e) => {
+            let msg = format!("error: {}", e);
+            eprintln!("{}", msg);
+            Some(msg)
+        }
+    }
+}
+
+#[cfg(feature = "loop")]
+fn combine_command_output(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if stderr.is_empty() {
+        stdout
+    } else {
+        format!("{}\n{}", stdout, stderr)
+    }
 }

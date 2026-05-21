@@ -18,11 +18,11 @@ pub use write::WriteTool;
 
 use std::io;
 
-use ignore::WalkBuilder;
+use ignore::{DirEntry, Walk, WalkBuilder};
 use serde::Deserialize;
 
 use crate::permission::ask::{AskRequest, AskSender, UserDecision};
-use crate::permission::checker::{CheckResult, PermCheck};
+use crate::permission::checker::{CheckResult, PermCheck, PermissionChecker};
 
 pub const MAX_GREP_RESULTS: usize = 200;
 pub const MAX_FIND_RESULTS: usize = 200;
@@ -45,11 +45,19 @@ impl From<serde_json::Error> for ToolError {
     }
 }
 
-fn is_skip_dir(name: &str) -> bool {
+fn should_skip_dir(name: &str) -> bool {
     matches!(name, "node_modules" | "target")
 }
 
-pub fn build_walker(path: &str, max_depth: Option<usize>) -> ignore::Walk {
+fn should_walk_entry(entry: &DirEntry) -> bool {
+    if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+        return true;
+    }
+
+    !should_skip_dir(entry.file_name().to_str().unwrap_or(""))
+}
+
+pub fn build_walker(path: &str, max_depth: Option<usize>) -> Walk {
     let mut builder = WalkBuilder::new(path);
     builder
         .git_ignore(true)
@@ -57,10 +65,7 @@ pub fn build_walker(path: &str, max_depth: Option<usize>) -> ignore::Walk {
         .git_exclude(true)
         .require_git(false)
         .hidden(false)
-        .filter_entry(|entry| {
-            !entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
-                || !is_skip_dir(entry.file_name().to_str().unwrap_or(""))
-        });
+        .filter_entry(should_walk_entry);
 
     if let Some(depth) = max_depth {
         builder.max_depth(Some(depth));
@@ -166,20 +171,35 @@ async fn resolve_perm_check(
     }
 }
 
+async fn check_permission(
+    permission: &Option<PermCheck>,
+    ask_tx: &Option<AskSender>,
+    tool: &str,
+    input: &str,
+    check: impl FnOnce(&mut PermissionChecker) -> CheckResult,
+) -> Result<(), ToolError> {
+    let Some(perm) = permission else {
+        return Ok(());
+    };
+
+    let result = {
+        let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
+        check(&mut guard)
+    };
+
+    resolve_perm_check(result, perm, ask_tx, tool, input).await
+}
+
 pub async fn check_perm(
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
     tool: &str,
     input_key: &str,
 ) -> Result<(), ToolError> {
-    let Some(perm) = permission else {
-        return Ok(());
-    };
-    let result = {
-        let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
+    check_permission(permission, ask_tx, tool, input_key, |guard| {
         guard.check(tool, input_key)
-    };
-    resolve_perm_check(result, perm, ask_tx, tool, input_key).await
+    })
+    .await
 }
 
 pub async fn check_perm_path(
@@ -188,12 +208,8 @@ pub async fn check_perm_path(
     tool: &str,
     path: &str,
 ) -> Result<(), ToolError> {
-    let Some(perm) = permission else {
-        return Ok(());
-    };
-    let result = {
-        let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
+    check_permission(permission, ask_tx, tool, path, |guard| {
         guard.check_path(tool, path)
-    };
-    resolve_perm_check(result, perm, ask_tx, tool, path).await
+    })
+    .await
 }

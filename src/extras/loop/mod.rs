@@ -35,12 +35,6 @@ impl LoopState {
 
     pub fn build_prompt(&self) -> String {
         let plan_contents = plan::read_plan(&self.plan_file).unwrap_or_default();
-
-        let max_label = match self.max_iterations {
-            Some(max) => max.to_string(),
-            None => "∞".to_string(),
-        };
-
         let summary = self.last_summary.as_deref().unwrap_or("starting fresh");
         let run_output = self.last_run_output.as_deref().unwrap_or("(none)");
 
@@ -48,7 +42,7 @@ impl LoopState {
             "{}\n\n--- Loop Context (Iteration {}/{}) ---\n\nCurrent plan ({}):\n{}\n\nPrevious iteration summary:\n{}\n\nPrevious validation output:\n{}\n\n--- Instructions ---\n- Choose ONE task from the plan. Do not implement multiple things.\n- Before writing code, search the codebase with grep/find_files first.\n- After implementing: run the tests for the changed code.\n- Keep LOOP_PLAN.md up to date: mark completed items, add new findings.\n- If you discover bugs unrelated to your task, document them in LOOP_PLAN.md.\n- Commit working changes with descriptive messages.",
             self.prompt,
             self.iteration,
-            max_label,
+            self.max_iterations_label(),
             self.plan_file.display(),
             plan_contents,
             summary,
@@ -57,17 +51,20 @@ impl LoopState {
     }
 
     pub fn iteration_label(&self) -> String {
-        let max_label = match self.max_iterations {
-            Some(max) => max.to_string(),
-            None => "∞".to_string(),
-        };
-        format!("LOOP {}/{}", self.iteration, max_label)
+        format!("LOOP {}/{}", self.iteration, self.max_iterations_label())
     }
 
     pub fn should_stop(&self) -> bool {
         match self.max_iterations {
             Some(max) => self.iteration >= max,
             None => false,
+        }
+    }
+
+    fn max_iterations_label(&self) -> String {
+        match self.max_iterations {
+            Some(max) => max.to_string(),
+            None => "∞".to_string(),
         }
     }
 }

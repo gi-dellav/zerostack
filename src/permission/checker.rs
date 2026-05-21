@@ -136,26 +136,11 @@ impl PermissionChecker {
             SecurityMode::Yolo => unreachable!(),
         };
 
-        if action != Action::Deny {
-            self.track_doom_loop(tool, input);
-            if self.is_doom_loop(tool, input) {
-                match self.doom_loop_action {
-                    Action::Deny => {
-                        return CheckResult::Denied(
-                            "Doom loop: repeated identical tool call".to_string(),
-                        );
-                    }
-                    Action::Ask => return CheckResult::Ask,
-                    Action::Allow => {}
-                }
-            }
+        if let Some(result) = self.check_doom_loop(tool, input, action) {
+            return result;
         }
 
-        match action {
-            Action::Allow => CheckResult::Allowed,
-            Action::Ask => CheckResult::Ask,
-            Action::Deny => CheckResult::Denied("Blocked by permission rules".to_string()),
-        }
+        action_result(action)
     }
 
     pub fn check_path(&mut self, tool: &str, path: &str) -> CheckResult {
@@ -218,26 +203,11 @@ impl PermissionChecker {
             action
         };
 
-        if action != Action::Deny {
-            self.track_doom_loop(tool, path);
-            if self.is_doom_loop(tool, path) {
-                match self.doom_loop_action {
-                    Action::Deny => {
-                        return CheckResult::Denied(
-                            "Doom loop: repeated identical tool call".to_string(),
-                        );
-                    }
-                    Action::Ask => return CheckResult::Ask,
-                    Action::Allow => {}
-                }
-            }
+        if let Some(result) = self.check_doom_loop(tool, path, action) {
+            return result;
         }
 
-        match action {
-            Action::Allow => CheckResult::Allowed,
-            Action::Ask => CheckResult::Ask,
-            Action::Deny => CheckResult::Denied("Blocked by permission rules".to_string()),
-        }
+        action_result(action)
     }
 
     fn is_session_allowed(&self, tool: &str, input: &str) -> bool {
@@ -315,6 +285,25 @@ impl PermissionChecker {
             .count();
         count >= 3
     }
+
+    fn check_doom_loop(&mut self, tool: &str, input: &str, action: Action) -> Option<CheckResult> {
+        if action == Action::Deny {
+            return None;
+        }
+
+        self.track_doom_loop(tool, input);
+        if !self.is_doom_loop(tool, input) {
+            return None;
+        }
+
+        match self.doom_loop_action {
+            Action::Deny => Some(CheckResult::Denied(
+                "Doom loop: repeated identical tool call".to_string(),
+            )),
+            Action::Ask => Some(CheckResult::Ask),
+            Action::Allow => None,
+        }
+    }
 }
 
 fn resolve_absolute(path: &str, working_dir: &str) -> String {
@@ -323,5 +312,13 @@ fn resolve_absolute(path: &str, working_dir: &str) -> String {
         p.to_string_lossy().to_string()
     } else {
         Path::new(working_dir).join(p).to_string_lossy().to_string()
+    }
+}
+
+fn action_result(action: Action) -> CheckResult {
+    match action {
+        Action::Allow => CheckResult::Allowed,
+        Action::Ask => CheckResult::Ask,
+        Action::Deny => CheckResult::Denied("Blocked by permission rules".to_string()),
     }
 }

@@ -25,23 +25,22 @@ impl Pattern {
 
 fn expand_home(pattern: &str) -> String {
     if pattern == "~" || pattern == "$HOME" {
-        if let Some(home) = dirs::home_dir() {
-            return home.to_string_lossy().to_string();
+        return home_dir_string().unwrap_or_else(|| pattern.to_string());
+    }
+
+    for prefix in ["~/", "$HOME/"] {
+        if let Some(rest) = pattern.strip_prefix(prefix) {
+            return home_dir_string()
+                .map(|home| format!("{home}/{rest}"))
+                .unwrap_or_else(|| pattern.to_string());
         }
-        return pattern.to_string();
     }
-    if let Some(rest) = pattern.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return format!("{}/{}", home.to_string_lossy(), rest);
-        }
-        return pattern.to_string();
-    }
-    if let Some(rest) = pattern.strip_prefix("$HOME/")
-        && let Some(home) = dirs::home_dir()
-    {
-        return format!("{}/{}", home.to_string_lossy(), rest);
-    }
+
     pattern.to_string()
+}
+
+fn home_dir_string() -> Option<String> {
+    dirs::home_dir().map(|home| home.to_string_lossy().to_string())
 }
 
 fn glob_to_regex(pattern: &str) -> String {
