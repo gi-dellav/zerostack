@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod auth_tests;
+#[cfg(test)]
 mod checker_tests;
 #[cfg(test)]
 mod edit_tests;

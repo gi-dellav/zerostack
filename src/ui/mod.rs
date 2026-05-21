@@ -9,8 +9,8 @@ mod status;
 mod terminal;
 
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use compact_str::CompactString;
@@ -73,16 +73,15 @@ pub(crate) fn parse_color(s: &str) -> Option<Color> {
         "white" => Some(Color::White),
         "grey" | "gray" => Some(Color::Grey),
         _ => {
-            if let Some(hex) = s.strip_prefix('#') {
-                if hex.len() == 6 {
-                    if let (Ok(r), Ok(g), Ok(b)) = (
-                        u8::from_str_radix(&hex[0..2], 16),
-                        u8::from_str_radix(&hex[2..4], 16),
-                        u8::from_str_radix(&hex[4..6], 16),
-                    ) {
-                        return Some(Color::Rgb { r, g, b });
-                    }
-                }
+            if let Some(hex) = s.strip_prefix('#')
+                && hex.len() == 6
+                && let (Ok(r), Ok(g), Ok(b)) = (
+                    u8::from_str_radix(&hex[0..2], 16),
+                    u8::from_str_radix(&hex[2..4], 16),
+                    u8::from_str_radix(&hex[4..6], 16),
+                )
+            {
+                return Some(Color::Rgb { r, g, b });
             }
             None
         }

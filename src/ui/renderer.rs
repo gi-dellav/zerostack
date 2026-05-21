@@ -3,7 +3,9 @@ use std::io::{self, Write};
 use compact_str::CompactString;
 use crossterm::ExecutableCommand;
 use crossterm::cursor::MoveTo;
-use crossterm::style::{Attribute, Color, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor};
+use crossterm::style::{
+    Attribute, Color, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
+};
 use crossterm::terminal::{Clear, ClearType, ScrollUp};
 
 use super::markdown::word_wrap;
