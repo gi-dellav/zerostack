@@ -1,11 +1,10 @@
 use std::path::Path;
 
-use ignore::WalkBuilder;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
 use crate::agent::tools::{
-    AskSender, ListDirArgs, PermCheck, ToolError, check_perm_path, is_skip_dir,
+    AskSender, ListDirArgs, PermCheck, ToolError, build_walker, check_perm_path,
 };
 
 fn format_size(bytes: u64) -> String {
@@ -68,21 +67,7 @@ impl Tool for ListDirTool {
         let path = args.path.as_deref().unwrap_or(".");
         check_perm_path(&self.permission, &self.ask_tx, "list_dir", path).await?;
 
-        let walker = WalkBuilder::new(path)
-            .git_ignore(true)
-            .git_global(true)
-            .git_exclude(true)
-            .require_git(false)
-            .hidden(false)
-            .max_depth(Some(1))
-            .filter_entry(|entry| {
-                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                    !is_skip_dir(entry.file_name().to_str().unwrap_or(""))
-                } else {
-                    true
-                }
-            })
-            .build();
+        let walker = build_walker(path, Some(1));
 
         let mut entries: Vec<(String, String, String)> = Vec::new();
 

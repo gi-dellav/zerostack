@@ -18,6 +18,7 @@ pub use write::WriteTool;
 
 use std::io;
 
+use ignore::WalkBuilder;
 use serde::Deserialize;
 
 use crate::permission::ask::{AskRequest, AskSender, UserDecision};
@@ -44,8 +45,28 @@ impl From<serde_json::Error> for ToolError {
     }
 }
 
-pub fn is_skip_dir(name: &str) -> bool {
+fn is_skip_dir(name: &str) -> bool {
     matches!(name, "node_modules" | "target")
+}
+
+pub fn build_walker(path: &str, max_depth: Option<usize>) -> ignore::Walk {
+    let mut builder = WalkBuilder::new(path);
+    builder
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .require_git(false)
+        .hidden(false)
+        .filter_entry(|entry| {
+            !entry.file_type().map(|t| t.is_dir()).unwrap_or(false)
+                || !is_skip_dir(entry.file_name().to_str().unwrap_or(""))
+        });
+
+    if let Some(depth) = max_depth {
+        builder.max_depth(Some(depth));
+    }
+
+    builder.build()
 }
 
 #[derive(Deserialize)]

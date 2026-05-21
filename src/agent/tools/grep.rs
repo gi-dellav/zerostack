@@ -1,10 +1,9 @@
-use ignore::WalkBuilder;
 use regex::Regex;
 use rig::completion::ToolDefinition;
 use rig::tool::Tool;
 
 use crate::agent::tools::{
-    AskSender, GrepArgs, MAX_GREP_RESULTS, PermCheck, ToolError, check_perm, is_skip_dir,
+    AskSender, GrepArgs, MAX_GREP_RESULTS, PermCheck, ToolError, build_walker, check_perm,
 };
 
 pub struct GrepTool {
@@ -88,20 +87,7 @@ impl Tool for GrepTool {
             Regex::new(&pattern).unwrap_or_else(|_| Regex::new(".*").unwrap())
         });
 
-        let walker = WalkBuilder::new(search_path)
-            .git_ignore(true)
-            .git_global(true)
-            .git_exclude(true)
-            .require_git(false)
-            .hidden(false)
-            .filter_entry(|entry| {
-                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                    !is_skip_dir(entry.file_name().to_str().unwrap_or(""))
-                } else {
-                    true
-                }
-            })
-            .build();
+        let walker = build_walker(search_path, None);
 
         let mut file_count = 0;
         let mut all_results: Vec<String> = Vec::new();
