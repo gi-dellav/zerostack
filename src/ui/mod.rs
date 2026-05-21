@@ -9,8 +9,8 @@ mod status;
 mod terminal;
 
 use std::io;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use compact_str::CompactString;

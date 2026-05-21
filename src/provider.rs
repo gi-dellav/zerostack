@@ -300,7 +300,12 @@ pub fn create_client(
         )
     })?;
 
-    let key = resolve_api_key(info.kind, info.api_key_env.as_deref(), api_key, config_api_keys)?;
+    let key = resolve_api_key(
+        info.kind,
+        info.api_key_env.as_deref(),
+        api_key,
+        config_api_keys,
+    )?;
 
     let base_url = info.base_url.or_else(|| {
         if info.kind == ProviderKind::Custom {

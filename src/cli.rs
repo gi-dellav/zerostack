@@ -146,9 +146,7 @@ impl Cli {
         cfg: &'a config::Config,
     ) -> Option<&'a config::QuickModelConfig> {
         let name = self.quick_model.as_deref()?;
-        cfg.quick_models
-            .as_ref()
-            .and_then(|m| m.get(name))
+        cfg.quick_models.as_ref().and_then(|m| m.get(name))
     }
 
     pub fn resolve_model(&self, cfg: &config::Config) -> CompactString {
