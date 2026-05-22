@@ -60,6 +60,25 @@ impl PermissionChecker {
             rules.insert(tool_name.to_string(), entries);
         }
 
+        fn merge_entries(
+            rules: &mut HashMap<String, Vec<(Pattern, Action)>>,
+            entries: &Option<HashMap<String, Vec<String>>>,
+            action: Action,
+        ) {
+            if let Some(map) = entries {
+                for (tool, patterns) in map {
+                    let entry = rules.entry(tool.clone()).or_default();
+                    for pat in patterns {
+                        entry.push((Pattern::new(pat), action));
+                    }
+                }
+            }
+        }
+
+        merge_entries(&mut rules, &config.allow_entries, Action::Allow);
+        merge_entries(&mut rules, &config.ask_entries, Action::Ask);
+        merge_entries(&mut rules, &config.deny_entries, Action::Deny);
+
         if !rules.contains_key("bash") {
             let mut defaults = Vec::new();
             for (pat, action) in crate::permission::default_bash_rules() {

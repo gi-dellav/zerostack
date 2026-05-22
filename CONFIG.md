@@ -86,6 +86,9 @@ Accepted top-level keys:
 | `compact_enabled`         | boolean | Enable automatic conversation compaction. Default: `true`.                                                                                                                  |
 | `custom_providers`        | object  | Map of provider aliases to `{ "provider_type", "base_url", "api_key_env" }`. `provider_type` must resolve to one of the built-in provider types; `api_key_env` is optional. |
 | `permission`              | object  | Permission rules; see the permission config notes below.                                                                                                                    |
+| `permission-allow`        | object  | Map of tool names to lists of regex patterns to allow. Works alongside the `permission` field. See below.                                                                   |
+| `permission-ask`          | object  | Map of tool names to lists of regex patterns to prompt on. Works alongside the `permission` field. See below.                                                               |
+| `permission-deny`         | object  | Map of tool names to lists of regex patterns to deny. Works alongside the `permission` field. See below.                                                                    |
 | `restrictive`             | boolean | Select restrictive permission mode. Overridden by `accept_all`/`yolo` if those are also true.                                                                               |
 | `accept_all`              | boolean | Select accept mode, equivalent to `--accept-all`. Overridden by `yolo` if true.                                                                                             |
 | `yolo`                    | boolean | Select yolo mode, auto-approving all operations.                                                                                                                            |
@@ -137,6 +140,32 @@ default action, `external_directory` for absolute-path rules outside the
 working directory, and `doom_loop` for repeated identical tool calls
 (default: `ask`). If `bash` is omitted, zerostack installs its built-in
 safe bash allow/deny rules.
+
+As a TOML-friendly alternative to the nested `permission` object, you can use
+`permission-allow`, `permission-ask`, and `permission-deny` at the top level.
+Each is a map from tool name to a list of regex patterns. These work side by
+side with the `permission` field and are especially convenient in TOML configs:
+
+```toml
+permission-allow = { read = ["src/**", "tests/**"] }
+permission-ask = { bash = ["rm **"] }
+permission-deny = { write = ["/etc/**", "/usr/**"] }
+```
+
+In JSON:
+```json
+{
+  "permission-allow": {
+    "read": ["src/**", "tests/**"]
+  },
+  "permission-ask": {
+    "bash": ["rm **"]
+  },
+  "permission-deny": {
+    "write": ["/etc/**", "/usr/**"]
+  }
+}
+```
 
 When compiled with MCP support, `mcp_servers` accepts command-based and URL-based
 servers:

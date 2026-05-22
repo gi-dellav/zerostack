@@ -12,7 +12,7 @@ use crate::context::ContextFiles;
 use crate::event::AgentEvent;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::{PermCheck, PermissionChecker};
-use crate::permission::{PermissionConfig, SecurityMode};
+use crate::permission::SecurityMode;
 use crate::sandbox::Sandbox;
 
 struct AcpState {
@@ -245,12 +245,7 @@ fn build_acp_permission(state: &AcpState) -> (Option<PermCheck>, Option<AskSende
         return (None, None);
     }
 
-    let perm_config: PermissionConfig = state
-        .cfg
-        .permission
-        .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
+    let perm_config = state.cfg.build_permission_config();
 
     let mode = resolve_acp_mode(&state.cli, &state.cfg);
     let checker = PermissionChecker::new(&perm_config, mode, None);

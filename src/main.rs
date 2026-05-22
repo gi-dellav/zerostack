@@ -19,7 +19,7 @@ use session::MessageRole;
 
 use crate::permission::ask::AskSender;
 use crate::permission::checker::{PermCheck, PermissionChecker};
-use crate::permission::{PermissionConfig, SecurityMode};
+use crate::permission::SecurityMode;
 
 fn resolve_mode(cli: &cli::Cli, cfg: &config::Config) -> SecurityMode {
     if cli.yolo || cfg.yolo.unwrap_or(false) {
@@ -53,11 +53,7 @@ fn build_permission_checker(
         return (None, None, None);
     }
 
-    let perm_config: PermissionConfig = cfg
-        .permission
-        .as_ref()
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
+    let perm_config = cfg.build_permission_config();
 
     let mode = resolve_mode(cli, cfg);
     let checker = PermissionChecker::new(&perm_config, mode, None);

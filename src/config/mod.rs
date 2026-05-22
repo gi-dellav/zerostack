@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
+use crate::permission::PermissionConfig;
 use crate::session::storage;
 
 #[cfg(feature = "mcp")]
@@ -75,6 +76,12 @@ pub struct Config {
     pub custom_providers: Option<HashMap<String, CustomProviderConfig>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub permission: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "permission-allow")]
+    pub permission_allow: Option<HashMap<String, Vec<String>>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "permission-ask")]
+    pub permission_ask: Option<HashMap<String, Vec<String>>>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "permission-deny")]
+    pub permission_deny: Option<HashMap<String, Vec<String>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restrictive: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -135,6 +142,26 @@ impl Config {
 
     pub fn resolve_compact_enabled(&self) -> bool {
         self.compact_enabled.unwrap_or(true)
+    }
+
+    pub fn build_permission_config(&self) -> PermissionConfig {
+        let mut perm_config: PermissionConfig = self
+            .permission
+            .as_ref()
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .unwrap_or_default();
+
+        if let Some(allow) = &self.permission_allow {
+            perm_config.allow_entries = Some(allow.clone());
+        }
+        if let Some(ask) = &self.permission_ask {
+            perm_config.ask_entries = Some(ask.clone());
+        }
+        if let Some(deny) = &self.permission_deny {
+            perm_config.deny_entries = Some(deny.clone());
+        }
+
+        perm_config
     }
 }
 
