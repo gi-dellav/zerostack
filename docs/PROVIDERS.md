@@ -1,6 +1,6 @@
 # Providers
 
-zerostack supports five built-in providers and allows custom provider
+zerostack supports six built-in providers and allows custom provider
 definitions for OpenAI-compatible endpoints.
 
 ## Built-in Providers
@@ -12,6 +12,7 @@ definitions for OpenAI-compatible endpoints.
 | Anthropic  | `anthropic`             | `ANTHROPIC_API_KEY`         |
 | Gemini     | `gemini` / `google`     | `GEMINI_API_KEY`            |
 | Ollama     | `ollama`                | (no key required)           |
+| GitHub Copilot | `copilot` / `github-copilot` | `COPILOT_API_KEY` |
 
 Select a provider via the config file, the `--provider` CLI flag, or the
 `ZS_PROVIDER` environment variable:
@@ -88,7 +89,33 @@ The API key is resolved in this priority order:
 2. **Environment variable** — either the custom one from `api_key_env`, or the
    default env var for the provider kind
 3. **Config file** `api_keys` map — keyed by provider slug or custom provider name
-4. **Ollama** — returns an empty string (no key required)
+4. **GitHub Copilot subscription** — when `provider = "copilot"` and no token is
+   configured, zerostack starts GitHub device-code login through rig, caches the
+   GitHub OAuth token plus short-lived Copilot API token in the zerostack config
+   directory, and refreshes expired Copilot tokens automatically.
+5. **Ollama** — returns an empty string (no key required)
+
+## GitHub Copilot model discovery
+
+When the active provider is `copilot`, zerostack fetches the signed-in
+subscription's available models from Copilot's own `/models` endpoint using the
+Copilot API token and Copilot editor headers. If the fetch succeeds and no model
+was explicitly configured, zerostack selects the available `gpt-*` model with
+the highest numeric version. If discovery fails, zerostack falls back to the
+static Copilot default (`gpt-5.5`).
+
+If `COPILOT_API_KEY` or `api_keys.copilot` is not configured, zerostack uses a
+GitHub Copilot subscription login instead. The first run prints a GitHub
+device-code prompt. Credentials are cached as `copilot-auth.json` under the same
+directory used for zerostack config resolution (`ZS_CONFIG_DIR` when set,
+otherwise the platform config/data fallback described in `docs/CONFIG.md`).
+
+The Copilot model sync module also supports a credential JSON file with a
+`github-copilot` entry, refreshes expired short-lived Copilot API tokens from the
+stored GitHub OAuth token, normalizes tool-capable models, and writes a sorted
+JSON model catalog for scheduled use. Its settings are layered with
+`config-rs`: defaults, optional `copilot-model-sync.toml`/`.json`, and
+`ZEROSTACK_COPILOT_MODELS__...` environment overrides.
 
 ### Config-level API keys
 

@@ -124,6 +124,8 @@ async fn main() -> anyhow::Result<()> {
 
     let mut provider = cli.resolve_provider(&cfg);
     let mut model = cli.resolve_model(&cfg);
+    let using_default_model =
+        cli.model.is_none() && cfg.model.is_none() && cli.quick_model.is_none();
 
     // --quick-model overrides provider + model
     if let Some(qm) = cli.resolve_quick_model(&cfg) {
@@ -192,6 +194,28 @@ async fn main() -> anyhow::Result<()> {
         &cfg.custom_providers_map(),
         cfg.api_keys.as_ref(),
     )?;
+
+    if provider.as_str() == "copilot" {
+        match client.list_models().await {
+            Ok(models) => {
+                if using_default_model {
+                    if let Some(default_model) =
+                        crate::provider::copilot::preferred_gpt_model_id_from_ids(
+                            models.iter().map(|model| model.id.as_str()),
+                        )
+                    {
+                        model = compact_str::CompactString::new(default_model);
+                        session.model = model.clone();
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Could not refresh GitHub Copilot models; using configured/default model: {err}"
+                );
+            }
+        }
+    }
 
     #[cfg(feature = "subagents")]
     {

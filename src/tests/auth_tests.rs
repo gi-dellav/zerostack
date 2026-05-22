@@ -101,6 +101,29 @@ fn auth_resolver_ollama_returns_empty_key() {
 }
 
 #[test]
+fn auth_resolver_returns_copilot_env_key() {
+    let env = mock_env(vec![("COPILOT_API_KEY", "copilot-key")]);
+    let resolver = AuthResolver::new(ProviderKind::Copilot)
+        .with_cli_key(None)
+        .with_config_keys(None);
+    let result = resolver.resolve_with_env(env).unwrap();
+    assert_eq!(result, "copilot-key");
+}
+
+#[test]
+fn auth_resolver_returns_copilot_config_key() {
+    let env = mock_env(vec![]);
+    let mut keys = HashMap::new();
+    keys.insert("copilot".to_string(), "copilot-config-key".to_string());
+
+    let resolver = AuthResolver::new(ProviderKind::Copilot)
+        .with_cli_key(None)
+        .with_config_keys(Some(&keys));
+    let result = resolver.resolve_with_env(env).unwrap();
+    assert_eq!(result, "copilot-config-key");
+}
+
+#[test]
 fn auth_resolver_errors_when_no_key_available() {
     let env = mock_env(vec![]);
     let resolver = AuthResolver::new(ProviderKind::OpenAI)
@@ -135,6 +158,18 @@ fn provider_kind_from_name_recognizes_all() {
     assert_eq!(
         ProviderKind::from_name("ollama"),
         Some(ProviderKind::Ollama)
+    );
+    assert_eq!(
+        ProviderKind::from_name("copilot"),
+        Some(ProviderKind::Copilot)
+    );
+    assert_eq!(
+        ProviderKind::from_name("github-copilot"),
+        Some(ProviderKind::Copilot)
+    );
+    assert_eq!(
+        ProviderKind::from_name("github_copilot"),
+        Some(ProviderKind::Copilot)
     );
     // "custom" is an alias for OpenAI
     assert_eq!(

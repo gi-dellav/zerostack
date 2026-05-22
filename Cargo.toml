@@ -64,6 +64,10 @@ ignore = "0.4"
 pulldown-cmark = "0.13"
 include_dir = "0.7"
 http = "1"
+config-rs = { package = "config", version = "0.15", default-features = false, features = [
+    "json",
+    "toml",
+] }
 agent-client-protocol = { version = "0.12.0", optional = true }
 blocking = { version = "1", optional = true }
 mimalloc = { version = "0.1", default-features = false }

@@ -150,6 +150,25 @@ async fn handle_provider(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Resu
     }
     ctx.rebuild_agent_with_client(new_provider, *ctx.reasoning_enabled)
         .await?;
+    if new_provider == "copilot" {
+        match ctx.client.list_models().await {
+            Ok(models) => {
+                if let Some(default_model) =
+                    crate::provider::copilot::preferred_gpt_model_id_from_ids(
+                        models.iter().map(|model| model.id.as_str()),
+                    )
+                {
+                    ctx.session.model = compact_str::CompactString::new(default_model);
+                    ctx.rebuild_agent().await;
+                }
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Could not refresh GitHub Copilot models; using fallback model: {err}"
+                );
+            }
+        }
+    }
     ctx.session.provider = compact_str::CompactString::new(new_provider);
     write_ok(
         ctx.renderer,

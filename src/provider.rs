@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
+pub mod copilot;
+
 use compact_str::CompactString;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rig::agent::Agent;
@@ -48,7 +50,7 @@ pub fn resolve_provider_config(
     }
     let kind = ProviderKind::from_name(name).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: '{}'. Supported: openrouter, openai, anthropic, gemini, ollama",
+            "Unknown provider: '{}'. Supported: openrouter, openai, anthropic, gemini, ollama, copilot",
             name
         )
     })?;
@@ -101,6 +103,7 @@ pub(crate) fn default_model_for_provider(
         "gemini" | "google" => "gemini-2.5-pro",
         "openrouter" => "openrouter/auto", // OpenRouter's always-valid auto-router
         "ollama" => "llama3.1",
+        "copilot" | "github-copilot" | "github_copilot" => "gpt-5.5",
         _ => return None,
     };
     Some((m.to_string(), None))
@@ -150,6 +153,13 @@ pub enum OpenAiAgent {
 pub enum AnyClient {
     OpenRouter(openrouter::Client),
     OpenAI(OpenAiClient),
+    Copilot {
+        completions_client: openai::CompletionsClient,
+        responses_client: openai::Client,
+        api_key: String,
+        base_url: String,
+        http_client: reqwest::Client,
+    },
     Anthropic(anthropic::Client),
     Gemini(gemini::Client),
     Ollama(ollama::Client),
@@ -161,6 +171,7 @@ impl AnyClient {
         match self {
             AnyClient::OpenRouter(_) => "openrouter",
             AnyClient::OpenAI(_) => "openai",
+            AnyClient::Copilot { .. } => "copilot",
             AnyClient::Anthropic(_) => "anthropic",
             AnyClient::Gemini(_) => "gemini",
             AnyClient::Ollama(_) => "ollama",
@@ -172,6 +183,21 @@ impl AnyClient {
         match self {
             AnyClient::OpenRouter(c) => AnyModel::OpenRouter(c.completion_model(name)),
             AnyClient::OpenAI(c) => AnyModel::OpenAI(c.completion_model(name)),
+            AnyClient::Copilot {
+                completions_client,
+                responses_client,
+                ..
+            } => {
+                if copilot::api_for_model_id(&name) == "openai-responses" {
+                    AnyModel::OpenAI(OpenAiModel::Responses(
+                        responses_client.completion_model(name),
+                    ))
+                } else {
+                    AnyModel::OpenAI(OpenAiModel::Completions(
+                        completions_client.completion_model(name),
+                    ))
+                }
+            }
             AnyClient::Anthropic(c) => AnyModel::Anthropic(c.completion_model(name)),
             AnyClient::Gemini(c) => AnyModel::Gemini(c.completion_model(name)),
             AnyClient::Ollama(c) => AnyModel::Ollama(c.completion_model(name)),
@@ -280,6 +306,25 @@ impl AnyClient {
             AnyClient::OpenRouter(c) => c.list_models().await?,
             AnyClient::Gemini(c) => c.list_models().await?,
             AnyClient::Ollama(c) => c.list_models().await?,
+            AnyClient::Copilot {
+                api_key,
+                base_url,
+                http_client,
+                ..
+            } => {
+                return Ok(
+                    copilot::fetch_copilot_models(http_client, base_url, api_key, false)
+                        .await?
+                        .into_iter()
+                        .map(|model| ModelEntry {
+                            display: model.name,
+                            id: model.id,
+                            context_length: u32::try_from(model.context_window).ok(),
+                            kind: Some(model.api),
+                        })
+                        .collect(),
+                );
+            }
             // If any arm above does NOT impl ModelListingClient it won't compile —
             // move it down here to the manual fallback.
             AnyClient::OpenAI(OpenAiClient::Completions(_)) => {
@@ -482,7 +527,7 @@ impl AnyAgent {
         history: Vec<Message>,
         event_tx: mpsc::Sender<crate::event::BtwEvent>,
         id: u32,
-    ) -> crate::agent::runner::BtwRunner {
+    ) -> runner::BtwRunner {
         match self {
             AnyAgent::OpenRouter(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
             AnyAgent::OpenAI(a) => match a {
@@ -636,7 +681,20 @@ pub fn create_client(
         .with_env_override(config.api_key_env.as_deref())
         .with_config_keys(config_api_keys)
         .with_custom_provider_name(Some(provider_name));
-    let key = resolver.resolve()?;
+    let key = if config.kind == ProviderKind::Copilot {
+        match resolver.resolve() {
+            Ok(key) => key,
+            Err(err) => {
+                tracing::info!(
+                    "No Copilot API token found ({err}); using GitHub Copilot subscription login"
+                );
+                let auth_path = copilot::subscription_auth_path(None, None);
+                copilot::subscription_access_token_blocking(&auth_path)?
+            }
+        }
+    } else {
+        resolver.resolve()?
+    };
 
     match config.kind {
         ProviderKind::OpenAI => {
@@ -649,6 +707,33 @@ pub fn create_client(
                 custom,
                 http_client,
             )?))
+        }
+        ProviderKind::Copilot => {
+            let custom = custom_providers.get(provider_name);
+            let http_client =
+                build_http_client(provider_name, config.danger_accept_invalid_certs, custom)?;
+            let base_url = base_url
+                .or_else(|| copilot::base_url_from_token(&key))
+                .unwrap_or_else(|| copilot::DEFAULT_BASE_URL.to_string());
+            let completions_client = openai::CompletionsClient::builder()
+                .api_key(&key)
+                .http_client(http_client.clone())
+                .http_headers(copilot::copilot_headers())
+                .base_url(&base_url)
+                .build()?;
+            let responses_client = openai::Client::builder()
+                .api_key(&key)
+                .http_client(http_client.clone())
+                .http_headers(copilot::copilot_headers())
+                .base_url(&base_url)
+                .build()?;
+            Ok(AnyClient::Copilot {
+                completions_client,
+                responses_client,
+                api_key: key,
+                base_url,
+                http_client,
+            })
         }
         ProviderKind::Anthropic => build_anthropic_client(&key, base_url.as_deref()),
         ProviderKind::Gemini => build_gemini_client(&key, base_url.as_deref()),

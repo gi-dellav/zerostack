@@ -138,7 +138,7 @@ Accepted top-level keys:
 
 | Key                       | Type    | Description                                                                                                                                                                 |
 | ------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider`                | string  | Provider name. Built-ins are `openrouter`, `openai`, `anthropic`, `gemini`/`google`, and `ollama`; custom provider aliases are also accepted. Default: `openrouter`.        |
+| `provider`                | string  | Provider name. Built-ins are `openrouter`, `openai`, `anthropic`, `gemini`/`google`, `ollama`, and `copilot`; custom provider aliases are also accepted. Default: `openrouter`.        |
 | `model`                   | string  | Model name. Default: `deepseek/deepseek-v4-flash`.                                                                                                                          |
 | `max_tokens`              | integer | Maximum response tokens. Default: `16384`.                                                                                                                                  |
 | `max_agent_turns`         | integer | Maximum agent turns per response. Default: `200`.                                                                                                                           |
@@ -176,6 +176,12 @@ Accepted top-level keys:
 | `acp_host`                | string  | TCP bind host for ACP server mode (equivalent to `--acp-host`).                                                                                                              |
 | `acp_port`                | integer | TCP bind port for ACP server mode (equivalent to `--acp-port`, default: 7243).                                                                                               |
 | `colors`                  | object  | Background color overrides for the TUI. See the colors section below.                                                                                                       |
+
+When `provider = "copilot"` and no `COPILOT_API_KEY` or `api_keys.copilot`
+entry is configured, zerostack starts GitHub device-code login and stores
+subscription credentials in `copilot-auth.json` under the same directory used for
+config resolution (`ZS_CONFIG_DIR` when set, otherwise the platform config/data
+fallback described above).
 
 ## OpenAI API styles and custom headers
 
