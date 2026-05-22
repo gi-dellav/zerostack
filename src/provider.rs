@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-
 use compact_str::CompactString;
+use http::{HeaderMap, HeaderValue};
 use rig::agent::Agent;
 use rig::client::CompletionClient;
 use rig::completion::{CompletionModel, Message};
 use rig::providers::{anthropic, gemini, ollama, openai, openrouter};
 use rig::streaming::StreamingChat;
+use std::collections::HashMap;
 
 use crate::agent::builder;
 use crate::agent::prompt;
@@ -28,6 +28,7 @@ pub enum ProviderKind {
     Gemini,
     Ollama,
     Custom,
+    Copilot,
 }
 
 pub fn parse_provider(name: &str) -> Option<ProviderKind> {
@@ -38,6 +39,7 @@ pub fn parse_provider(name: &str) -> Option<ProviderKind> {
         "gemini" | "google" => Some(ProviderKind::Gemini),
         "ollama" => Some(ProviderKind::Ollama),
         "custom" => Some(ProviderKind::Custom),
+        "copilot" | "github-copilot" | "github_copilot" => Some(ProviderKind::Copilot),
         _ => None,
     }
 }
@@ -79,6 +81,7 @@ fn provider_env_var(kind: ProviderKind) -> &'static str {
         ProviderKind::Ollama => "OLLAMA_API_KEY",
         ProviderKind::OpenRouter => "OPENROUTER_API_KEY",
         ProviderKind::Custom => "CUSTOM_API_KEY",
+        ProviderKind::Copilot => "COPILOT_API_KEY",
     }
 }
 
@@ -90,6 +93,7 @@ fn provider_kind_slug(kind: ProviderKind) -> &'static str {
         ProviderKind::Gemini => "gemini",
         ProviderKind::Ollama => "ollama",
         ProviderKind::Custom => "custom",
+        ProviderKind::Copilot => "copilot",
     }
 }
 
@@ -97,7 +101,7 @@ fn resolve_api_key(
     kind: ProviderKind,
     api_key_env_override: Option<&str>,
     cli_key: Option<&str>,
-    config_api_keys: Option<&std::collections::HashMap<String, String>>,
+    config_api_keys: Option<&HashMap<String, String>>,
 ) -> anyhow::Result<String> {
     if let Some(key) = cli_key.filter(|k| !k.is_empty()) {
         tracing::warn!(
@@ -136,6 +140,49 @@ fn resolve_api_key(
     anyhow::bail!(
         "No API key found for {kind:?}. Set the {env_var} environment variable, add it to config.api_keys, or pass --api-key."
     )
+}
+
+const COPILOT_DEFAULT_BASE_URL: &str = "https://api.individual.githubcopilot.com";
+
+fn copilot_base_url_from_token(token: &str) -> Option<String> {
+    let proxy_ep = token
+        .split(';')
+        .find_map(|part| part.trim().strip_prefix("proxy-ep="))?
+        .trim();
+
+    if proxy_ep.is_empty() {
+        return None;
+    }
+
+    let api_ep = proxy_ep.replacen("proxy.", "api.", 1);
+    if api_ep.starts_with("http://") || api_ep.starts_with("https://") {
+        Some(api_ep)
+    } else {
+        Some(format!("https://{api_ep}"))
+    }
+}
+
+fn copilot_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "User-Agent",
+        HeaderValue::from_static("GitHubCopilotChat/0.35.0"),
+    );
+    headers.insert("Editor-Version", HeaderValue::from_static("vscode/1.107.0"));
+    headers.insert(
+        "Editor-Plugin-Version",
+        HeaderValue::from_static("copilot-chat/0.35.0"),
+    );
+    headers.insert(
+        "Copilot-Integration-Id",
+        HeaderValue::from_static("vscode-chat"),
+    );
+    headers.insert("X-Initiator", HeaderValue::from_static("user"));
+    headers.insert(
+        "Openai-Intent",
+        HeaderValue::from_static("conversation-edits"),
+    );
+    headers
 }
 
 pub enum AnyClient {
@@ -299,12 +346,17 @@ pub fn create_client(
 ) -> anyhow::Result<AnyClient> {
     let info = resolve_provider_info(provider_name, custom_providers).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: {}. Supported providers: openrouter, openai, anthropic, gemini, ollama, custom",
+            "Unknown provider: {}. Supported providers: openrouter, openai, anthropic, gemini, ollama, copilot, custom",
             provider_name
         )
     })?;
 
-    let key = resolve_api_key(info.kind, info.api_key_env.as_deref(), api_key, config_api_keys)?;
+    let key = resolve_api_key(
+        info.kind,
+        info.api_key_env.as_deref(),
+        api_key,
+        config_api_keys,
+    )?;
 
     let base_url = info.base_url.or_else(|| {
         if info.kind == ProviderKind::Custom {
@@ -335,6 +387,18 @@ pub fn create_client(
             if let Some(base_url) = &base_url {
                 b = b.base_url(base_url);
             }
+            Ok(AnyClient::OpenAI(b.build()?))
+        }
+        ProviderKind::Copilot => {
+            let mut b = openai::CompletionsClient::builder()
+                .api_key(&key)
+                .http_headers(copilot_headers());
+
+            let base_url = base_url
+                .or_else(|| copilot_base_url_from_token(&key))
+                .unwrap_or_else(|| COPILOT_DEFAULT_BASE_URL.to_string());
+            b = b.base_url(base_url);
+
             Ok(AnyClient::OpenAI(b.build()?))
         }
         ProviderKind::Anthropic => {
