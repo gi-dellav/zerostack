@@ -109,7 +109,6 @@ pub enum AnyClient {
     Anthropic(anthropic::Client),
     Gemini(gemini::Client),
     Ollama(ollama::Client),
-    Custom(OpenAiClient),
 }
 
 impl AnyClient {
@@ -161,10 +160,6 @@ async fn summarize_with_model(model: AnyModel, prompt: String) -> anyhow::Result
         AnyModel::Anthropic(m) => run_summarizer(m, prompt).await,
         AnyModel::Gemini(m) => run_summarizer(m, prompt).await,
         AnyModel::Ollama(m) => run_summarizer(m, prompt).await,
-        AnyModel::Custom(m) => match m {
-            OpenAiModel::Responses(m) => run_summarizer(m, prompt).await,
-            OpenAiModel::Completions(m) => run_summarizer(m, prompt).await,
-        },
     }
 }
 
@@ -224,7 +219,6 @@ pub enum AnyModel {
     Anthropic(anthropic::completion::CompletionModel),
     Gemini(gemini::completion::CompletionModel),
     Ollama(ollama::CompletionModel),
-    Custom(OpenAiModel),
 }
 
 #[derive(Clone)]
@@ -234,7 +228,6 @@ pub enum AnyAgent {
     Anthropic(Agent<anthropic::completion::CompletionModel>),
     Gemini(Agent<gemini::completion::CompletionModel>),
     Ollama(Agent<ollama::CompletionModel>),
-    Custom(OpenAiAgent),
 }
 
 impl AnyAgent {
@@ -248,10 +241,6 @@ impl AnyAgent {
             AnyAgent::Anthropic(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::Gemini(a) => runner::run_print(a, prompt, max_turns).await,
             AnyAgent::Ollama(a) => runner::run_print(a, prompt, max_turns).await,
-            AnyAgent::Custom(a) => match a {
-                OpenAiAgent::Responses(a) => runner::run_print(a, prompt, max_turns).await,
-                OpenAiAgent::Completions(a) => runner::run_print(a, prompt, max_turns).await,
-            },
         }
     }
 
@@ -265,10 +254,6 @@ impl AnyAgent {
             AnyAgent::Anthropic(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Gemini(a) => runner::spawn_agent(a, prompt, history),
             AnyAgent::Ollama(a) => runner::spawn_agent(a, prompt, history),
-            AnyAgent::Custom(a) => match a {
-                OpenAiAgent::Responses(a) => runner::spawn_agent(a, prompt, history),
-                OpenAiAgent::Completions(a) => runner::spawn_agent(a, prompt, history),
-            },
         }
     }
 }
@@ -405,22 +390,22 @@ pub fn create_client(
     let key = resolver.resolve()?;
 
     match config.kind {
-        ProviderKind::OpenAI => build_openai_client(&key, base_url.as_deref()),
+        ProviderKind::OpenAI => {
+            let custom = custom_providers.get(provider_name);
+            let http_client =
+                build_http_client(provider_name, config.danger_accept_invalid_certs, custom)?;
+            Ok(AnyClient::OpenAI(build_openai_client(
+                &key,
+                base_url.as_deref(),
+                custom,
+                http_client,
+            )?))
+        }
         ProviderKind::Anthropic => build_anthropic_client(&key, base_url.as_deref()),
         ProviderKind::Gemini => build_gemini_client(&key, base_url.as_deref()),
         ProviderKind::Ollama => build_ollama_client(&key, base_url.as_deref()),
         ProviderKind::OpenRouter => build_openrouter_client(&key, base_url.as_deref()),
     }
-}
-
-pub fn build_openai_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {
-    let builder = match base_url {
-        Some(u) => openai::CompletionsClient::builder()
-            .api_key(key)
-            .base_url(u),
-        None => openai::CompletionsClient::builder().api_key(key),
-    };
-    Ok(AnyClient::OpenAI(builder.build()?))
 }
 
 fn build_anthropic_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {
@@ -578,21 +563,6 @@ pub async fn build_agent(
         ),
         AnyModel::Ollama(m) => AnyAgent::Ollama(
             builder::build_agent_inner(
-                m,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                sandbox.clone(),
-                reasoning_enabled,
-                #[cfg(feature = "mcp")]
-                mcp_manager,
-            )
-            .await,
-        ),
-        AnyModel::Custom(m) => AnyAgent::Custom(
-            build_openai_agent(
                 m,
                 cli,
                 cfg,

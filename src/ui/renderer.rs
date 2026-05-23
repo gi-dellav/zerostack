@@ -2,7 +2,7 @@ use std::io::{self, Write};
 
 use compact_str::CompactString;
 use crossterm::ExecutableCommand;
-use crossterm::cursor::MoveTo;
+use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::style::{
     Attribute, Color, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
 };
