@@ -6,6 +6,7 @@ mod context;
 mod event;
 mod extras;
 mod permission;
+mod pricing;
 mod provider;
 mod sandbox;
 mod session;

@@ -43,7 +43,10 @@ pub struct Session {
     pub compactions: Vec<Compaction>,
     pub created_at: CompactString,
     pub updated_at: CompactString,
-    pub total_tokens: u64,
+    #[serde(default)]
+    pub total_input_tokens: u64,
+    #[serde(default)]
+    pub total_output_tokens: u64,
     pub total_cost: f64,
     pub total_estimated_tokens: u64,
     pub context_window: u64,
@@ -68,7 +71,8 @@ impl Session {
             compactions: Vec::new(),
             created_at: now.clone(),
             updated_at: now,
-            total_tokens: 0,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
             total_cost: 0.0,
             total_estimated_tokens: 0,
             context_window,

@@ -14,8 +14,8 @@ pub enum AgentEvent {
     Error(CompactString),
     Done {
         response: CompactString,
-        tokens: u64,
-        cost: f64,
+        input_tokens: u64,
+        output_tokens: u64,
     },
 }
 

@@ -95,12 +95,12 @@ where
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     let response_text = res.response();
-                    let estimated_tokens = Session::estimate_tokens(response_text);
+                    let usage = res.usage();
                     let _ = event_tx
                         .send(AgentEvent::Done {
                             response: CompactString::from(response_text),
-                            tokens: estimated_tokens,
-                            cost: 0.0,
+                            input_tokens: usage.input_tokens,
+                            output_tokens: usage.output_tokens,
                         })
                         .await;
                     break;

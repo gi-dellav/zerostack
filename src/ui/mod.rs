@@ -747,7 +747,7 @@ pub async fn run_interactive(
                             renderer.write_line(&summary, Color::DarkGrey)?;
                         }
                     }
-                    AgentEvent::Done { response, tokens, cost } => {
+                    AgentEvent::Done { response, input_tokens, output_tokens } => {
                         was_reasoning = false;
 
                         if !response_buf.is_empty() {
@@ -771,8 +771,13 @@ pub async fn run_interactive(
                         renderer.write_line("", Color::White)?;
                         renderer.write_line("", Color::White)?;
                         session.add_message(MessageRole::Assistant, &response);
-                        session.total_tokens = session.total_tokens.saturating_add(tokens);
-                        session.total_cost += cost;
+                        session.total_input_tokens = session.total_input_tokens.saturating_add(input_tokens);
+                        session.total_output_tokens = session.total_output_tokens.saturating_add(output_tokens);
+                        session.total_cost += crate::pricing::estimate_cost(
+                            &session.model,
+                            input_tokens,
+                            output_tokens,
+                        );
                         agent_line_started = false;
                         response_buf.clear();
                         response_start_line = None;
