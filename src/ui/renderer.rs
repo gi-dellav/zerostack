@@ -10,7 +10,7 @@ use crossterm::terminal::{Clear, ClearType, ScrollUp};
 use smallvec::{SmallVec, smallvec};
 
 use super::markdown::word_wrap;
-use super::utils::resolve_color;
+use super::utils::{char_display_width, display_width, resolve_color};
 
 #[derive(Clone)]
 pub struct LineEntry {
@@ -134,7 +134,7 @@ impl Renderer {
             let entry = &self.buffer[buf_idx];
             let text = &entry.text;
 
-            let wrapped_rows = if text.chars().count() > max_width {
+            let wrapped_rows = if display_width(text) > max_width {
                 word_wrap(text, max_width).len() as u16
             } else {
                 1
@@ -271,7 +271,7 @@ impl Renderer {
             let entry = &self.buffer[buf_idx];
             let text = &entry.text;
 
-            let wrapped = if text.chars().count() > max_width {
+            let wrapped = if display_width(text) > max_width {
                 word_wrap(text, max_width)
             } else {
                 smallvec![text.clone()]
@@ -476,8 +476,19 @@ impl Renderer {
                         }
                         continue;
                     }
-                    let mut end = (idx + avail).min(chars.len());
-                    if end < chars.len() {
+                    // Collect chars that fit within avail display columns
+                    let mut end = idx;
+                    let mut w: usize = 0;
+                    while end < chars.len() {
+                        let cw = char_display_width(chars[end]);
+                        if w + cw > avail {
+                            break;
+                        }
+                        w += cw;
+                        end += 1;
+                    }
+                    // Try to break at a word boundary
+                    if end < chars.len() && end > idx {
                         let mut break_at = end;
                         for i in (idx..end).rev() {
                             if chars[i] == ' ' {
@@ -487,6 +498,11 @@ impl Renderer {
                         }
                         if break_at != idx {
                             end = break_at;
+                            // Recalculate width for the shortened chunk
+                            w = chars[idx..end]
+                                .iter()
+                                .map(|&c| char_display_width(c))
+                                .sum();
                         }
                     }
                     let chunk: String = chars[idx..end].iter().collect();
@@ -504,7 +520,7 @@ impl Renderer {
                         write!(stdout, "{}", chunk)?;
                         write!(stdout, "{}", ResetColor)?;
 
-                        self.col = self.col.saturating_add(chunk.chars().count() as u16);
+                        self.col = self.col.saturating_add(w as u16);
                     }
                     idx = end;
                     if idx < chars.len() {
@@ -571,20 +587,29 @@ impl Renderer {
         } else {
             "> "
         };
-        let prompt_width = prompt.chars().count();
+        let prompt_width = display_width(prompt);
 
         let (cursor_line, cursor_col) =
             crate::ui::input::cursor_to_line_col(input_line, cursor_pos);
 
         let visible_width = cols.saturating_sub(prompt_width as u16) as usize;
         let cursor_line_text = lines.get(cursor_line).unwrap_or(&"");
-        let cursor_line_len = cursor_line_text.chars().count();
+
+        // Convert cursor char-index to display column
+        let cursor_byte = cursor_line_text
+            .char_indices()
+            .nth(cursor_col)
+            .map(|(i, _)| i)
+            .unwrap_or(cursor_line_text.len());
+        let cursor_display_col = display_width(&cursor_line_text[..cursor_byte]);
+
+        let cursor_line_len = display_width(cursor_line_text);
         let mut h_scroll = 0usize;
         if cursor_line_len > visible_width {
-            if cursor_col < self.input_scroll_offset {
-                self.input_scroll_offset = cursor_col;
-            } else if cursor_col >= self.input_scroll_offset + visible_width {
-                self.input_scroll_offset = cursor_col - visible_width + 1;
+            if cursor_display_col < self.input_scroll_offset {
+                self.input_scroll_offset = cursor_display_col;
+            } else if cursor_display_col >= self.input_scroll_offset + visible_width {
+                self.input_scroll_offset = cursor_display_col - visible_width + 1;
             }
             let max_h_scroll = cursor_line_len.saturating_sub(visible_width);
             h_scroll = self.input_scroll_offset.min(max_h_scroll);
@@ -621,10 +646,25 @@ impl Renderer {
             }
 
             let line_chars: SmallVec<[char; 64]> = line.chars().collect();
-            let h_offset = if i == cursor_line { h_scroll } else { 0 };
+            // Skip chars to reach display column h_scroll, then take enough to fill visible_width
+            let skip_chars: usize = if i == cursor_line {
+                let mut w = 0usize;
+                let mut skip = 0usize;
+                for &ch in &line_chars {
+                    let cw = char_display_width(ch);
+                    if w + cw > h_scroll {
+                        break;
+                    }
+                    w += cw;
+                    skip += 1;
+                }
+                skip
+            } else {
+                0
+            };
             let display: String = line_chars
                 .iter()
-                .skip(h_offset)
+                .skip(skip_chars)
                 .take(visible_width)
                 .collect();
             write!(stdout, "{}", display)?;
@@ -661,7 +701,7 @@ impl Renderer {
         let cursor_render_idx = cursor_line.saturating_sub(first_visible);
         let cursor_row =
             (rows.saturating_sub(2) - visible_line_count as u16 + 1) + cursor_render_idx as u16;
-        let cursor_x = (prompt_width + cursor_col.saturating_sub(h_scroll)) as u16;
+        let cursor_x = (prompt_width + cursor_display_col.saturating_sub(h_scroll)) as u16;
         stdout.execute(MoveTo(cursor_x, cursor_row))?;
         write!(stdout, "{}", Show)?;
         stdout.flush()?;

@@ -4,40 +4,37 @@ use pulldown_cmark::{Event, Tag, TagEnd};
 use smallvec::{SmallVec, smallvec};
 
 use super::renderer::LineEntry;
+use super::utils::display_width;
 
 pub(crate) fn word_wrap(text: &str, max_width: usize) -> SmallVec<[CompactString; 4]> {
     if text.is_empty() || max_width == 0 {
         return smallvec![CompactString::from(text)];
     }
-    let chars: SmallVec<[char; 64]> = text.chars().collect();
-    if chars.len() <= max_width {
+    if display_width(text) <= max_width {
         return smallvec![CompactString::from(text)];
     }
+    let chars: SmallVec<[char; 64]> = text.chars().collect();
     let mut lines: SmallVec<[CompactString; 4]> = SmallVec::new();
     let mut start = 0;
-    while start < chars.len() {
-        let end = (start + max_width).min(chars.len());
-        if end < chars.len() {
-            let mut break_at = end;
-            for i in (start..end).rev() {
-                if chars[i] == ' ' {
-                    break_at = i + 1;
-                    break;
-                }
+    let mut current_width: usize = 0;
+    for (i, &ch) in chars.iter().enumerate() {
+        let ch_width = super::utils::char_display_width(ch);
+        if current_width + ch_width > max_width {
+            if i > start {
+                lines.push(CompactString::from(
+                    chars[start..i].iter().collect::<String>(),
+                ));
             }
-            if break_at == start {
-                break_at = end;
-            }
-            lines.push(CompactString::from(
-                chars[start..break_at].iter().collect::<String>(),
-            ));
-            start = break_at;
+            start = i;
+            current_width = ch_width;
         } else {
-            lines.push(CompactString::from(
-                chars[start..].iter().collect::<String>(),
-            ));
-            break;
+            current_width += ch_width;
         }
+    }
+    if start < chars.len() {
+        lines.push(CompactString::from(
+            chars[start..].iter().collect::<String>(),
+        ));
     }
     lines
 }

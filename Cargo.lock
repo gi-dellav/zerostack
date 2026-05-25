@@ -9095,7 +9095,7 @@ checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
 
 [[package]]
 name = "zerostack"
-version = "1.3.2"
+version = "1.3.3"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -9122,6 +9122,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber",
+ "unicode-width",
  "uuid",
 ]
 

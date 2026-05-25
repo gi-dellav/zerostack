@@ -160,11 +160,23 @@ pub fn handle_command_picker_key(
         {
             if picker.cursor > 0 {
                 picker.backspace();
+                let byte_in_query = picker
+                    .query
+                    .char_indices()
+                    .nth(picker.cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(picker.query.len());
+                let remove_pos = 1 + byte_in_query;
+                if remove_pos < buffer.len() {
+                    buffer.remove(remove_pos);
+                }
                 *cursor = prev_char_boundary(buffer, *cursor);
-                buffer.remove(*cursor);
             } else {
                 if buffer.starts_with('/') {
-                    let after: String = buffer.chars().skip(1 + picker.query.len()).collect();
+                    let after: String = buffer
+                        .chars()
+                        .skip(1 + picker.query.chars().count())
+                        .collect();
                     *buffer = format!("/{}", after).into();
                     *cursor = 1;
                 }
@@ -174,7 +186,13 @@ pub fn handle_command_picker_key(
         }
         KeyCode::Char(c) => {
             picker.char_input(c);
-            let pos = 1 + picker.cursor.saturating_sub(1);
+            let byte_in_query = picker
+                .query
+                .char_indices()
+                .nth(picker.cursor.saturating_sub(1))
+                .map(|(i, _)| i)
+                .unwrap_or(picker.query.len());
+            let pos = 1 + byte_in_query;
             buffer.insert(pos, c);
             *cursor += c.len_utf8();
             (true, None)
@@ -182,15 +200,24 @@ pub fn handle_command_picker_key(
         KeyCode::Backspace => {
             if picker.cursor > 0 {
                 picker.backspace();
-                let remove_pos = 1 + picker.cursor;
-                if remove_pos <= buffer.len() {
+                let byte_in_query = picker
+                    .query
+                    .char_indices()
+                    .nth(picker.cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(picker.query.len());
+                let remove_pos = 1 + byte_in_query;
+                if remove_pos < buffer.len() {
                     buffer.remove(remove_pos);
                 }
                 *cursor = prev_char_boundary(buffer, *cursor);
                 (true, None)
             } else {
                 if buffer.starts_with('/') {
-                    let after: String = buffer.chars().skip(1 + picker.query.len()).collect();
+                    let after: String = buffer
+                        .chars()
+                        .skip(1 + picker.query.chars().count())
+                        .collect();
                     *buffer = format!("/{}", after).into();
                     *cursor = 1;
                 }
@@ -222,7 +249,7 @@ pub fn handle_command_picker_key(
                 let selected = cmd.to_string();
                 let slash_pos = buffer.find('/').unwrap_or(0);
                 let before: String = buffer.chars().take(slash_pos).collect();
-                let after_offset = slash_pos + 1 + picker.query.len();
+                let after_offset = slash_pos + 1 + picker.query.chars().count();
                 let after: String = buffer.chars().skip(after_offset).collect();
                 let insertion = if after.is_empty() || after.starts_with(' ') {
                     format!("{} ", selected)
@@ -262,7 +289,7 @@ pub fn handle_command_picker_key(
             let before: String = buffer.chars().take(slash_pos).collect();
             let after: String = buffer
                 .chars()
-                .skip(slash_pos + 1 + picker.query.len())
+                .skip(slash_pos + 1 + picker.query.chars().count())
                 .collect();
             *buffer = format!("{}/{}", before, after).into();
             *cursor = slash_pos + 1;
@@ -279,18 +306,27 @@ pub fn handle_models_picker_key(
     picker: &mut ModelsPicker,
     key: KeyEvent,
 ) -> bool {
+    let prefix = "/models ";
+    let prefix_len = prefix.len();
     match key.code {
         KeyCode::Char(c)
             if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) =>
         {
             if picker.cursor > 0 {
                 picker.backspace();
+                let byte_in_query = picker
+                    .query
+                    .char_indices()
+                    .nth(picker.cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(picker.query.len());
+                let remove_pos = prefix_len + byte_in_query;
+                if remove_pos < buffer.len() {
+                    buffer.remove(remove_pos);
+                }
                 *cursor = prev_char_boundary(buffer, *cursor);
-                buffer.remove(*cursor);
             } else {
-                let prefix = "/models ";
-                let prefix_len = prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 if buffer.len() >= after_offset {
                     let before: String = buffer.chars().take(prefix_len).collect();
                     let after: String = buffer.chars().skip(after_offset).collect();
@@ -303,7 +339,13 @@ pub fn handle_models_picker_key(
         }
         KeyCode::Char(c) => {
             picker.char_input(c);
-            let insert_pos = "/models ".len() + picker.cursor.saturating_sub(1);
+            let byte_in_query = picker
+                .query
+                .char_indices()
+                .nth(picker.cursor.saturating_sub(1))
+                .map(|(i, _)| i)
+                .unwrap_or(picker.query.len());
+            let insert_pos = prefix_len + byte_in_query;
             buffer.insert(insert_pos, c);
             *cursor += c.len_utf8();
             true
@@ -311,18 +353,20 @@ pub fn handle_models_picker_key(
         KeyCode::Backspace => {
             if picker.cursor > 0 {
                 picker.backspace();
-                let prefix = "/models ";
-                let prefix_len = prefix.len();
-                let remove_pos = prefix_len + picker.cursor;
+                let byte_in_query = picker
+                    .query
+                    .char_indices()
+                    .nth(picker.cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(picker.query.len());
+                let remove_pos = prefix_len + byte_in_query;
                 if remove_pos < buffer.len() {
                     buffer.remove(remove_pos);
                 }
                 *cursor = prev_char_boundary(buffer, *cursor);
                 true
             } else {
-                let prefix = "/models ";
-                let prefix_len = prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 if buffer.len() >= after_offset {
                     let before: String = buffer.chars().take(prefix_len).collect();
                     let after: String = buffer.chars().skip(after_offset).collect();
@@ -354,9 +398,7 @@ pub fn handle_models_picker_key(
         }
         KeyCode::Enter => {
             if let Some(name) = picker.selected_name() {
-                let prefix = "/models ";
-                let prefix_len = prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 let before: String = buffer.chars().take(prefix_len).collect();
                 let after: String = buffer.chars().skip(after_offset).collect();
                 *buffer = format!("{}{}{}", before, name, after).into();
@@ -366,9 +408,7 @@ pub fn handle_models_picker_key(
             true
         }
         KeyCode::Esc => {
-            let prefix = "/models ";
-            let prefix_len = prefix.len();
-            let after_offset = prefix_len + picker.query.len();
+            let after_offset = prefix_len + picker.query.chars().count();
             if buffer.len() >= after_offset {
                 let before: String = buffer.chars().take(prefix_len).collect();
                 let after: String = buffer.chars().skip(after_offset).collect();
@@ -388,18 +428,27 @@ pub fn handle_theme_picker_key(
     picker: &mut ThemePicker,
     key: KeyEvent,
 ) -> bool {
+    let prefix = "/theme ";
+    let prefix_len = prefix.len();
     match key.code {
         KeyCode::Char(c)
             if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) =>
         {
             if picker.cursor > 0 {
                 picker.backspace();
+                let byte_in_query = picker
+                    .query
+                    .char_indices()
+                    .nth(picker.cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(picker.query.len());
+                let remove_pos = prefix_len + byte_in_query;
+                if remove_pos < buffer.len() {
+                    buffer.remove(remove_pos);
+                }
                 *cursor = prev_char_boundary(buffer, *cursor);
-                buffer.remove(*cursor);
             } else {
-                let prefix = "/theme ";
-                let prefix_len = prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 if buffer.len() >= after_offset {
                     let before: String = buffer.chars().take(prefix_len).collect();
                     let after: String = buffer.chars().skip(after_offset).collect();
@@ -412,7 +461,13 @@ pub fn handle_theme_picker_key(
         }
         KeyCode::Char(c) => {
             picker.char_input(c);
-            let insert_pos = "/theme ".len() + picker.cursor.saturating_sub(1);
+            let byte_in_query = picker
+                .query
+                .char_indices()
+                .nth(picker.cursor.saturating_sub(1))
+                .map(|(i, _)| i)
+                .unwrap_or(picker.query.len());
+            let insert_pos = prefix_len + byte_in_query;
             buffer.insert(insert_pos, c);
             *cursor += c.len_utf8();
             true
@@ -420,18 +475,20 @@ pub fn handle_theme_picker_key(
         KeyCode::Backspace => {
             if picker.cursor > 0 {
                 picker.backspace();
-                let prefix = "/theme ";
-                let prefix_len = prefix.len();
-                let remove_pos = prefix_len + picker.cursor;
+                let byte_in_query = picker
+                    .query
+                    .char_indices()
+                    .nth(picker.cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(picker.query.len());
+                let remove_pos = prefix_len + byte_in_query;
                 if remove_pos < buffer.len() {
                     buffer.remove(remove_pos);
                 }
                 *cursor = prev_char_boundary(buffer, *cursor);
                 true
             } else {
-                let prefix = "/theme ";
-                let prefix_len = prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 if buffer.len() >= after_offset {
                     let before: String = buffer.chars().take(prefix_len).collect();
                     let after: String = buffer.chars().skip(after_offset).collect();
@@ -463,9 +520,7 @@ pub fn handle_theme_picker_key(
         }
         KeyCode::Enter => {
             if let Some(name) = picker.selected_name() {
-                let prefix = "/theme ";
-                let prefix_len = prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 let before: String = buffer.chars().take(prefix_len).collect();
                 let after: String = buffer.chars().skip(after_offset).collect();
                 *buffer = format!("{}{}{}", before, name, after).into();
@@ -475,9 +530,7 @@ pub fn handle_theme_picker_key(
             true
         }
         KeyCode::Esc => {
-            let prefix = "/theme ";
-            let prefix_len = prefix.len();
-            let after_offset = prefix_len + picker.query.len();
+            let after_offset = prefix_len + picker.query.chars().count();
             if buffer.len() >= after_offset {
                 let before: String = buffer.chars().take(prefix_len).collect();
                 let after: String = buffer.chars().skip(after_offset).collect();
@@ -497,18 +550,27 @@ pub fn handle_prompt_picker_key(
     picker: &mut PromptPicker,
     key: KeyEvent,
 ) -> bool {
+    let prefix = "/prompt ";
+    let prefix_len = prefix.len();
     match key.code {
         KeyCode::Char(c)
             if c == '\x08' || (c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL)) =>
         {
             if picker.cursor > 0 {
                 picker.backspace();
+                let byte_in_query = picker
+                    .query
+                    .char_indices()
+                    .nth(picker.cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(picker.query.len());
+                let remove_pos = prefix_len + byte_in_query;
+                if remove_pos < buffer.len() {
+                    buffer.remove(remove_pos);
+                }
                 *cursor = prev_char_boundary(buffer, *cursor);
-                buffer.remove(*cursor);
             } else {
-                let prompt_prefix = "/prompt ";
-                let prefix_len = prompt_prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 if buffer.len() >= after_offset {
                     let before: String = buffer.chars().take(prefix_len).collect();
                     let after: String = buffer.chars().skip(after_offset).collect();
@@ -521,7 +583,13 @@ pub fn handle_prompt_picker_key(
         }
         KeyCode::Char(c) => {
             picker.char_input(c);
-            let insert_pos = "/prompt ".len() + picker.cursor.saturating_sub(1);
+            let byte_in_query = picker
+                .query
+                .char_indices()
+                .nth(picker.cursor.saturating_sub(1))
+                .map(|(i, _)| i)
+                .unwrap_or(picker.query.len());
+            let insert_pos = prefix_len + byte_in_query;
             buffer.insert(insert_pos, c);
             *cursor += c.len_utf8();
             true
@@ -529,18 +597,20 @@ pub fn handle_prompt_picker_key(
         KeyCode::Backspace => {
             if picker.cursor > 0 {
                 picker.backspace();
-                let prompt_prefix = "/prompt ";
-                let prefix_len = prompt_prefix.len();
-                let remove_pos = prefix_len + picker.cursor;
+                let byte_in_query = picker
+                    .query
+                    .char_indices()
+                    .nth(picker.cursor)
+                    .map(|(i, _)| i)
+                    .unwrap_or(picker.query.len());
+                let remove_pos = prefix_len + byte_in_query;
                 if remove_pos < buffer.len() {
                     buffer.remove(remove_pos);
                 }
                 *cursor = prev_char_boundary(buffer, *cursor);
                 true
             } else {
-                let prompt_prefix = "/prompt ";
-                let prefix_len = prompt_prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 if buffer.len() >= after_offset {
                     let before: String = buffer.chars().take(prefix_len).collect();
                     let after: String = buffer.chars().skip(after_offset).collect();
@@ -572,9 +642,7 @@ pub fn handle_prompt_picker_key(
         }
         KeyCode::Enter => {
             if let Some(name) = picker.selected_name() {
-                let prompt_prefix = "/prompt ";
-                let prefix_len = prompt_prefix.len();
-                let after_offset = prefix_len + picker.query.len();
+                let after_offset = prefix_len + picker.query.chars().count();
                 let before: String = buffer.chars().take(prefix_len).collect();
                 let after: String = buffer.chars().skip(after_offset).collect();
                 *buffer = format!("{}{}{}", before, name, after).into();
@@ -584,9 +652,7 @@ pub fn handle_prompt_picker_key(
             true
         }
         KeyCode::Esc => {
-            let prompt_prefix = "/prompt ";
-            let prefix_len = prompt_prefix.len();
-            let after_offset = prefix_len + picker.query.len();
+            let after_offset = prefix_len + picker.query.chars().count();
             if buffer.len() >= after_offset {
                 let before: String = buffer.chars().take(prefix_len).collect();
                 let after: String = buffer.chars().skip(after_offset).collect();

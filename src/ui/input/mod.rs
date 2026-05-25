@@ -427,7 +427,10 @@ impl InputEditor {
             KeyCode::Char(c) => {
                 if c == '@' {
                     let at_word_start = self.cursor == 0
-                        || self.buffer.as_bytes().get(self.cursor - 1) == Some(&b' ');
+                        || self.buffer[..self.cursor]
+                            .chars()
+                            .next_back()
+                            .is_some_and(|prev| prev == ' ');
                     if at_word_start {
                         self.start_file_picker();
                     }
@@ -634,63 +637,86 @@ impl InputEditor {
     }
 
     fn prev_word_start(&self) -> usize {
-        let chars: Vec<char> = self.buffer.chars().collect();
-        let len = chars.len();
-        if self.cursor == 0 || len == 0 {
+        if self.cursor == 0 {
             return 0;
         }
-        let mut pos = self.cursor.min(len);
-        while pos > 0 && chars[pos - 1] == ' ' {
+        let pairs: Vec<(usize, char)> = self.buffer.char_indices().collect();
+        if pairs.is_empty() {
+            return 0;
+        }
+        // Convert byte cursor to char index
+        let char_idx = pairs
+            .iter()
+            .position(|&(bi, _)| bi >= self.cursor)
+            .unwrap_or(pairs.len());
+        let mut pos = char_idx;
+        while pos > 0 && pairs[pos - 1].1 == ' ' {
             pos -= 1;
         }
-        while pos > 0 && chars[pos - 1] != ' ' {
+        while pos > 0 && pairs[pos - 1].1 != ' ' {
             pos -= 1;
         }
-        pos
+        // Return byte offset at resulting char position
+        if pos < pairs.len() {
+            pairs[pos].0
+        } else {
+            self.buffer.len()
+        }
     }
 
     fn next_word_end(&self) -> usize {
-        let chars: Vec<char> = self.buffer.chars().collect();
-        let len = chars.len();
-        if self.cursor >= len {
-            return len;
+        let pairs: Vec<(usize, char)> = self.buffer.char_indices().collect();
+        let len = pairs.len();
+        if len == 0 {
+            return 0;
         }
-        let mut pos = self.cursor;
-        while pos < len && chars[pos] == ' ' {
+        let char_idx = pairs
+            .iter()
+            .position(|&(bi, _)| bi >= self.cursor)
+            .unwrap_or(len);
+        let mut pos = char_idx;
+        while pos < len && pairs[pos].1 == ' ' {
             pos += 1;
         }
-        while pos < len && chars[pos] != ' ' {
+        while pos < len && pairs[pos].1 != ' ' {
             pos += 1;
         }
-        pos
+        if pos < len {
+            pairs[pos].0
+        } else {
+            self.buffer.len()
+        }
     }
 
     fn delete_prev_word(&mut self) -> CompactString {
-        let chars: Vec<char> = self.buffer.chars().collect();
-        if self.cursor == 0 || chars.is_empty() {
+        if self.cursor == 0 || self.buffer.is_empty() {
             return CompactString::new("");
         }
         let start = self.prev_word_start();
-        let deleted: String = chars[start..self.cursor].iter().collect();
-        let before: String = chars[..start].iter().collect();
-        let after: String = chars[self.cursor..].iter().collect();
-        self.buffer = CompactString::new(format!("{}{}", before, after));
+        let deleted: CompactString = self.buffer[start..self.cursor].into();
+        let before = &self.buffer[..start];
+        let after = &self.buffer[self.cursor..];
+        let mut new_buf = String::with_capacity(before.len() + after.len());
+        new_buf.push_str(before);
+        new_buf.push_str(after);
+        self.buffer = CompactString::new(&new_buf);
         self.cursor = start;
-        CompactString::new(&deleted)
+        deleted
     }
 
     fn delete_next_word(&mut self) -> CompactString {
-        let chars: Vec<char> = self.buffer.chars().collect();
-        let len = chars.len();
-        if self.cursor >= len {
+        if self.cursor >= self.buffer.len() {
             return CompactString::new("");
         }
         let end = self.next_word_end();
-        let deleted: String = chars[self.cursor..end].iter().collect();
-        let before: String = chars[..self.cursor].iter().collect();
-        let after: String = chars[end..].iter().collect();
-        self.buffer = CompactString::new(format!("{}{}", before, after));
-        CompactString::new(&deleted)
+        let deleted: CompactString = self.buffer[self.cursor..end].into();
+        let before = &self.buffer[..self.cursor];
+        let after = &self.buffer[end..];
+        let mut new_buf = String::with_capacity(before.len() + after.len());
+        new_buf.push_str(before);
+        new_buf.push_str(after);
+        self.buffer = CompactString::new(&new_buf);
+        deleted
     }
 }
 
