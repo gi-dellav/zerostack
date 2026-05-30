@@ -33,6 +33,10 @@ fn resolve_mode(cli: &cli::Cli, cfg: &config::Config) -> SecurityMode {
         SecurityMode::Yolo
     } else if cli.accept_all || cfg.accept_all.unwrap_or(false) {
         SecurityMode::Standard
+    } else if cli.read_only {
+        SecurityMode::ReadOnly
+    } else if cli.guarded {
+        SecurityMode::Guarded
     } else if cli.restrictive || cfg.restrictive.unwrap_or(false) {
         SecurityMode::Restrictive
     } else if let Some(m) = &cfg.default_permission_mode {
@@ -339,6 +343,10 @@ fn print_config(cli: &cli::Cli, cfg: &config::Config) {
         "yolo"
     } else if cli.accept_all || cfg.accept_all.unwrap_or(false) {
         "standard"
+    } else if cli.read_only {
+        "readonly"
+    } else if cli.guarded {
+        "guarded"
     } else if cli.restrictive || cfg.restrictive.unwrap_or(false) {
         "restrictive"
     } else {

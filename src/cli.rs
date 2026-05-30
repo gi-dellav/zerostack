@@ -61,6 +61,12 @@ pub struct Cli {
     #[arg(long = "restrictive", short = 'R', help = "Ask for all operations")]
     pub restrictive: bool,
 
+    #[arg(long = "read-only", help = "Allow reads only, deny everything else")]
+    pub read_only: bool,
+
+    #[arg(long = "guarded", help = "Allow reads, ask for all other operations")]
+    pub guarded: bool,
+
     #[arg(
         long = "accept-all",
         help = "Auto-accept all operations within the working directory"
