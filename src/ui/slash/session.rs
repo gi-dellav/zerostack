@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use crate::ui::events::render_session;
 use crate::ui::slash::{SlashCtx, undo_last, write_error, write_ok, write_result};
 
@@ -141,12 +143,35 @@ async fn handle_clear(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
 
 async fn handle_undo(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let removed = undo_last(ctx.session);
-    if removed > 0 {
-        render_session(ctx.renderer, ctx.session, ctx.cli, ctx.cfg, ctx.context)?;
-        write_ok(ctx.renderer, format!("removed {} message(s)", removed));
-    } else {
+    if removed == 0 {
         write_ok(ctx.renderer, "nothing to undo");
+        return Ok(());
     }
+
+    render_session(ctx.renderer, ctx.session, ctx.cli, ctx.cfg, ctx.context)?;
+    write_ok(ctx.renderer, format!("removed {} message(s)", removed));
+
+    write_ok(ctx.renderer, "  git stash working changes? [y/N] ");
+
+    let mut buf = [0u8; 1];
+    let do_stash =
+        std::io::stdin().read_exact(&mut buf).is_ok() && (buf[0] == b'y' || buf[0] == b'Y');
+
+    if do_stash {
+        match std::process::Command::new("git").args(["stash"]).output() {
+            Ok(out) if out.status.success() => {
+                write_ok(ctx.renderer, "git stash done");
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                write_error(ctx.renderer, format!("git stash failed: {}", stderr.trim()));
+            }
+            Err(e) => {
+                write_error(ctx.renderer, format!("git stash failed: {}", e));
+            }
+        }
+    }
+
     Ok(())
 }
 
