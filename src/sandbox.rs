@@ -5,15 +5,17 @@ use tokio::process::Command;
 #[derive(Debug, Clone)]
 pub struct Sandbox {
     enabled: bool,
+    backend: String,
     cwd: PathBuf,
     shell: String,
 }
 
 impl Sandbox {
-    pub fn new(enabled: bool) -> Self {
+    pub fn new(enabled: bool, backend: &str) -> Self {
         let cwd = std::env::current_dir().unwrap_or_default();
         Sandbox {
             enabled,
+            backend: backend.to_string(),
             cwd,
             shell: "bash".to_string(),
         }
@@ -30,6 +32,17 @@ impl Sandbox {
         if !self.enabled {
             let mut cmd = Command::new(&self.shell);
             cmd.arg("-c").arg(command);
+            return cmd;
+        }
+
+        if self.backend == "zerobox" {
+            let mut cmd = Command::new("zerobox");
+            cmd.arg("--allow-write");
+            cmd.arg(self.cwd.as_os_str());
+            cmd.arg("--");
+            cmd.arg(&self.shell);
+            cmd.arg("-c");
+            cmd.arg(command);
             return cmd;
         }
 

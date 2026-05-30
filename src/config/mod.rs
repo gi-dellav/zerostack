@@ -64,6 +64,8 @@ pub struct Config {
     pub yolo: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sandbox: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sandbox-backend")]
+    pub sandbox_backend: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_all_mcp_calls: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

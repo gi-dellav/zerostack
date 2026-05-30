@@ -84,6 +84,12 @@ pub struct Cli {
     pub sandbox: bool,
 
     #[arg(
+        long = "sandbox-backend",
+        help = "Sandbox backend: bwrap (default) or zerobox"
+    )]
+    pub sandbox_backend: Option<String>,
+
+    #[arg(
         long = "shell",
         help = "Shell binary to use for bash tool (default: bash)"
     )]
@@ -212,6 +218,13 @@ impl Cli {
 
     pub fn resolve_sandbox(&self, cfg: &config::Config) -> bool {
         self.sandbox || cfg.sandbox.unwrap_or(false)
+    }
+
+    pub fn resolve_sandbox_backend(&self, cfg: &config::Config) -> String {
+        self.sandbox_backend
+            .clone()
+            .or_else(|| cfg.sandbox_backend.clone())
+            .unwrap_or_else(|| "bwrap".to_string())
     }
 
     pub fn resolve_shell(&self, cfg: &config::Config) -> String {

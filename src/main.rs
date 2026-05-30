@@ -168,8 +168,11 @@ async fn main() -> anyhow::Result<()> {
         return extras::acp::serve(cli, cfg, context).await;
     }
 
-    let sandbox =
-        sandbox::Sandbox::new(cli.resolve_sandbox(&cfg)).with_shell(&cli.resolve_shell(&cfg));
+    let sandbox = sandbox::Sandbox::new(
+        cli.resolve_sandbox(&cfg),
+        &cli.resolve_sandbox_backend(&cfg),
+    )
+    .with_shell(&cli.resolve_shell(&cfg));
     let edit_system = cli.resolve_edit_system(&cfg);
     tools::set_edit_system(edit_system);
     let (permission, ask_tx, ask_rx) = build_permission_checker(&cli, &cfg);
