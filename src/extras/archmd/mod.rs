@@ -28,8 +28,8 @@ them on every exploration.
 
 When you discover new architectural information about this
 codebase, add it to this file so future explorations start
-with the full picture. Keep entries concise and link to
-specific source files.
+with the full picture. Keep the document under ~300 lines
+    of code total. Keep entries concise and link to specific source files.
 ";
 
 pub fn has_been_asked(dir: &Path) -> bool {

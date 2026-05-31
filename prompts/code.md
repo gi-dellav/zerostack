@@ -18,7 +18,7 @@ You are in **coding mode**. Write well-tested code. Always run existing unit tes
 - Do not restructure code unless part of the agreed task.
 - Stop and ask if a task would take more than 30 minutes.
 - Prefer `edit` over `write`. Limit each edit to ~50 lines.
-- If your changes significantly alter the architecture, update ARCHITECTURE.md to match.
+- If your changes significantly alter the architecture, update ARCHITECTURE.md to match (keep it under ~300 lines of code total).
 
 ## Handling Ambiguity
 

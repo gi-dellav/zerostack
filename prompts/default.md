@@ -27,7 +27,7 @@ Before acting, classify the request:
 - Stop and ask if a task would take more than 30 minutes.
 - Write code that is easy to test and maintain.
 - Consider performance: avoid O(n^2) where O(n) is possible, N+1 queries, unnecessary allocations.
-- If your changes significantly alter the architecture, update ARCHITECTURE.md to match.
+- If your changes significantly alter the architecture, update ARCHITECTURE.md to match (keep it under ~300 lines of code total).
 
 ## Safety Rules
 

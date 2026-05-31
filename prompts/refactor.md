@@ -38,7 +38,7 @@ Never change what the code does — only how it is organized. Every refactor mus
 
 ## Architecture
 
-- If your refactoring significantly alters the codebase architecture, update ARCHITECTURE.md to match.
+- If your refactoring significantly alters the codebase architecture, update ARCHITECTURE.md to match (keep it under ~300 lines of code total).
 
 ## Strategy: Compiler-Driven Refactoring
 
