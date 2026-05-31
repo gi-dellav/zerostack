@@ -103,12 +103,16 @@ async fn main() -> anyhow::Result<()> {
     let mut context = context::load(cli.resolve_no_context_files(&cfg));
 
     #[cfg(feature = "archmd")]
-    if !cli.resolve_no_context_files(&cfg) {
+    let arch_created = if !cli.resolve_no_context_files(&cfg) {
         let cwd = std::env::current_dir().ok();
         if let Some(ref cwd) = cwd {
-            let _ = crate::extras::archmd::ask_and_create(cwd);
+            crate::extras::archmd::ask_and_create(cwd).unwrap_or(false)
+        } else {
+            false
         }
-    }
+    } else {
+        false
+    };
 
     // Reload context after potential ARCHITECTURE.md creation
     #[cfg(feature = "archmd")]
@@ -306,6 +310,22 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let completion_model = client.completion_model(model.to_string());
+
+    #[cfg(feature = "archmd")]
+    if arch_created {
+        let arch_msg = "I've just created an empty ARCHITECTURE.md template at the project root. \
+            Explore the codebase thoroughly using the `task` tool (delegating parallel exploration to subagents) \
+            and fill ARCHITECTURE.md with a high-level architecture document covering:\n\
+            - Directory layout and module responsibilities\n\
+            - Key types, traits, and their relationships\n\
+            - Control flow (how requests/events flow through the system)\n\
+            - Data flow (how data is transformed from input to output)\n\
+            - Design decisions and rationale\n\
+            - External dependencies and how they are used\n\
+            - Entry points for different execution modes\n\n\
+            Keep entries concise and reference specific source files.";
+        session.add_message(MessageRole::User, arch_msg);
+    }
 
     if cli.print {
         let msg = cli.message.join(" ");

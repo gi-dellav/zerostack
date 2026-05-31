@@ -222,6 +222,19 @@ async fn run_prompt(
                 );
                 let _ = cx.send_notification(notif);
             }
+            AgentEvent::SubagentToolCall { name, args } => {
+                let args_str = args.to_string();
+                let tool_call = ToolCall::new(
+                    ToolCallId::new(uuid::Uuid::new_v4().to_string()),
+                    format!("[subagent] {}", name),
+                )
+                .raw_input(serde_json::from_str(&args_str).ok());
+                let notif = SessionNotification::new(
+                    session_id.clone(),
+                    SessionUpdate::ToolCall(tool_call),
+                );
+                let _ = cx.send_notification(notif);
+            }
             AgentEvent::ToolResult { output } => {
                 let fields = ToolCallUpdateFields::new()
                     .status(ToolCallStatus::Completed)

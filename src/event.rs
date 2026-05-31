@@ -11,6 +11,10 @@ pub enum AgentEvent {
     ToolResult {
         output: CompactString,
     },
+    SubagentToolCall {
+        name: CompactString,
+        args: serde_json::Value,
+    },
     Error(CompactString),
     Done {
         response: CompactString,

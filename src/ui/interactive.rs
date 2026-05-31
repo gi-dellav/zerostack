@@ -56,6 +56,7 @@ pub(crate) struct InteractiveSession<'a> {
 
     is_running: bool,
     agent_rx: Option<mpsc::Receiver<AgentEvent>>,
+    subagent_rx: Option<mpsc::Receiver<AgentEvent>>,
     agent_line_started: bool,
     response_buf: String,
     response_start_line: Option<usize>,
@@ -126,6 +127,15 @@ impl<'a> InteractiveSession<'a> {
         let running = Arc::new(AtomicBool::new(true));
         let event_handle = Some(spawn_event_thread(user_tx.clone(), running.clone()));
 
+        #[cfg(feature = "subagents")]
+        let subagent_rx = {
+            let (tx, rx) = mpsc::channel::<AgentEvent>(64);
+            crate::extras::subagents::set_subagent_event_tx(tx);
+            Some(rx)
+        };
+        #[cfg(not(feature = "subagents"))]
+        let subagent_rx = None::<mpsc::Receiver<AgentEvent>>;
+
         Ok(InteractiveSession {
             client,
             agent,
@@ -147,6 +157,7 @@ impl<'a> InteractiveSession<'a> {
 
             is_running: false,
             agent_rx: None,
+            subagent_rx,
             agent_line_started: false,
             response_buf: String::new(),
             response_start_line: None,
@@ -373,6 +384,11 @@ impl<'a> InteractiveSession<'a> {
                     self.agent_rx.as_mut()?.recv().await
                 } => {
                     self.handle_agent_event(event).await?;
+                }
+                Some(event) = async {
+                    self.subagent_rx.as_mut()?.recv().await
+                } => {
+                    self.handle_subagent_event(event).await?;
                 }
                 Some(ask_req) = async {
                     self.ask_rx.as_mut()?.recv().await
@@ -1165,6 +1181,41 @@ impl<'a> InteractiveSession<'a> {
             }
         }
 
+        self.refresh()?;
+        Ok(())
+    }
+
+    async fn handle_subagent_event(&mut self, event: AgentEvent) -> anyhow::Result<()> {
+        #[cfg(feature = "mcp")]
+        let mcp_ref = ensure_mcp_manager(&mut self.mcp_manager, self.cfg).await;
+        handle_agent_event(
+            event,
+            &mut self.renderer,
+            self.session,
+            self.cfg,
+            self.cli,
+            self.context,
+            &mut self.is_running,
+            &mut self.agent_rx,
+            &mut self.agent_line_started,
+            &mut self.response_buf,
+            &mut self.response_start_line,
+            &mut self.was_reasoning,
+            self.show_reasoning,
+            &mut self.agent,
+            &mut self.client,
+            &mut self.loop_label,
+            &self.permission,
+            &self.ask_tx,
+            &self.sandbox,
+            #[cfg(feature = "loop")]
+            &mut self.loop_state,
+            #[cfg(feature = "git-worktree")]
+            &mut self.wt_return_path,
+            #[cfg(feature = "mcp")]
+            mcp_ref,
+        )
+        .await?;
         self.refresh()?;
         Ok(())
     }

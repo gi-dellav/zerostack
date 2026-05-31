@@ -8,6 +8,7 @@ use rig::client::CompletionClient;
 use rig::completion::{CompletionModel, Message};
 use rig::providers::{anthropic, gemini, ollama, openai, openrouter};
 use rig::streaming::StreamingChat;
+use tokio::sync::mpsc;
 
 use crate::agent::builder;
 use crate::agent::prompt;
@@ -16,6 +17,7 @@ use crate::auth::{AuthResolver, ProviderKind};
 use crate::cli::Cli;
 use crate::config::{ApiStyle, Config, CustomProviderConfig};
 use crate::context::ContextFiles;
+use crate::event::AgentEvent;
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::McpClientManager;
 use crate::permission::ask::AskSender;
@@ -277,16 +279,25 @@ impl AnyAgent {
     }
 
     #[cfg(feature = "subagents")]
-    pub async fn run_subagent(&self, prompt: &str, max_turns: usize) -> anyhow::Result<String> {
+    pub async fn run_subagent(
+        &self,
+        prompt: &str,
+        max_turns: usize,
+        event_tx: Option<&mpsc::Sender<AgentEvent>>,
+    ) -> anyhow::Result<String> {
         match self {
-            AnyAgent::OpenRouter(a) => runner::run_subagent(a, prompt, max_turns).await,
+            AnyAgent::OpenRouter(a) => runner::run_subagent(a, prompt, max_turns, event_tx).await,
             AnyAgent::OpenAI(a) => match a {
-                OpenAiAgent::Responses(a) => runner::run_subagent(a, prompt, max_turns).await,
-                OpenAiAgent::Completions(a) => runner::run_subagent(a, prompt, max_turns).await,
+                OpenAiAgent::Responses(a) => {
+                    runner::run_subagent(a, prompt, max_turns, event_tx).await
+                }
+                OpenAiAgent::Completions(a) => {
+                    runner::run_subagent(a, prompt, max_turns, event_tx).await
+                }
             },
-            AnyAgent::Anthropic(a) => runner::run_subagent(a, prompt, max_turns).await,
-            AnyAgent::Gemini(a) => runner::run_subagent(a, prompt, max_turns).await,
-            AnyAgent::Ollama(a) => runner::run_subagent(a, prompt, max_turns).await,
+            AnyAgent::Anthropic(a) => runner::run_subagent(a, prompt, max_turns, event_tx).await,
+            AnyAgent::Gemini(a) => runner::run_subagent(a, prompt, max_turns, event_tx).await,
+            AnyAgent::Ollama(a) => runner::run_subagent(a, prompt, max_turns, event_tx).await,
         }
     }
 

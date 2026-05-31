@@ -185,6 +185,13 @@ pub async fn handle_agent_event(
             );
             renderer.write_line(&sanitize_output(&line), C_TOOL)?;
         }
+        AgentEvent::SubagentToolCall { name, args } => {
+            let line = format!(
+                "⌥ {}",
+                crate::ui::utils::format_tool_call_summary(&name, &args)
+            );
+            renderer.write_line(&sanitize_output(&line), C_TOOL)?;
+        }
         AgentEvent::ToolResult { output } => {
             let show_details = cfg.show_tool_details.unwrap_or(false);
             if show_details {

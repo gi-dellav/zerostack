@@ -69,6 +69,10 @@ pub(crate) fn format_tool_call_summary(name: &str, args: &serde_json::Value) -> 
         _ => return name.to_string(),
     };
 
+    if name == "task" {
+        return format_task_summary(obj);
+    }
+
     let primary_keys: &[&str] = match name {
         "read" | "write" | "edit" | "list_dir" => &["path"],
         "grep" => &["pattern", "path"],
@@ -102,6 +106,29 @@ pub(crate) fn format_tool_call_summary(name: &str, args: &serde_json::Value) -> 
         }
     } else {
         format!("{} {}", name, shown.join(" "))
+    }
+}
+
+fn format_task_summary(obj: &serde_json::Map<String, serde_json::Value>) -> String {
+    let prompts = match obj.get("prompts") {
+        Some(serde_json::Value::Array(arr)) => arr,
+        _ => return "task".to_string(),
+    };
+    let parts: Vec<String> = prompts
+        .iter()
+        .filter_map(|v| v.as_str())
+        .map(|s| {
+            if s.len() > 60 {
+                format!("\"{}...\"", &s[..57])
+            } else {
+                format!("\"{}\"", s)
+            }
+        })
+        .collect();
+    if parts.is_empty() {
+        "task".to_string()
+    } else {
+        format!("task {}", parts.join(" "))
     }
 }
 

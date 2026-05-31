@@ -199,6 +199,7 @@ pub async fn run_subagent<M, P>(
     agent: &Agent<M, P>,
     prompt: &str,
     max_turns: usize,
+    event_tx: Option<&mpsc::Sender<AgentEvent>>,
 ) -> anyhow::Result<String>
 where
     M: CompletionModel + 'static,
@@ -216,6 +217,19 @@ where
         match item {
             Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) => {
                 full_response.push_str(&text.text);
+            }
+            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
+                tool_call,
+                ..
+            })) => {
+                if let Some(tx) = event_tx {
+                    let _ = tx
+                        .send(AgentEvent::SubagentToolCall {
+                            name: CompactString::from(tool_call.function.name),
+                            args: tool_call.function.arguments,
+                        })
+                        .await;
+                }
             }
             Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                 full_response = res.response().to_string();

@@ -4,9 +4,7 @@ use std::path::Path;
 const DIRS_ASKED_FILE: &str = "dirs_asked_architecture.txt";
 
 fn dirs_asked_path() -> std::path::PathBuf {
-    std::env::current_dir()
-        .unwrap_or_default()
-        .join(DIRS_ASKED_FILE)
+    crate::session::storage::data_dir().join(DIRS_ASKED_FILE)
 }
 
 const ARCHITECTURE_TEMPLATE: &str = "# Architecture
@@ -81,9 +79,9 @@ pub fn should_ask(dir: &Path) -> bool {
     !arch_path.exists() && !has_been_asked(dir)
 }
 
-pub fn ask_and_create(dir: &Path) -> anyhow::Result<()> {
+pub fn ask_and_create(dir: &Path) -> anyhow::Result<bool> {
     if !should_ask(dir) {
-        return Ok(());
+        return Ok(false);
     }
 
     eprint!(
@@ -103,7 +101,8 @@ pub fn ask_and_create(dir: &Path) -> anyhow::Result<()> {
             "Created {}/ARCHITECTURE.md — edit it to describe the codebase architecture.",
             dir.display()
         );
+        Ok(true)
+    } else {
+        Ok(false)
     }
-
-    Ok(())
 }

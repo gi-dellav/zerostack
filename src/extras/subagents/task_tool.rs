@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::agent::tools::{ToolError, check_perm};
 use crate::extras::subagents::builder;
-use crate::extras::subagents::with_config;
+use crate::extras::subagents::{take_subagent_event_tx, with_config};
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
 
@@ -83,6 +83,8 @@ Returns a summary of findings for each prompt."
         let (client, model_name, max_turns) =
             with_config(|cfg| (cfg.client.clone(), cfg.model_name.clone(), cfg.max_turns));
 
+        let subagent_event_tx = take_subagent_event_tx();
+
         // Spawn one task per prompt, each guarded by a wall-clock timeout.
         // AbortHandles are stored in a guard so that if the parent future is
         // dropped (user cancels, session exits) all in-flight subagents are
@@ -92,6 +94,7 @@ Returns a summary of findings for each prompt."
         for (i, prompt_text) in args.prompts.iter().enumerate() {
             let prompt_text = prompt_text.clone();
             let model = client.completion_model(model_name.clone());
+            let event_tx = subagent_event_tx.clone();
             let join_handle = tokio::spawn(async move {
                 let work = async {
                     let architecture = with_config(|cfg| {
@@ -105,7 +108,9 @@ Returns a summary of findings for each prompt."
                         }
                     });
                     let agent = builder::build_explore_agent(model, max_turns, architecture).await;
-                    agent.run_subagent(&prompt_text, max_turns).await
+                    agent
+                        .run_subagent(&prompt_text, max_turns, event_tx.as_ref())
+                        .await
                 };
                 match tokio::time::timeout(SUBAGENT_TIMEOUT, work).await {
                     Ok(Ok(response)) => (i, prompt_text, Ok(response)),
