@@ -1,6 +1,18 @@
 use crossterm::style::Color;
 use unicode_width::UnicodeWidthStr;
 
+use crate::extras::truncate::truncate_cjk;
+
+const TOOL_SUMMARY_MAX: usize = 200;
+
+fn display_value(val: &str) -> String {
+    if val.len() <= TOOL_SUMMARY_MAX {
+        format!("\"{}\"", val)
+    } else {
+        format!("\"{}\"", truncate_cjk(val, TOOL_SUMMARY_MAX, "..."))
+    }
+}
+
 /// Returns the display width of a string in terminal columns.
 /// CJK characters typically occupy 2 columns; ASCII occupies 1.
 #[inline]
@@ -86,10 +98,8 @@ pub(crate) fn format_tool_call_summary(name: &str, args: &serde_json::Value) -> 
         if let Some(serde_json::Value::String(val)) = obj.get(*key) {
             let display_val = if name == "bash" {
                 val.clone()
-            } else if val.len() > 60 {
-                format!("\"{}...\"", &val[..57])
             } else {
-                format!("\"{}\"", val)
+                display_value(val)
             };
             shown.push(display_val);
         }
@@ -97,12 +107,7 @@ pub(crate) fn format_tool_call_summary(name: &str, args: &serde_json::Value) -> 
 
     if shown.is_empty() {
         if let Some((_, serde_json::Value::String(val))) = obj.iter().next() {
-            let truncated = if val.len() > 60 {
-                format!("\"{}...\"", &val[..57])
-            } else {
-                format!("\"{}\"", val)
-            };
-            format!("{} {}", name, truncated)
+            format!("{} {}", name, display_value(val))
         } else {
             name.to_string()
         }
@@ -119,13 +124,7 @@ fn format_task_summary(obj: &serde_json::Map<String, serde_json::Value>) -> Stri
     let parts: Vec<String> = prompts
         .iter()
         .filter_map(|v| v.as_str())
-        .map(|s| {
-            if s.len() > 60 {
-                format!("\"{}...\"", &s[..57])
-            } else {
-                format!("\"{}\"", s)
-            }
-        })
+        .map(display_value)
         .collect();
     if parts.is_empty() {
         "task".to_string()
