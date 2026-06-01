@@ -250,7 +250,7 @@ async fn main() -> anyhow::Result<()> {
         let qm = config::quick_models_map(&cfg);
 
         // Resolve subagent model: subagent_model config > subagent_provider + model > deepseek-v4-flash quick model
-        let (sub_provider, sub_model) = if let Some(sa_model) = &cfg.subagent_model {
+        let (sub_provider, mut sub_model) = if let Some(sa_model) = &cfg.subagent_model {
             if let Some(q) = qm.get(sa_model.as_str()) {
                 (q.provider.clone(), q.model.clone())
             } else {
@@ -271,12 +271,32 @@ async fn main() -> anyhow::Result<()> {
         let sub_client = if sub_provider.as_str() == provider {
             client.clone()
         } else {
-            crate::provider::create_client(
+            match crate::provider::create_client(
                 &sub_provider,
                 cli.api_key.as_deref(),
                 &cfg.custom_providers_map(),
                 cfg.api_keys.as_ref(),
-            )?
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    // The default subagent provider can differ from the main one
+                    // (the built-in `deepseek-v4-flash` default uses OpenRouter).
+                    // If its credentials are missing, don't abort the whole program:
+                    // fall back to the main agent's client and model so users on a
+                    // single provider (e.g. Anthropic-only) can still start.
+                    tracing::warn!(
+                        "Could not initialize subagent provider '{}' ({}); \
+                         falling back to main provider '{}'. \
+                         Set `subagent_provider`/`subagent_model` in config, or the \
+                         provider's API key, to silence this.",
+                        sub_provider,
+                        e,
+                        provider
+                    );
+                    sub_model = model.clone();
+                    client.clone()
+                }
+            }
         };
 
         crate::extras::subagents::init(
