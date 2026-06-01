@@ -4,7 +4,7 @@ use std::time::Duration;
 use compact_str::CompactString;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rig::agent::Agent;
-use rig::client::CompletionClient;
+use rig::client::{CompletionClient, ModelListingClient};
 use rig::completion::{CompletionModel, Message};
 use rig::providers::{anthropic, gemini, ollama, openai, openrouter};
 use rig::streaming::StreamingChat;
@@ -184,6 +184,112 @@ impl AnyClient {
     }
 }
 
+#[derive(Clone)]
+pub struct ModelEntry {
+    pub id: String,
+    pub display: String,
+    pub context_length: Option<u32>,
+    pub kind: Option<String>, // rig Model.r#type (often None)
+}
+
+impl ModelEntry {
+    fn from_rig(m: &rig::model::listing::Model) -> Self {
+        Self {
+            id: m.id.clone(),
+            display: m.display_name().to_string(),
+            context_length: m.context_length,
+            kind: m.r#type.clone(),
+        }
+    }
+}
+
+/// Chat/completion model suitable as an agent (not embedding/image/audio/etc.)?
+pub fn is_agent_model(m: &ModelEntry) -> bool {
+    if let Some(t) = m.kind.as_deref() {
+        let t = t.to_lowercase();
+        if ["embed", "image", "audio", "video", "moderation", "rerank", "tts", "speech"]
+            .iter()
+            .any(|k| t.contains(k))
+        {
+            return false;
+        }
+    }
+    let id = m.id.to_lowercase();
+    const DENY: &[&str] = &[
+        "embedding", "embed-", "text-embedding", "gemini-embedding",
+        "whisper", "transcribe", "tts", "-audio", "realtime", "speech",
+        "dall-e", "gpt-image", "image-generation", "imagen", "sora", "veo",
+        "moderation", "rerank", "aqa", "davinci-002", "babbage-002",
+    ];
+    !DENY.iter().any(|d| id.contains(d))
+}
+
+impl AnyClient {
+    /// Built-in providers: rig's ModelListingClient.
+    pub async fn list_models(&self) -> anyhow::Result<Vec<ModelEntry>> {
+        let list = match self {
+            AnyClient::OpenAI(OpenAiClient::Responses(c)) => c.list_models().await?,
+            AnyClient::Anthropic(c) => c.list_models().await?,
+            AnyClient::OpenRouter(c) => c.list_models().await?,
+            AnyClient::Gemini(c) => c.list_models().await?,
+            AnyClient::Ollama(c) => c.list_models().await?,
+            // If any arm above does NOT impl ModelListingClient it won't compile —
+            // move it down here to the manual fallback.
+            AnyClient::OpenAI(OpenAiClient::Completions(_)) => {
+                anyhow::bail!("rig model listing unavailable for this client")
+            }
+        };
+        Ok(list.iter().map(ModelEntry::from_rig).collect())
+    }
+}
+
+/// Custom / OpenAI-compatible gateway: best-effort GET {base}/models.
+pub async fn list_models_manual(
+    provider_name: &str,
+    cli_key: Option<&str>,
+    custom_providers: &std::collections::HashMap<String, CustomProviderConfig>,
+    config_api_keys: Option<&std::collections::HashMap<String, String>>,
+) -> anyhow::Result<Vec<ModelEntry>> {
+    let config = resolve_provider_config(provider_name, custom_providers)?;
+    let base = config
+        .base_url
+        .clone()
+        .ok_or_else(|| anyhow::anyhow!("no base_url"))?;
+    let key = AuthResolver::new(config.kind)
+        .with_cli_key(cli_key)
+        .with_env_override(config.api_key_env.as_deref())
+        .with_config_keys(config_api_keys)
+        .with_custom_provider_name(Some(provider_name))
+        .resolve()
+        .ok();
+    let custom = custom_providers.get(provider_name);
+    let http = build_http_client(provider_name, config.danger_accept_invalid_certs, custom)?;
+    let url = format!("{}/models", base.trim_end_matches('/'));
+    let mut req = http.get(url);
+    if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
+        req = req.bearer_auth(k);
+    }
+    #[derive(serde::Deserialize)]
+    struct Resp {
+        data: Vec<Item>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Item {
+        id: String,
+    }
+    let resp: Resp = req.send().await?.error_for_status()?.json().await?;
+    Ok(resp
+        .data
+        .into_iter()
+        .map(|i| ModelEntry {
+            display: i.id.clone(),
+            id: i.id,
+            context_length: None,
+            kind: None,
+        })
+        .collect())
+}
+
 async fn summarize_with_model(model: AnyModel, prompt: String) -> anyhow::Result<String> {
     match model {
         AnyModel::OpenRouter(m) => run_summarizer(m, prompt).await,
@@ -337,7 +443,7 @@ fn expand_env(value: &str) -> anyhow::Result<String> {
 /// When the provider is not custom (`custom == None`) and TLS is not disabled,
 /// the resulting client is equivalent to `reqwest::Client::default()`, so the
 /// behavior of existing providers is unchanged.
-fn build_http_client(
+pub(crate) fn build_http_client(
     provider_name: &str,
     danger_accept_invalid_certs: bool,
     custom: Option<&CustomProviderConfig>,

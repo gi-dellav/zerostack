@@ -8,6 +8,8 @@ mod providers;
 mod session;
 mod settings;
 
+pub(crate) use providers::warm_model_cache;
+
 use smallvec::SmallVec;
 
 use crate::cli::Cli;

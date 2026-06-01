@@ -30,6 +30,7 @@ pub struct InputEditor {
     prompt_names: Vec<String>,
     theme_names: Vec<String>,
     quick_model_names: Vec<String>,
+    live_model_names: Vec<String>,
     editor: Option<String>,
     kill_ring: Vec<CompactString>,
     yank_pos: Option<usize>,
@@ -49,6 +50,7 @@ impl InputEditor {
             prompt_names: Vec::new(),
             theme_names: Vec::new(),
             quick_model_names: Vec::new(),
+            live_model_names: Vec::new(),
             editor: None,
             kill_ring: Vec::with_capacity(MAX_KILL_RING),
             yank_pos: None,
@@ -58,6 +60,10 @@ impl InputEditor {
 
     pub fn set_quick_model_names(&mut self, names: Vec<String>) {
         self.quick_model_names = names;
+    }
+
+    pub fn set_live_model_names(&mut self, names: Vec<String>) {
+        self.live_model_names = names;
     }
 
     pub fn set_editor(&mut self, editor: String) {
