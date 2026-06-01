@@ -62,7 +62,7 @@ pub fn ask_and_create(dir: &Path) -> anyhow::Result<bool> {
     }
 
     eprint!(
-        "No ARCHITECTURE.md found in {}. Create one? [y/N] ",
+        "No ARCHITECTURE.md found in {} (documents high-level codebase architecture for AI agents). Create one? [y/N] ",
         dir.display()
     );
     std::io::stdout().flush()?;
