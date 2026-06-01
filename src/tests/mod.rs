@@ -14,6 +14,8 @@ mod input_tests;
 mod memory_tests;
 #[cfg(test)]
 mod picker_tests;
+#[cfg(test)]
+mod singleflight_tests;
 #[cfg(all(test, feature = "subagents"))]
 mod subagents_tests;
 #[cfg(all(test, feature = "git-worktree"))]

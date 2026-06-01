@@ -177,8 +177,29 @@ This is a list of the most important slash commands:
 - `/loop` — Schedule recurring prompts
 - `/prompt` — List or change the agent's prompt
 - `/mode` — Set the permission system's mode
+- `/queue` — Manage input queued while the agent is busy
 
 To see all of the commands, use `/help`.
+
+## Input queue
+
+You can keep typing while the agent is running. Plain text is not sent right
+away and never starts a second concurrent run; it is queued and replayed as the
+next prompt once the current run finishes. Each queued line is shown as
+`queued: <text>`.
+
+Manage the queue with `/queue`, which works even while a run is active:
+
+- `/queue ls` lists the pending inputs (bare `/queue` does the same)
+- `/queue clear` empties the queue
+- `/queue pop` removes the last queued input, to undo a mis-typed line
+
+Selecting `/queue` in the command picker opens a second-level menu with these
+three subcommands, so you do not need to remember them.
+
+Commands (input starting with `/`, `.`, or `!`) are not queued while a run is
+active: wait for it to finish, or press Ctrl-C. Ctrl-C cancels the running agent
+for real, including any child processes it spawned, and clears the queue.
 
 ## Session management
 

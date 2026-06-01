@@ -166,6 +166,104 @@ async fn ensure_mcp_manager<'a>(
     mcp.as_ref()
 }
 
+/// What to do with a submitted line, given whether a main run is already active.
+/// Pure decision so it can be unit-tested without a TUI/agent.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum SubmitAction {
+    /// Idle: start a run now.
+    Run,
+    /// Running + plain text: queue and replay after the current run finishes.
+    Queue,
+    /// Running + a command (`/`, `.`, `!`): can't queue meaningfully — tell the
+    /// user to wait or Ctrl-C.
+    RejectWhileRunning,
+    /// Empty submit: ignore.
+    Ignore,
+}
+
+/// Commands that are safe to run *even while a main run is active* because they
+/// don't spawn or mutate the main run — the single "bypass" whitelist. Add
+/// future parallel-safe commands here. Currently: `/queue` (queue management).
+pub(crate) fn allowed_while_running(text: &str) -> bool {
+    let t = text.trim_start();
+    t == "/queue" || t.starts_with("/queue ")
+}
+
+pub(crate) fn classify_submission(is_running: bool, text: &str) -> SubmitAction {
+    // Idle, or a whitelisted parallel-safe command → let it through to its
+    // handler. Everything else, while running, is gated.
+    if !is_running || allowed_while_running(text) {
+        return SubmitAction::Run;
+    }
+    let t = text.trim_start();
+    if t.is_empty() {
+        SubmitAction::Ignore
+    } else if t.starts_with('/') || t.starts_with('.') || t.starts_with('!') {
+        SubmitAction::RejectWhileRunning
+    } else {
+        SubmitAction::Queue
+    }
+}
+
+/// Starts a single main agent run for `text` and records its abort handle.
+/// The ONLY place that sets `agent_rx`/`is_running` for user-driven runs, so the
+/// "at most one main run" invariant is enforced in one spot. Callers must ensure
+/// no run is already active (otherwise the previous one would be orphaned).
+#[allow(clippy::too_many_arguments)]
+async fn start_main_run(
+    text: &str,
+    agent: &mut Option<AnyAgent>,
+    client: &AnyClient,
+    session: &mut Session,
+    cli: &Cli,
+    cfg: &Config,
+    context: &ContextFiles,
+    permission: &Option<PermCheck>,
+    ask_tx: &Option<AskSender>,
+    sandbox: &Sandbox,
+    reasoning_enabled: bool,
+    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
+    main_abort: &mut Option<tokio::task::AbortHandle>,
+    is_running: &mut bool,
+    #[cfg(feature = "mcp")] mcp_manager: &mut Option<McpClientManager>,
+) {
+    #[cfg(feature = "mcp")]
+    let mcp_ref = ensure_mcp_manager(mcp_manager, cfg).await;
+    ensure_agent(
+        agent,
+        client,
+        session,
+        cli,
+        cfg,
+        context,
+        permission,
+        ask_tx,
+        sandbox,
+        reasoning_enabled,
+        #[cfg(feature = "mcp")]
+        mcp_ref,
+    )
+    .await;
+    let history = crate::agent::runner::convert_history(session);
+    let runner = agent
+        .as_ref()
+        .unwrap()
+        .clone()
+        .spawn_runner(text.to_string(), history);
+    *agent_rx = Some(runner.event_rx);
+    *main_abort = Some(runner.abort_handle);
+    *is_running = true;
+    session.add_message(MessageRole::User, text);
+    if !cli.no_session {
+        let _ = crate::session::chat_history::append_entry(
+            &crate::session::chat_history::ChatHistoryEntry {
+                content: text.to_string(),
+                timestamp: session.updated_at.clone(),
+            },
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_interactive(
     mut client: AnyClient,
@@ -208,6 +306,13 @@ pub async fn run_interactive(
     input.load_global_history();
     let mut is_running = false;
     let mut agent_rx: Option<mpsc::Receiver<AgentEvent>> = None;
+    // Abort handle for the single in-flight main run. Enforces "at most one main
+    // run" and lets Ctrl-C actually cancel it (not just stop listening).
+    let mut main_abort: Option<tokio::task::AbortHandle> = None;
+    // Inputs submitted while a main run is active are queued here and replayed
+    // when it finishes — instead of silently spawning a second run that would
+    // orphan the first.
+    let mut pending_inputs: std::collections::VecDeque<String> = std::collections::VecDeque::new();
     let mut agent_line_started = false;
     let mut response_buf = String::new();
     let mut response_start_line: Option<usize> = None;
@@ -363,6 +468,7 @@ pub async fn run_interactive(
             .clone()
             .spawn_runner(trigger_msg.to_string(), history);
         agent_rx = Some(runner.event_rx);
+        main_abort = Some(runner.abort_handle);
         is_running = true;
         session.add_message(MessageRole::User, trigger_msg);
     }
@@ -433,8 +539,15 @@ pub async fn run_interactive(
                             && key.modifiers.contains(KeyModifiers::CONTROL);
                         if is_ctrl_c || is_ctrl_d {
                             if is_running {
+                                // Actually cancel the run's task (not just stop
+                                // listening), so it stops executing tools. bash
+                                // children are killed via kill_on_drop.
+                                if let Some(h) = main_abort.take() {
+                                    h.abort();
+                                }
                                 is_running = false;
                                 agent_rx = None;
+                                pending_inputs.clear();
                                 #[cfg(feature = "loop")]
                                 if let Some(ref mut ls) = loop_state {
                                     ls.active = false;
@@ -452,7 +565,10 @@ pub async fn run_interactive(
                                         guard.restore_user_mode();
                                     }
                                 }
-                                renderer.write_line("interrupted", C_ERROR)?;
+                                renderer.write_line(
+                                    "interrupted (changes may be partial; review with git diff)",
+                                    C_ERROR,
+                                )?;
                                 refresh_display(&mut renderer, &input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
                             } else {
                                 break;
@@ -578,6 +694,66 @@ pub async fn run_interactive(
                             if renderer.is_scrolling() {
                                 renderer.scroll_to_bottom()?;
                             }
+                            // A main run is active: never spawn a second one (that
+                            // would silently orphan the running one — it would keep
+                            // executing tools, changing files, with no history).
+                            // Whitelisted parallel-safe commands (see
+                            // `allowed_while_running`) classify as `Run` and fall
+                            // through to their handlers below.
+                            match classify_submission(is_running, &text) {
+                                SubmitAction::Run => {}
+                                SubmitAction::Ignore => {
+                                    refresh_display(&mut renderer, &input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                    continue;
+                                }
+                                SubmitAction::RejectWhileRunning => {
+                                    renderer.write_line(
+                                        "agent is running — wait for it to finish or press Ctrl-C before running a command",
+                                        C_ERROR,
+                                    )?;
+                                    refresh_display(&mut renderer, &input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                    continue;
+                                }
+                                SubmitAction::Queue => {
+                                    pending_inputs.push_back(text.to_string());
+                                    renderer.write_line(&format!("queued: {}", sanitize_output(&text)), C_TOOL)?;
+                                    refresh_display(&mut renderer, &input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                    continue;
+                                }
+                            }
+                            // Bypass-slot handlers — commands allowed while running
+                            // (see `allowed_while_running`). Add future
+                            // parallel-safe command handlers here.
+                            {
+                                let t = text.trim_start();
+                                if t == "/queue" || t.starts_with("/queue ") {
+                                    let arg = t.strip_prefix("/queue").unwrap_or("").trim();
+                                    match arg {
+                                        "clear" => {
+                                            let n = pending_inputs.len();
+                                            pending_inputs.clear();
+                                            renderer.write_line(&format!("queue cleared ({} removed)", n), C_TOOL)?;
+                                        }
+                                        "pop" => match pending_inputs.pop_back() {
+                                            Some(x) => renderer.write_line(&format!("unqueued: {}", sanitize_output(&x)), C_TOOL)?,
+                                            None => renderer.write_line("queue is empty", C_TOOL)?,
+                                        },
+                                        "" | "ls" | "list" => {
+                                            if pending_inputs.is_empty() {
+                                                renderer.write_line("queue is empty", C_TOOL)?;
+                                            } else {
+                                                renderer.write_line(&format!("queued ({}):", pending_inputs.len()), C_TOOL)?;
+                                                for (i, q) in pending_inputs.iter().enumerate() {
+                                                    renderer.write_line(&format!("  {}. {}", i + 1, sanitize_output(q)), C_TOOL)?;
+                                                }
+                                            }
+                                        }
+                                        _ => renderer.write_line("usage: /queue [ls|clear|pop]", C_ERROR)?,
+                                    }
+                                    refresh_display(&mut renderer, &input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                    continue;
+                                }
+                            }
                             let mut is_dot_cmd = false;
                             if text.starts_with('.') {
                                 is_dot_cmd = true;
@@ -690,6 +866,7 @@ pub async fn run_interactive(
                                             history,
                                         );
                                         agent_rx = Some(runner.event_rx);
+                                        main_abort = Some(runner.abort_handle);
                                         is_running = true;
                                         btw_active = true;
                                         Ok(())
@@ -773,6 +950,7 @@ pub async fn run_interactive(
                                             ).await;
                                             let runner = agent.as_ref().unwrap().clone().spawn_runner(prompt, history);
                                             agent_rx = Some(runner.event_rx);
+                                            main_abort = Some(runner.abort_handle);
                                             is_running = true;
                                             wt_return_path = Some(main_path);
                                         }
@@ -821,6 +999,7 @@ pub async fn run_interactive(
                                         let history = crate::agent::runner::convert_history(session);
                                         let runner = agent.as_ref().unwrap().clone().spawn_runner(prompt, history);
                                         agent_rx = Some(runner.event_rx);
+                                        main_abort = Some(runner.abort_handle);
                                         is_running = true;
                                     }
                                     Err(e) if e.to_string().starts_with("DEFER_EDITOR:") => {
@@ -876,6 +1055,7 @@ pub async fn run_interactive(
                                             ).await;
                                             let runner = agent.as_ref().unwrap().clone().spawn_runner(prompt, Vec::new());
                                             agent_rx = Some(runner.event_rx);
+                                            main_abort = Some(runner.abort_handle);
                                             is_running = true;
                                             loop_label = Some(ls.iteration_label());
                                         }
@@ -950,30 +1130,14 @@ pub async fn run_interactive(
                                 }
                                 renderer.write_line("", Color::White)?;
 
-                                #[cfg(feature = "mcp")]
-                                let mcp_ref = ensure_mcp_manager(&mut mcp_manager, cfg).await;
-                                ensure_agent(
-                                    &mut agent, &client, session, cli, cfg, context,
+                                // Guaranteed not running here (the is_running gate
+                                // above returns early), so this never orphans a run.
+                                start_main_run(
+                                    &text, &mut agent, &client, session, cli, cfg, context,
                                     &permission, &ask_tx, &sandbox, reasoning_enabled,
-                                    #[cfg(feature = "mcp")] mcp_ref,
+                                    &mut agent_rx, &mut main_abort, &mut is_running,
+                                    #[cfg(feature = "mcp")] &mut mcp_manager,
                                 ).await;
-                                let history = crate::agent::runner::convert_history(session);
-                                let runner = agent.as_ref().unwrap().clone().spawn_runner(
-                                    text.to_string(),
-                                    history,
-                                );
-                                agent_rx = Some(runner.event_rx);
-                                is_running = true;
-
-                                session.add_message(MessageRole::User, &text);
-                                if !cli.no_session {
-                                    let _ = crate::session::chat_history::append_entry(
-                                        &crate::session::chat_history::ChatHistoryEntry {
-                                            content: text.to_string(),
-                                            timestamp: session.updated_at.clone(),
-                                        },
-                                    );
-                                }
                             }
                             }
                             refresh_display(&mut renderer, &input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
@@ -1029,6 +1193,23 @@ pub async fn run_interactive(
                     if let Some(perm) = &permission {
                         let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
                         guard.restore_user_mode();
+                    }
+                }
+                // Run finished: drop its (now-dead) abort handle and, if the user
+                // queued input while it ran, replay the next one as a new run.
+                if !is_running {
+                    main_abort = None;
+                    if let Some(next) = pending_inputs.pop_front() {
+                        for line in next.lines() {
+                            renderer.write_line(&format!("> {}", sanitize_output(line)), Color::Green)?;
+                        }
+                        renderer.write_line("", Color::White)?;
+                        start_main_run(
+                            &next, &mut agent, &client, session, cli, cfg, context,
+                            &permission, &ask_tx, &sandbox, reasoning_enabled,
+                            &mut agent_rx, &mut main_abort, &mut is_running,
+                            #[cfg(feature = "mcp")] &mut mcp_manager,
+                        ).await;
                     }
                 }
                 refresh_display(&mut renderer, &input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;

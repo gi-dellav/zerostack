@@ -51,6 +51,7 @@ impl Sandbox {
         if !self.enabled {
             let mut cmd = Command::new(&self.shell);
             cmd.arg("-c").arg(command);
+            cmd.kill_on_drop(true);
             return cmd;
         }
 
@@ -61,6 +62,7 @@ impl Sandbox {
                 tracing::warn!("sandbox: zerobox not found, running unsandboxed");
                 let mut cmd = Command::new(&self.shell);
                 cmd.arg("-c").arg(command);
+                cmd.kill_on_drop(true);
                 return cmd;
             }
             let mut cmd = Command::new("zerobox");
@@ -70,6 +72,7 @@ impl Sandbox {
             cmd.arg(&self.shell);
             cmd.arg("-c");
             cmd.arg(command);
+            cmd.kill_on_drop(true);
             return cmd;
         }
 
@@ -77,6 +80,7 @@ impl Sandbox {
             tracing::warn!("sandbox: bwrap not found, running unsandboxed");
             let mut cmd = Command::new(&self.shell);
             cmd.arg("-c").arg(command);
+            cmd.kill_on_drop(true);
             return cmd;
         }
 
@@ -110,6 +114,7 @@ impl Sandbox {
             "-c",
             command,
         ]);
+        cmd.kill_on_drop(true);
         cmd
     }
 }

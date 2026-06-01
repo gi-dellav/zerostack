@@ -280,6 +280,19 @@ pub fn handle_command_picker_key(
                     tp.activate();
                     return (true, Some(Picker::Theme(tp)));
                 }
+                if selected == "/queue" {
+                    // Open a second-level picker for the queue subcommands so
+                    // they don't clutter the top-level command list.
+                    picker.deactivate();
+                    let mut qp = PromptPicker::with_prefix("/queue ");
+                    qp.set_items(vec![
+                        "ls".to_string(),
+                        "clear".to_string(),
+                        "pop".to_string(),
+                    ]);
+                    qp.activate();
+                    return (true, Some(Picker::Prompt(qp)));
+                }
             }
             picker.deactivate();
             (true, None)

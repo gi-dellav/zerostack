@@ -11,6 +11,10 @@ use crate::session::{MessageRole, Session};
 
 pub struct AgentRunner {
     pub event_rx: mpsc::Receiver<AgentEvent>,
+    /// Cancels the underlying agent task. Without this a superseded or
+    /// interrupted run keeps driving its stream — and therefore keeps executing
+    /// tools (edit/write/bash) — invisibly. Aborting stops it for real.
+    pub abort_handle: tokio::task::AbortHandle,
 }
 
 pub fn convert_history(session: &Session) -> Vec<Message> {
@@ -48,7 +52,7 @@ where
     #[cfg(feature = "subagents")]
     crate::extras::subagents::set_subagent_event_tx(event_tx.clone());
 
-    tokio::spawn(async move {
+    let join = tokio::spawn(async move {
         // Clone prompt and history so they're available for a potential retry
         // when the model returns an empty final response.
         let retry_prompt = prompt.clone();
@@ -149,7 +153,10 @@ where
         }
     });
 
-    AgentRunner { event_rx }
+    AgentRunner {
+        event_rx,
+        abort_handle: join.abort_handle(),
+    }
 }
 
 pub async fn run_print<M, P>(

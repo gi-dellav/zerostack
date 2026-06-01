@@ -45,6 +45,7 @@ const COMMANDS: &[&str] = &[
     "/wt-merge",
     "/wt-exit",
     "/btw",
+    "/queue",
 ];
 
 pub struct CommandPicker {
