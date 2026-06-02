@@ -41,7 +41,7 @@ Example (JSON):
   "default_prompt": "code",
   "default_permission_mode": "standard",
   "permission-modes": ["guarded", "standard", "yolo"],
-  "show_tool_details": true,
+  "show_tool_details": 3,
   "sandbox": false,
   "quick_models": {
     "fast": {
@@ -104,7 +104,7 @@ edit_system = "similarity"
 default_prompt = "code"
 default_permission_mode = "standard"
 permission-modes = ["guarded", "standard", "yolo"]
-show_tool_details = true
+show_tool_details = 3
 
 [quick_models.fast]
 provider = "openai"
@@ -165,7 +165,7 @@ Accepted top-level keys:
 | `permission-modes`        | array   | List of mode names that apply config-based rules. Default: `["guarded", "standard", "yolo"]`. Modes excluded from this list skip config rule matching entirely.             |
 | `sandbox`                 | boolean | Run bash commands in the bubblewrap sandbox. Default: `false`.                                                                                                              |
 | `default_permission_mode` | string  | Permission mode when no mode boolean/CLI flag is set. Accepts: `standard` (default), `restrictive`, `readonly`, `guarded`, `yolo`.                                          |
-| `show_tool_details`       | boolean | Show tool-result previews in the TUI. Default: `true`.                                                                                                                      |
+| `show_tool_details`       | boolean or integer | Show tool-result previews in the TUI. `false` hides output, `true` shows all lines, an integer limits to that many lines (e.g. `3`). Default: `3`. |
 | `default_prompt`          | string  | Prompt name to activate on startup. Default: `code`. If the prompt file has a `%%mode=<mode>` first-line directive, the security mode is set automatically (see Prompt directives below). |
 | `editor`                  | string  | Editor command for `Ctrl+G` (default: `$EDITOR` env var, then `editor`, then `nano`).                                                                                        |
 | `api_keys`                | object  | Map of provider names to API keys (e.g. `"openai": "sk-..."`). Used as fallback when the corresponding env var is not set.                                                   |

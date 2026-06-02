@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use compact_str::CompactString;
 
-use crate::config::{Config, EditSystem, QuickModelConfig};
+use crate::config::{Config, EditSystem, QuickModelConfig, ShowToolDetails};
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::config::McpServerConfig;
 use crate::session::storage;
@@ -138,7 +138,7 @@ fn rich_default_config() -> Config {
     cfg.edit_system = Some(EditSystem::Similarity);
     cfg.default_permission_mode = Some("standard".to_string());
     cfg.default_prompt = Some(CompactString::new("code"));
-    cfg.show_tool_details = Some(true);
+    cfg.show_tool_details = Some(ShowToolDetails::Lines(3));
     cfg
 }
 

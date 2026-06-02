@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 
 use crate::agent::tools::todo::TODO_LIST;
 use crate::cli::Cli;
-use crate::config::Config;
+use crate::config::{Config, ResolvedShowToolDetails};
 use crate::context::ContextFiles;
 use crate::event::AgentEvent;
 #[cfg(feature = "mcp")]
@@ -216,12 +216,39 @@ pub async fn handle_agent_event(
                     }
                 }
             } else {
-                let show_details = cfg.show_tool_details.unwrap_or(true);
-                if show_details {
-                    let sanitized = sanitize_output(&output);
-                    let char_count = sanitized.chars().count();
-                    let summary = format!("◈ result ({} chars):\n{}", char_count, sanitized);
-                    renderer.write_line(&summary, Color::DarkGrey)?;
+                let show_details = cfg
+                    .show_tool_details
+                    .as_ref()
+                    .map(|s| s.resolve())
+                    .unwrap_or(ResolvedShowToolDetails::Limited(3));
+                match show_details {
+                    ResolvedShowToolDetails::Off => {}
+                    ResolvedShowToolDetails::Limited(max_lines) => {
+                        let sanitized = sanitize_output(&output);
+                        let char_count = sanitized.chars().count();
+                        let lines: Vec<&str> = sanitized.lines().collect();
+                        if lines.len() > max_lines {
+                            let shown = lines[..max_lines].join("\n");
+                            let summary = format!(
+                                "◈ result ({} chars, {} lines, showing {}):\n{}",
+                                char_count,
+                                lines.len(),
+                                max_lines,
+                                shown
+                            );
+                            renderer.write_line(&summary, Color::DarkGrey)?;
+                        } else {
+                            let summary =
+                                format!("◈ result ({} chars):\n{}", char_count, sanitized);
+                            renderer.write_line(&summary, Color::DarkGrey)?;
+                        }
+                    }
+                    ResolvedShowToolDetails::Unlimited => {
+                        let sanitized = sanitize_output(&output);
+                        let char_count = sanitized.chars().count();
+                        let summary = format!("◈ result ({} chars):\n{}", char_count, sanitized);
+                        renderer.write_line(&summary, Color::DarkGrey)?;
+                    }
                 }
             }
         }
