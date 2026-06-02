@@ -523,7 +523,15 @@ pub(crate) fn build_http_client(
     danger_accept_invalid_certs: bool,
     custom: Option<&CustomProviderConfig>,
 ) -> anyhow::Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder();
+    // Disable connection pooling. Local LLM servers (notably llama.cpp's
+    // cpp-httplib) close idle keep-alive connections far faster than
+    // reqwest's default 90s pool_idle_timeout, leaving stale half-closed
+    // sockets in the pool. Reusing one of those manifests as
+    // "error sending request" with no corresponding entry server-side
+    // because no request actually reaches the server. TCP setup time is
+    // negligible compared to inference time, so fresh connections per
+    // request are a strict win for this workload.
+    let mut builder = reqwest::Client::builder().pool_max_idle_per_host(0);
 
     if let Some(cfg) = custom {
         if !cfg.headers.is_empty() {
