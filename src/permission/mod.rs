@@ -117,6 +117,13 @@ pub fn parse_prompt_mode(content: &str) -> (Option<&str>, &str) {
     }
 }
 
+/// Auto-deny regex patterns that are always active regardless of config.
+/// These are appended to the end of each relevant tool's rules, so they
+/// take precedence over user-configured allow/ask entries.
+pub fn default_deny_regex_rules() -> Vec<(/* tool */ &'static str, /* regex */ &'static str)> {
+    vec![("bash", r"^rm\s+.")]
+}
+
 pub fn default_bash_rules() -> Vec<(&'static str, Action)> {
     vec![
         ("ls **", Action::Allow),
