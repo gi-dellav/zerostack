@@ -108,7 +108,29 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let _ = docs::ensure_global();
+    let version_changed = docs::ensure_global()?;
+    #[cfg(feature = "acp")]
+    let is_interactive = !cli.acp_enabled && !cli.print && !cli.loop_mode;
+    #[cfg(not(feature = "acp"))]
+    let is_interactive = !cli.print && !cli.loop_mode;
+    if version_changed && is_interactive {
+        let mut input = String::new();
+        eprint!("Regenerate prompts? [y/N] ");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+        std::io::stdin().read_line(&mut input)?;
+        if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+            let _ = context::prompts::regen();
+            eprintln!("Prompts regenerated.");
+        }
+        input.clear();
+        eprint!("Regenerate themes? [y/N] ");
+        let _ = std::io::Write::flush(&mut std::io::stderr());
+        std::io::stdin().read_line(&mut input)?;
+        if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+            let _ = context::themes::regen();
+            eprintln!("Themes regenerated.");
+        }
+    }
     let mut context = context::load(cli.resolve_no_context_files(&cfg));
 
     #[cfg(feature = "archmd")]

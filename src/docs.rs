@@ -8,7 +8,7 @@ pub fn global_docs_dir() -> PathBuf {
     crate::session::storage::data_dir().join("docs")
 }
 
-pub fn ensure_global() -> anyhow::Result<()> {
+pub fn ensure_global() -> anyhow::Result<bool> {
     let dir = global_docs_dir();
     let version_file = dir.join("current_version");
     let current_version = env!("CARGO_PKG_VERSION");
@@ -25,9 +25,10 @@ pub fn ensure_global() -> anyhow::Result<()> {
         std::fs::create_dir_all(&dir)?;
         copy_embedded(&dir)?;
         std::fs::write(&version_file, current_version)?;
+        return Ok(true);
     }
 
-    Ok(())
+    Ok(false)
 }
 
 fn copy_embedded(dest: &Path) -> anyhow::Result<()> {
