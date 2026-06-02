@@ -485,6 +485,25 @@ impl AnyAgent {
             AnyAgent::Ollama(a) => runner::spawn_agent(a, prompt, history),
         }
     }
+
+    pub fn spawn_btw(
+        self,
+        prompt: String,
+        history: Vec<Message>,
+        event_tx: mpsc::Sender<crate::event::BtwEvent>,
+        id: u32,
+    ) -> crate::agent::runner::BtwRunner {
+        match self {
+            AnyAgent::OpenRouter(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+            AnyAgent::OpenAI(a) => match a {
+                OpenAiAgent::Responses(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+                OpenAiAgent::Completions(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+            },
+            AnyAgent::Anthropic(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+            AnyAgent::Gemini(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+            AnyAgent::Ollama(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+        }
+    }
 }
 
 /// Expands a value that is exactly "${VAR}" to the environment variable's value;
@@ -808,5 +827,77 @@ pub async fn build_agent(
             )
             .await,
         ),
+    }
+}
+
+/// Builds the isolated, tool-less `/btw` agent for the active provider.
+pub fn build_btw_agent(
+    model: AnyModel,
+    cli: &Cli,
+    cfg: &Config,
+    context: &ContextFiles,
+    permission: &Option<PermCheck>,
+    ask_tx: &Option<AskSender>,
+    reasoning_enabled: bool,
+) -> AnyAgent {
+    match model {
+        AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(builder::build_btw_agent_inner(
+            m,
+            cli,
+            cfg,
+            context,
+            permission,
+            ask_tx,
+            reasoning_enabled,
+        )),
+        AnyModel::OpenAI(m) => AnyAgent::OpenAI(match m {
+            OpenAiModel::Responses(m) => OpenAiAgent::Responses(builder::build_btw_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                reasoning_enabled,
+            )),
+            OpenAiModel::Completions(m) => {
+                OpenAiAgent::Completions(builder::build_btw_agent_inner(
+                    m,
+                    cli,
+                    cfg,
+                    context,
+                    permission,
+                    ask_tx,
+                    reasoning_enabled,
+                ))
+            }
+        }),
+        AnyModel::Anthropic(m) => AnyAgent::Anthropic(builder::build_btw_agent_inner(
+            m,
+            cli,
+            cfg,
+            context,
+            permission,
+            ask_tx,
+            reasoning_enabled,
+        )),
+        AnyModel::Gemini(m) => AnyAgent::Gemini(builder::build_btw_agent_inner(
+            m,
+            cli,
+            cfg,
+            context,
+            permission,
+            ask_tx,
+            reasoning_enabled,
+        )),
+        AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_btw_agent_inner(
+            m,
+            cli,
+            cfg,
+            context,
+            permission,
+            ask_tx,
+            reasoning_enabled,
+        )),
     }
 }

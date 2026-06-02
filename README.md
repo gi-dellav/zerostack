@@ -178,6 +178,7 @@ This is a list of the most important slash commands:
 - `/prompt` — List or change the agent's prompt
 - `/mode` — Set the permission system's mode
 - `/queue` — Manage input queued while the agent is busy
+- `/btw` — Ask a quick side question in parallel without interrupting the agent
 
 To see all of the commands, use `/help`.
 
@@ -200,6 +201,23 @@ three subcommands, so you do not need to remember them.
 Commands (input starting with `/`, `.`, or `!`) are not queued while a run is
 active: wait for it to finish, or press Ctrl-C. Ctrl-C cancels the running agent
 for real, including any child processes it spawned, and clears the queue.
+
+## Side questions (`/btw`)
+
+`/btw <message>` asks a quick "by the way" question in parallel with the main
+agent, without interrupting it. Like `/queue`, it works even while the agent is
+busy. It forks the current context (including a trace of the agent's in-flight
+turn, when one is running) and answers using four read-only tools (`read`,
+`grep`, `find_files`, `list_dir`); it cannot write files or run commands. It then
+prints the reply inline.
+Nothing is written to conversation history, and its token usage is tracked
+separately in the status bar as `btw:…`. Press Ctrl-C to cancel an in-flight
+`/btw` without disturbing the main agent.
+
+You can point a question at a specific file with `@`: pick `/btw` from the
+command menu, then type `@` to open the file picker (for example `/btw` then
+`@src/main.rs` then "how does this work?"), and `/btw` reads the file you
+reference.
 
 ## Session management
 

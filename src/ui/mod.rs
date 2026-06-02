@@ -72,7 +72,9 @@ pub(super) const C_AGENT: Color = Color::White;
 pub(super) const C_ERROR: Color = Color::Red;
 pub(super) const C_TOOL: Color = Color::Yellow;
 pub(super) const C_PERM: Color = Color::Magenta;
+pub(super) const C_BTW: Color = Color::Cyan;
 
+#[allow(clippy::too_many_arguments)]
 fn refresh_display(
     renderer: &mut Renderer,
     input: &mut InputEditor,
@@ -81,9 +83,22 @@ fn refresh_display(
     loop_label: Option<&str>,
     prompt_name: Option<&str>,
     perm_mode: Option<&str>,
+    btw_cost: f64,
+    btw_in: u64,
+    btw_out: u64,
 ) -> io::Result<()> {
     renderer.render_viewport()?;
-    let status = StatusLine::render(session, is_running, 0, loop_label, prompt_name, perm_mode);
+    let status = StatusLine::render(
+        session,
+        is_running,
+        0,
+        loop_label,
+        prompt_name,
+        perm_mode,
+        btw_cost,
+        btw_in,
+        btw_out,
+    );
     renderer.draw_bottom(&input.buffer, input.cursor, &status, is_running)?;
     if let Some(ref mut picker) = input.picker {
         picker.draw()?;
@@ -182,10 +197,11 @@ pub(crate) enum SubmitAction {
 
 /// Commands that are safe to run *even while a main run is active* because they
 /// don't spawn or mutate the main run — the single "bypass" whitelist. Add
-/// future parallel-safe commands here. Currently: `/queue` (queue management).
+/// future parallel-safe commands here. Currently: `/queue` (queue management)
+/// and `/btw` (isolated, tool-less side question on its own event stream).
 pub(crate) fn allowed_while_running(text: &str) -> bool {
     let t = text.trim_start();
-    t == "/queue" || t.starts_with("/queue ")
+    t == "/queue" || t.starts_with("/queue ") || t == "/btw" || t.starts_with("/btw ")
 }
 
 pub(crate) fn classify_submission(is_running: bool, text: &str) -> SubmitAction {
@@ -341,11 +357,21 @@ pub async fn run_interactive(
     let mut loop_state: Option<crate::extras::r#loop::LoopState> = None;
     #[cfg(feature = "git-worktree")]
     let mut wt_return_path: Option<String> = None;
-    let mut btw_active = false;
-    let mut btw_msg_count: usize = 0;
-    let mut btw_input_tokens: u64 = 0;
-    let mut btw_output_tokens: u64 = 0;
-    let mut btw_cost: f64 = 0.0;
+    // `/btw` side questions run on an independent event stream — they never
+    // touch `agent_rx`/`is_running`/`session`, so they can run in parallel with
+    // the main agent and leave no trace in conversation history.
+    let (btw_tx, mut btw_rx) = mpsc::channel::<crate::event::BtwEvent>(32);
+    let mut btw_abort: Vec<(u32, tokio::task::AbortHandle)> = Vec::new();
+    let mut btw_inflight: usize = 0;
+    let mut btw_next_id: u32 = 0;
+    let mut btw_total_cost: f64 = 0.0;
+    let mut btw_total_in: u64 = 0;
+    let mut btw_total_out: u64 = 0;
+    // Running trace of the main agent's current (in-flight) turn, so a parallel
+    // `/btw` fired mid-task can see what the agent is doing right now (the
+    // session itself only records the final assistant text per turn).
+    let mut turn_trace: Vec<compact_str::CompactString> = Vec::new();
+    const TURN_TRACE_MAX: usize = 64;
     let mut dot_prompt_restore: Option<String> = None;
 
     let perm_mode = || -> Option<String> {
@@ -376,6 +402,9 @@ pub async fn run_interactive(
         None,
         context.current_prompt_name.as_deref(),
         perm_mode().as_deref(),
+        btw_total_cost,
+        btw_total_in,
+        btw_total_out,
     )?;
 
     #[cfg(feature = "git-worktree")]
@@ -498,17 +527,17 @@ pub async fn run_interactive(
                 match ev {
                     UserEvent::Resize => {
                         renderer.resize();
-                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         continue;
                     }
                     UserEvent::ScrollUp => {
                         renderer.scroll_line_up();
-                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         continue;
                     }
                     UserEvent::ScrollDown => {
                         renderer.scroll_line_down();
-                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         continue;
                     }
                     UserEvent::MouseDown { row, col: _ } => {
@@ -517,7 +546,7 @@ pub async fn run_interactive(
                                 renderer.selection_active = true;
                                 renderer.selection_start = Some(idx);
                                 renderer.selection_end = Some(idx);
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             }
                         continue;
                     }
@@ -525,7 +554,7 @@ pub async fn run_interactive(
                         if renderer.selection_active
                             && let Some(idx) = renderer.buffer_line_at_row(row) {
                                 renderer.selection_end = Some(idx);
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             }
                         continue;
                     }
@@ -538,13 +567,13 @@ pub async fn run_interactive(
                                 copy_to_clipboard(&text);
                             }
                             renderer.clear_selection();
-                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         }
                         continue;
                     }
                     UserEvent::Paste(data) => {
                         input.handle_paste(data);
-                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         continue;
                     }
                     UserEvent::Key(key) => {
@@ -553,7 +582,16 @@ pub async fn run_interactive(
                         let is_ctrl_d = key.code == KeyCode::Char('d')
                             && key.modifiers.contains(KeyModifiers::CONTROL);
                         if is_ctrl_c || is_ctrl_d {
-                            if is_running {
+                            if btw_inflight > 0 {
+                                // Cancel in-flight side questions first, without
+                                // disturbing the main agent.
+                                for (_, h) in btw_abort.drain(..) {
+                                    h.abort();
+                                }
+                                btw_inflight = 0;
+                                renderer.write_line("btw cancelled", C_ERROR)?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                            } else if is_running {
                                 // Actually cancel the run's task (not just stop
                                 // listening), so it stops executing tools. bash
                                 // children are killed via kill_on_drop.
@@ -562,6 +600,7 @@ pub async fn run_interactive(
                                 }
                                 is_running = false;
                                 agent_rx = None;
+                                turn_trace.clear();
                                 pending_inputs.clear();
                                 #[cfg(feature = "loop")]
                                 if let Some(ref mut ls) = loop_state {
@@ -584,7 +623,7 @@ pub async fn run_interactive(
                                     "interrupted (changes may be partial; review with git diff)",
                                     C_ERROR,
                                 )?;
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             } else {
                                 break;
                             }
@@ -597,12 +636,12 @@ pub async fn run_interactive(
                                 renderer.write_line("copied selection", Color::Green)?;
                             }
                             renderer.clear_selection();
-                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             continue;
                         }
                         if renderer.selection_active && key.code == KeyCode::Esc {
                             renderer.clear_selection();
-                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             continue;
                         }
 
@@ -614,29 +653,29 @@ pub async fn run_interactive(
                                 &format!("reasoning visibility: {}", if show_reasoning { "on" } else { "off" }),
                                 Color::White,
                             )?;
-                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             continue;
                         }
 
                         match key.code {
                             KeyCode::PageUp => {
                                 renderer.scroll_page_up();
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
                             }
                             KeyCode::PageDown => {
                                 renderer.scroll_page_down();
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
                             }
                             KeyCode::Home => {
                                 renderer.scroll_to_top();
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
                             }
                             KeyCode::End => {
                                 renderer.scroll_to_bottom()?;
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
                             }
                             _ => {}
@@ -644,7 +683,7 @@ pub async fn run_interactive(
 
                         if input.picker.as_ref().is_some_and(|p| p.active())
                             && input.handle_picker_key(key) {
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
                             }
 
@@ -659,7 +698,7 @@ pub async fn run_interactive(
                             user_tx = new_tx;
                             user_rx = new_rx;
                             event_handle = Some(spawn_event_thread(user_tx.clone(), running.clone()));
-                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             continue;
                         }
 
@@ -673,7 +712,7 @@ pub async fn run_interactive(
                                     "warning: lazygit not found — install it (https://github.com/jesseduffield/lazygit)",
                                     C_ERROR,
                                 )?;
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
                             }
                             if let Some(h) = event_handle.take() {
@@ -695,7 +734,7 @@ pub async fn run_interactive(
                             user_tx = new_tx;
                             user_rx = new_rx;
                             event_handle = Some(spawn_event_thread(user_tx.clone(), running.clone()));
-                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             continue;
                         }
 
@@ -703,7 +742,7 @@ pub async fn run_interactive(
                             #[cfg(feature = "loop")]
                             if loop_state.as_ref().is_some_and(|ls| ls.active) && !text.starts_with('/') {
                                 renderer.write_line("loop active: /loop stop to cancel", C_ERROR)?;
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
                             }
                             if renderer.is_scrolling() {
@@ -718,7 +757,7 @@ pub async fn run_interactive(
                             match classify_submission(is_running, &text) {
                                 SubmitAction::Run => {}
                                 SubmitAction::Ignore => {
-                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                     continue;
                                 }
                                 SubmitAction::RejectWhileRunning => {
@@ -726,13 +765,13 @@ pub async fn run_interactive(
                                         "agent is running — wait for it to finish or press Ctrl-C before running a command",
                                         C_ERROR,
                                     )?;
-                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                     continue;
                                 }
                                 SubmitAction::Queue => {
                                     pending_inputs.push_back(text.to_string());
                                     renderer.write_line(&format!("queued: {}", sanitize_output(&text)), C_TOOL)?;
-                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                     continue;
                                 }
                             }
@@ -765,7 +804,44 @@ pub async fn run_interactive(
                                         }
                                         _ => renderer.write_line("usage: /queue [ls|clear|pop]", C_ERROR)?,
                                     }
-                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                                    continue;
+                                }
+                            }
+                            // `/btw`: fork an isolated, tool-less, single-turn side
+                            // question. The snapshot is taken by value here and never
+                            // written to the session, so there is nothing to roll
+                            // back. It runs on its own `btw_tx`/`btw_rx` stream and
+                            // never touches `agent_rx`/`is_running`/`session`, so it
+                            // works in parallel whether or not the main run is busy.
+                            {
+                                let t = text.trim_start();
+                                if t == "/btw" || t.starts_with("/btw ") {
+                                    for line in text.lines() {
+                                        renderer.write_line(&format!("> {}", sanitize_output(line)), Color::Green)?;
+                                    }
+                                    renderer.write_line("", Color::White)?;
+                                    let btw_text = t.strip_prefix("/btw").map(|s| s.trim()).unwrap_or("");
+                                    if btw_text.is_empty() {
+                                        renderer.write_line("usage: /btw <message>", C_AGENT)?;
+                                    } else {
+                                        let id = btw_next_id;
+                                        btw_next_id = btw_next_id.wrapping_add(1);
+                                        let snapshot = crate::agent::runner::build_btw_snapshot(
+                                            session, &turn_trace, is_running,
+                                        );
+                                        let model = client.completion_model(session.model.to_string());
+                                        let btw_agent = crate::provider::build_btw_agent(
+                                            model, cli, cfg, context, &permission, &ask_tx, reasoning_enabled,
+                                        );
+                                        let runner = btw_agent.spawn_btw(
+                                            btw_text.to_string(), snapshot, btw_tx.clone(), id,
+                                        );
+                                        btw_abort.push((id, runner.abort_handle));
+                                        btw_inflight += 1;
+                                        renderer.write_line(&format!("[btw #{}] thinking...", id), C_BTW)?;
+                                    }
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                     continue;
                                 }
                             }
@@ -860,35 +936,10 @@ pub async fn run_interactive(
                                 renderer.write_line("", Color::White)?;
                                 #[cfg(feature = "mcp")]
                                 let mcp_ref = ensure_mcp_manager(&mut mcp_manager, cfg).await;
-                                let result = if text.starts_with("/btw") {
-                                    let btw_text = text.strip_prefix("/btw").map(|s| s.trim()).unwrap_or("");
-                                    if btw_text.is_empty() {
-                                        renderer.write_line("usage: /btw <message>", C_AGENT)?;
-                                        Ok(())
-                                    } else {
-                                        btw_msg_count = session.messages.len();
-                                        btw_input_tokens = session.total_input_tokens;
-                                        btw_output_tokens = session.total_output_tokens;
-                                        btw_cost = session.total_cost;
-                                        ensure_agent(
-                                            &mut agent, &client, session, cli, cfg, context,
-                                            &permission, &ask_tx, &sandbox, reasoning_enabled,
-                                            #[cfg(feature = "mcp")] mcp_ref,
-                                        ).await;
-                                        let history = crate::agent::runner::convert_history(session);
-                                        let runner = agent.as_ref().unwrap().clone().spawn_runner(
-                                            btw_text.to_string(),
-                                            history,
-                                        );
-                                        agent_rx = Some(runner.event_rx);
-                                        main_abort = Some(runner.abort_handle);
-                                        is_running = true;
-                                        btw_active = true;
-                                        Ok(())
-                                    }
-                                } else {
-                                    handle_slash(&text, &mut agent, &mut client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut reasoning_enabled, &mut is_running, &mut input, &permission, &ask_tx, &mut todo_tools_enabled, &sandbox, #[cfg(feature = "loop")] &mut loop_state, #[cfg(feature = "mcp")] mcp_ref).await
-                                };
+                                // `/btw` is handled earlier in the bypass-slot (it
+                                // runs in parallel and never goes through the main
+                                // run), so it never reaches here.
+                                let result = handle_slash(&text, &mut agent, &mut client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut reasoning_enabled, &mut is_running, &mut input, &permission, &ask_tx, &mut todo_tools_enabled, &sandbox, #[cfg(feature = "loop")] &mut loop_state, #[cfg(feature = "mcp")] mcp_ref).await;
                                 // provider may have changed via /provider or /models — re-warm the picker's live list
                                 {
                                     let provider = session.provider.to_string();
@@ -1162,11 +1213,11 @@ pub async fn run_interactive(
                                 ).await;
                             }
                             }
-                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         } else if is_running {
-                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         } else {
-                            let status = StatusLine::render(session, is_running, 0, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref());
+                            let status = StatusLine::render(session, is_running, 0, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out);
                             renderer.draw_bottom(&input.buffer, input.cursor, &status, is_running)?;
                             if let Some(ref mut picker) = input.picker {
                                 picker.draw()?;
@@ -1178,6 +1229,29 @@ pub async fn run_interactive(
             Some(event) = async {
                 agent_rx.as_mut()?.recv().await
             } => {
+                // Accumulate a live trace of the current turn so a parallel
+                // `/btw` can report what the agent is doing right now. The
+                // session itself only stores the final assistant text per turn.
+                match &event {
+                    AgentEvent::ToolCall { name, args } => {
+                        if turn_trace.len() < TURN_TRACE_MAX {
+                            turn_trace.push(compact_str::CompactString::from(format!(
+                                "→ {}",
+                                crate::ui::utils::format_tool_call_summary(name, args)
+                            )));
+                        }
+                    }
+                    AgentEvent::ToolResult { output, .. } => {
+                        if turn_trace.len() < TURN_TRACE_MAX {
+                            turn_trace.push(compact_str::CompactString::from(format!(
+                                "← {}",
+                                crate::extras::truncate::truncate_cjk(output, 500, "…")
+                            )));
+                        }
+                    }
+                    AgentEvent::Done { .. } | AgentEvent::Error(_) => turn_trace.clear(),
+                    _ => {}
+                }
                 #[cfg(feature = "mcp")]
                 let mcp_ref = ensure_mcp_manager(&mut mcp_manager, cfg).await;
                 handle_agent_event(
@@ -1191,18 +1265,6 @@ pub async fn run_interactive(
                     #[cfg(feature = "git-worktree")] &mut wt_return_path,
                     #[cfg(feature = "mcp")] mcp_ref,
                 ).await?;
-                if btw_active && !is_running {
-                    while session.messages.len() > btw_msg_count {
-                        session.messages.pop();
-                    }
-                    session.total_input_tokens = btw_input_tokens;
-                    session.total_output_tokens = btw_output_tokens;
-                    session.total_cost = btw_cost;
-                    if !cli.no_session {
-                        let _ = crate::session::storage::save_session(session);
-                    }
-                    btw_active = false;
-                }
                 if !is_running
                     && let Some(restore_name) = dot_prompt_restore.take()
                 {
@@ -1234,7 +1296,7 @@ pub async fn run_interactive(
                         ).await;
                     }
                 }
-                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
             }
             Some(ask_req) = async {
                 ask_rx.as_mut()?.recv().await
@@ -1243,10 +1305,37 @@ pub async fn run_interactive(
                     ask_req, &mut renderer, session, cli,
                     &mut user_rx, &mut agent_line_started, &mut was_reasoning,
                 ).await?;
-                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+            }
+            Some(bev) = btw_rx.recv() => {
+                // Parallel side-question result. Rendered as a single block; it is
+                // NEVER written to the session (cost is tracked separately).
+                match bev {
+                    crate::event::BtwEvent::Done { id, response, input_tokens, output_tokens } => {
+                        btw_total_cost += crate::pricing::estimate_cost(
+                            input_tokens, output_tokens,
+                            session.input_token_cost, session.output_token_cost,
+                        );
+                        btw_total_in = btw_total_in.saturating_add(input_tokens);
+                        btw_total_out = btw_total_out.saturating_add(output_tokens);
+                        btw_abort.retain(|(i, _)| *i != id);
+                        btw_inflight = btw_inflight.saturating_sub(1);
+                        renderer.write_line(&format!("[btw #{}] answer:", id), C_BTW)?;
+                        for line in response.lines() {
+                            renderer.write_line(&sanitize_output(line), C_AGENT)?;
+                        }
+                        renderer.write_line("", Color::White)?;
+                    }
+                    crate::event::BtwEvent::Error { id, message } => {
+                        btw_abort.retain(|(i, _)| *i != id);
+                        btw_inflight = btw_inflight.saturating_sub(1);
+                        renderer.write_line(&format!("[btw #{}] error: {}", id, sanitize_output(&message)), C_ERROR)?;
+                    }
+                }
+                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
             }
             _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)), if is_running => {
-                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref())?;
+                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
             }
             else => {
                 tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;

@@ -6,7 +6,7 @@ use rig::message::ToolResultContent;
 use rig::streaming::{StreamedAssistantContent, StreamedUserContent, StreamingChat};
 use tokio::sync::mpsc;
 
-use crate::event::AgentEvent;
+use crate::event::{AgentEvent, BtwEvent};
 use crate::session::{MessageRole, Session};
 
 pub struct AgentRunner {
@@ -15,6 +15,81 @@ pub struct AgentRunner {
     /// interrupted run keeps driving its stream — and therefore keeps executing
     /// tools (edit/write/bash) — invisibly. Aborting stops it for real.
     pub abort_handle: tokio::task::AbortHandle,
+}
+
+/// Handle to an in-flight `/btw` side-question task. The `abort_handle` lets the
+/// UI cancel the side question (e.g. on Ctrl-C) without touching the main agent.
+pub struct BtwRunner {
+    pub abort_handle: tokio::task::AbortHandle,
+}
+
+/// Spawn an isolated, single-turn, tool-less side-question run. The full result
+/// is delivered as a single [`BtwEvent::Done`] (or [`BtwEvent::Error`]) tagged
+/// with `id`. Unlike [`spawn_agent`], it never registers a subagent event sink
+/// and never mutates the session.
+pub fn spawn_btw<M, P>(
+    agent: Agent<M, P>,
+    prompt: String,
+    history: Vec<Message>,
+    event_tx: mpsc::Sender<BtwEvent>,
+    id: u32,
+) -> BtwRunner
+where
+    M: CompletionModel + 'static,
+    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
+    P: rig::agent::PromptHook<M> + 'static,
+{
+    let join = tokio::spawn(async move {
+        let mut stream = agent.stream_chat(prompt, history).await;
+        let mut acc = String::new();
+
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
+                    text,
+                ))) => acc.push_str(&text.text),
+                Ok(MultiTurnStreamItem::FinalResponse(res)) => {
+                    let response_text = res.response();
+                    let usage = res.usage();
+                    let response = if response_text.is_empty() {
+                        CompactString::from(acc.as_str())
+                    } else {
+                        CompactString::from(response_text)
+                    };
+                    let _ = event_tx
+                        .send(BtwEvent::Done {
+                            id,
+                            response,
+                            input_tokens: usage.input_tokens,
+                            output_tokens: usage.output_tokens,
+                        })
+                        .await;
+                    return;
+                }
+                Err(e) => {
+                    let _ = event_tx
+                        .send(BtwEvent::Error {
+                            id,
+                            message: CompactString::new(e.to_string()),
+                        })
+                        .await;
+                    return;
+                }
+                _ => {}
+            }
+        }
+
+        let _ = event_tx
+            .send(BtwEvent::Error {
+                id,
+                message: CompactString::new("side question ended without a response"),
+            })
+            .await;
+    });
+
+    BtwRunner {
+        abort_handle: join.abort_handle(),
+    }
 }
 
 pub fn convert_history(session: &Session) -> Vec<Message> {
@@ -39,6 +114,28 @@ pub fn convert_history(session: &Session) -> Vec<Message> {
     }
 
     messages
+}
+
+/// Builds the forked context for a `/btw` side question: the committed
+/// conversation history, plus — when the main agent is mid-task — a synthesized
+/// note describing the in-flight turn so the side question can see what the
+/// agent is doing right now. The returned messages are a by-value snapshot; the
+/// session is never mutated, so there is nothing to roll back afterwards.
+pub fn build_btw_snapshot(
+    session: &Session,
+    turn_trace: &[CompactString],
+    main_running: bool,
+) -> Vec<Message> {
+    let mut snapshot = convert_history(session);
+    if main_running && !turn_trace.is_empty() {
+        snapshot.push(Message::user(format!(
+            "(Context only — the main assistant is working in parallel right now. \
+Its progress so far this turn:\n{}\nThe last step may still be running. Use this \
+only if the user's question is about what the main assistant is doing.)",
+            turn_trace.join("\n")
+        )));
+    }
+    snapshot
 }
 
 pub fn spawn_agent<M, P>(agent: Agent<M, P>, prompt: String, history: Vec<Message>) -> AgentRunner

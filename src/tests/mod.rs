@@ -5,6 +5,8 @@ mod archmd_tests;
 #[cfg(test)]
 mod auth_tests;
 #[cfg(test)]
+mod btw_tests;
+#[cfg(test)]
 mod checker_tests;
 #[cfg(test)]
 mod crc_tests;
