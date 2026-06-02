@@ -33,12 +33,26 @@ async fn handle_provider(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Resu
         );
         return Ok(());
     }
+    // Default the model to something valid for the new provider BEFORE rebuilding,
+    // since rebuild_agent_with_client reads session.model. Otherwise the old id
+    // (e.g. an OpenRouter id) is carried onto a provider where it is invalid.
+    if let Some((model, costs)) = crate::provider::default_model_for_provider(new_provider, ctx.cfg)
+    {
+        ctx.session.model = compact_str::CompactString::new(&model);
+        if let Some((inc, outc)) = costs {
+            ctx.session.input_token_cost = inc;
+            ctx.session.output_token_cost = outc;
+        }
+    }
     ctx.rebuild_agent_with_client(new_provider, *ctx.reasoning_enabled)
         .await?;
     ctx.session.provider = compact_str::CompactString::new(new_provider);
     write_ok(
         ctx.renderer,
-        format!("switched to provider: {}", new_provider),
+        format!(
+            "switched to provider: {} (model: {})",
+            new_provider, ctx.session.model
+        ),
     );
     Ok(())
 }

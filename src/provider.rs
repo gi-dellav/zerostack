@@ -66,6 +66,46 @@ pub fn parse_provider(name: &str) -> Option<ProviderKind> {
     ProviderKind::from_name(name)
 }
 
+/// Pick a sensible default model when targeting `provider`. Priority:
+/// a custom gateway's configured `model`, then a quick model targeting this
+/// provider (carrying its pricing), then a built-in fallback. Returns
+/// (model, Option<(input_cost, output_cost)>), or None if `provider` is unknown
+/// and has no configured default. Used both by `/provider` and at startup so a
+/// chosen provider never keeps an id that is invalid on it.
+pub(crate) fn default_model_for_provider(
+    provider: &str,
+    cfg: &Config,
+) -> Option<(String, Option<(f64, f64)>)> {
+    if let Some(c) = cfg.custom_providers_map().get(provider)
+        && let Some(m) = &c.model
+    {
+        return Some((m.to_string(), None));
+    }
+    // Deterministic: prefer the alphabetically-first quick model for this provider
+    // (HashMap iteration order would otherwise be unstable).
+    let qm = crate::config::quick_models_map(cfg);
+    let mut names: Vec<&String> = qm.keys().collect();
+    names.sort();
+    for name in names {
+        let q = &qm[name];
+        if q.provider.as_str() == provider {
+            return Some((
+                q.model.to_string(),
+                Some((q.input_token_cost, q.output_token_cost)),
+            ));
+        }
+    }
+    let m = match provider {
+        "anthropic" => "claude-sonnet-4-6",
+        "openai" => "gpt-5.1",
+        "gemini" | "google" => "gemini-2.5-pro",
+        "openrouter" => "openrouter/auto", // OpenRouter's always-valid auto-router
+        "ollama" => "llama3.1",
+        _ => return None,
+    };
+    Some((m.to_string(), None))
+}
+
 fn resolve_base_url(config: &ProviderConfig) -> Option<String> {
     config.base_url.clone()
 }

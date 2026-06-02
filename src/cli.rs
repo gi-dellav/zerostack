@@ -200,16 +200,22 @@ impl Cli {
     }
 
     pub fn resolve_model(&self, cfg: &config::Config) -> CompactString {
-        self.model
-            .as_deref()
-            .or(cfg.model.as_deref())
-            .map(CompactString::new)
-            .unwrap_or_else(|| {
-                let qm = config::quick_models_map(cfg);
-                qm.get("deepseek-v4-flash")
-                    .map(|q| q.model.clone())
-                    .unwrap_or_else(|| CompactString::new("deepseek/deepseek-v4-flash"))
-            })
+        if let Some(m) = self.model.as_deref().or(cfg.model.as_deref()) {
+            return CompactString::new(m);
+        }
+        // No explicit model. If a provider was chosen explicitly, default to a
+        // model valid for it so `--provider anthropic` does not keep the
+        // OpenRouter default id; otherwise keep the historic deepseek default.
+        if (self.provider.is_some() || cfg.provider.is_some())
+            && let Some((model, _)) =
+                crate::provider::default_model_for_provider(&self.resolve_provider(cfg), cfg)
+        {
+            return CompactString::new(model);
+        }
+        let qm = config::quick_models_map(cfg);
+        qm.get("deepseek-v4-flash")
+            .map(|q| q.model.clone())
+            .unwrap_or_else(|| CompactString::new("deepseek/deepseek-v4-flash"))
     }
 
     pub fn resolve_provider(&self, cfg: &config::Config) -> CompactString {

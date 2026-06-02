@@ -173,15 +173,6 @@ async fn main() -> anyhow::Result<()> {
         model = qm.model.clone();
     }
 
-    // Custom provider model override (if no explicit model set)
-    if let Some(custom) = cfg.custom_providers_map().get(provider.as_str())
-        && cli.model.is_none()
-        && cfg.model.is_none()
-        && let Some(ref custom_model) = custom.model
-    {
-        model = custom_model.clone();
-    }
-
     let mut session = session::Session::new(&provider, &model, cfg.resolve_context_window());
 
     // Resolve input/output token costs from quick models or defaults
