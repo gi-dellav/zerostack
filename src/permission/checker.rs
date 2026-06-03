@@ -194,7 +194,7 @@ impl PermissionChecker {
     }
 
     fn apply_rules(&self) -> bool {
-        self.permission_modes.contains(&self.mode)
+        self.permission_modes.contains(&self.mode) || self.mode == SecurityMode::Yolo
     }
 
     fn is_read_tool(&self, tool: &str) -> bool {
@@ -255,7 +255,7 @@ impl PermissionChecker {
             }
             SecurityMode::Standard => base.unwrap_or(self.default_action),
             SecurityMode::Yolo => match base {
-                Some(Action::Deny) => Action::Ask,
+                Some(Action::Deny) => Action::Deny,
                 Some(other) => other,
                 None => Action::Allow,
             },
@@ -357,7 +357,7 @@ impl PermissionChecker {
                 }
             }
             SecurityMode::Yolo => match base {
-                Some(Action::Deny) => Action::Ask,
+                Some(Action::Deny) => Action::Deny,
                 Some(other) => other,
                 None => Action::Allow,
             },

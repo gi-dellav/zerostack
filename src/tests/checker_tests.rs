@@ -56,24 +56,23 @@ fn readonly_denies_write_bash_and_edit() {
 }
 
 #[test]
-fn yolo_asks_for_destructive_bash() {
+fn yolo_denies_destructive_bash() {
     let mut checker = make_checker(SecurityMode::Yolo);
-    // Destructive commands like rm are Deny in default rules → converted to Ask
     let result = checker.check("bash", "rm -rf /");
     assert!(
-        matches!(result, CheckResult::Ask),
-        "expected Ask for rm -rf / in YOLO, got {:?}",
+        matches!(result, CheckResult::Denied(_)),
+        "expected Denied for rm -rf / in YOLO, got {:?}",
         result,
     );
 }
 
 #[test]
-fn yolo_asks_for_destructive_bash_with_pattern() {
+fn yolo_denies_destructive_bash_with_pattern() {
     let mut checker = make_checker(SecurityMode::Yolo);
     let result = checker.check("bash", "dd if=/dev/zero of=/dev/sda");
     assert!(
-        matches!(result, CheckResult::Ask),
-        "expected Ask for dd in YOLO, got {:?}",
+        matches!(result, CheckResult::Denied(_)),
+        "expected Denied for dd in YOLO, got {:?}",
         result,
     );
 }
@@ -177,12 +176,12 @@ fn deny_rule_blocks_regardless_of_mode() {
 }
 
 #[test]
-fn deny_rule_is_asked_in_yolo() {
+fn deny_rule_is_denied_in_yolo() {
     let mut checker = make_checker(SecurityMode::Yolo);
     let result = checker.check("bash", "rm -rf /home/user/project");
     assert!(
-        matches!(result, CheckResult::Ask),
-        "expected Ask for destructive bash in YOLO, got {:?}",
+        matches!(result, CheckResult::Denied(_)),
+        "expected Denied for destructive bash in YOLO, got {:?}",
         result,
     );
 }
@@ -1133,17 +1132,17 @@ fn check_path_with_tilde_expansion_internal() {
 // --- YOLO mode edge cases ---
 
 #[test]
-fn yolo_destructive_patterns_different_case() {
+fn yolo_destructive_patterns_are_denied() {
     let mut checker = make_checker(SecurityMode::Yolo);
-    // rm -rf /** pattern matches 'rm -rf /some/path'
+    // rm -rf /** deny rule now actually denies in YOLO
     assert!(matches!(
         checker.check("bash", "rm -rf /sensitive/data"),
-        CheckResult::Ask
+        CheckResult::Denied(_)
     ));
 }
 
 #[test]
-fn yolo_deny_rules_for_mcp_become_ask() {
+fn yolo_deny_rules_for_mcp_are_denied() {
     let config = PermissionConfig {
         mcp_tool: Some(ToolPerm::Granular(
             [("mcp_tool:fs:delete_*".to_string(), Action::Deny)].into(),
@@ -1156,10 +1155,10 @@ fn yolo_deny_rules_for_mcp_become_ask() {
         None,
         default_modes(),
     );
-    // Deny converted to Ask in YOLO
+    // Deny rules now actually deny in YOLO
     assert!(matches!(
         checker.check("mcp_tool", "mcp_tool:fs:delete_file"),
-        CheckResult::Ask
+        CheckResult::Denied(_)
     ));
     // Non-destructive MCP still Allowed
     assert!(matches!(

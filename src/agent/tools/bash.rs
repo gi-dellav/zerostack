@@ -24,6 +24,12 @@ fn split_bash_commands(input: &str) -> Vec<String> {
         } else if ch == '"' && !in_single_quote {
             in_double_quote = !in_double_quote;
             current.push(ch);
+        } else if ch == ';' && !in_single_quote && !in_double_quote {
+            let trimmed = current.trim().to_string();
+            if !trimmed.is_empty() {
+                result.push(trimmed);
+            }
+            current = String::new();
         } else if ch == '&' && !in_single_quote && !in_double_quote {
             if chars.peek() == Some(&'&') {
                 chars.next();
@@ -37,6 +43,17 @@ fn split_bash_commands(input: &str) -> Vec<String> {
             }
         } else if ch == '|' && !in_single_quote && !in_double_quote {
             if chars.peek() == Some(&'|') {
+                chars.next();
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    result.push(trimmed);
+                }
+                current = String::new();
+            } else {
+                current.push(ch);
+            }
+        } else if ch == '>' && !in_single_quote && !in_double_quote {
+            if chars.peek() == Some(&'>') {
                 chars.next();
                 let trimmed = current.trim().to_string();
                 if !trimmed.is_empty() {
@@ -90,7 +107,7 @@ impl Tool for BashTool {
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "description": "Bash command to execute" },
-                    "timeout": { "type": "integer", "description": "Timeout in seconds (optional)" }
+                    "timeout": { "type": "integer", "description": "Timeout in milliseconds (optional)" }
                 },
                 "required": ["command"]
             }),
@@ -107,7 +124,7 @@ impl Tool for BashTool {
 
         let output = if let Some(secs) = args.timeout {
             timeout(
-                Duration::from_secs(secs),
+                Duration::from_millis(secs),
                 self.sandbox.wrap_command(&args.command).output(),
             )
             .await
