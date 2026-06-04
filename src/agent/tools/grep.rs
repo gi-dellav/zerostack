@@ -104,6 +104,7 @@ impl Tool for GrepTool {
             .build();
 
         let mut file_count = 0;
+        let mut files_with_matches: usize = 0;
         let mut all_results: Vec<String> = Vec::with_capacity(MAX_GREP_RESULTS.min(64));
 
         for entry in walker
@@ -149,6 +150,7 @@ impl Tool for GrepTool {
                     if match_lines.is_empty() {
                         continue;
                     }
+                    files_with_matches += 1;
 
                     if context == 0 {
                         for &ml in &match_lines {
@@ -206,7 +208,8 @@ impl Tool for GrepTool {
         }
 
         let total = all_results.len();
-        let result = if total >= MAX_GREP_RESULTS {
+        let truncated = total >= MAX_GREP_RESULTS;
+        let result = if truncated {
             format!(
                 "{} results (showing first {}, searched {} files):\n{}\n\n... and {} more matches",
                 total,
@@ -223,6 +226,21 @@ impl Tool for GrepTool {
                 all_results.join("\n")
             )
         };
+
+        // Add a "consider task" hint when results span multiple files and the
+        // count is non-trivial. The agent sees this at the moment it decides
+        // its next action, which is the highest-leverage point in the loop.
+        // Suppressed when truncated, since the truncation hint already steers
+        // the agent toward narrowing or task.
+        let result = if !truncated && total >= 10 && files_with_matches >= 2 {
+            format!(
+                "{}\n\n[{} matches across {} files; for cross-file enumeration or synthesis, `task` returns a verified summary in one call]",
+                result, total, files_with_matches,
+            )
+        } else {
+            result
+        };
+
         Ok(match coaching {
             Some(c) => format!("{}\n\n{}", c, result),
             None => result,
