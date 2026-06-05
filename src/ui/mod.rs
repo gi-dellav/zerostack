@@ -1115,6 +1115,47 @@ pub async fn run_interactive(
                                         render_session(&mut renderer, session, cli, cfg, context)?;
                                         renderer.write_line(&format!("returned from editing {}", path), C_AGENT)?;
                                     }
+                                    Err(e) if e.to_string().starts_with("DEFER_WORKFLOW:") => {
+                                        let err_msg = e.to_string();
+                                        let rest = err_msg.strip_prefix("DEFER_WORKFLOW:\u{1F}").unwrap_or("");
+                                        let parts: Vec<&str> = rest.splitn(2, '\u{1F}').collect();
+                                        let slash_cmds = parts.first().copied().unwrap_or("");
+                                        let message = parts.get(1).copied().unwrap_or("");
+
+                                        for cmd in slash_cmds.lines() {
+                                            let cmd = cmd.trim();
+                                            if !cmd.is_empty() {
+                                                #[cfg(feature = "mcp")]
+                                                let mcp_ref = ensure_mcp_manager(&mut mcp_manager, cfg).await;
+                                                let _ = handle_slash(cmd, &mut agent, &mut client, &mut renderer, session, cli, cfg, context, &mut show_reasoning, &mut reasoning_enabled, &mut is_running, &mut input, &permission, &ask_tx, &mut todo_tools_enabled, &sandbox, #[cfg(feature = "loop")] &mut loop_state, #[cfg(feature = "mcp")] mcp_ref).await;
+                                            }
+                                        }
+
+                                        {
+                                            let provider = session.provider.to_string();
+                                            let is_custom = cfg.custom_providers_map().contains_key(&provider);
+                                            let ids = crate::ui::slash::warm_model_cache(&provider, is_custom, &client, cli, cfg).await;
+                                            input.set_live_model_names(ids);
+                                        }
+
+                                        if !message.is_empty() {
+                                            #[cfg(feature = "mcp")]
+                                            let mcp_ref = ensure_mcp_manager(&mut mcp_manager, cfg).await;
+                                            ensure_agent(
+                                                &mut agent, &client, session, cli, cfg, context,
+                                                &permission, &ask_tx, &sandbox, reasoning_enabled,
+                                                #[cfg(feature = "mcp")] mcp_ref,
+                                            ).await;
+                                            let history = crate::agent::runner::convert_history(session);
+                                            let runner = agent.as_ref().unwrap().clone().spawn_runner(message.to_string(), history);
+                                            agent_rx = Some(runner.event_rx);
+                                            main_abort = Some(runner.abort_handle);
+                                            is_running = true;
+                                            if let Some(ss) = status_signals.as_ref() {
+                                                ss.send_start();
+                                            }
+                                        }
+                                    }
                                     Err(e) => {
                                         if e.downcast_ref::<std::io::Error>().is_some_and(|e: &std::io::Error| e.kind() == std::io::ErrorKind::Interrupted) {
                                             break;

@@ -149,6 +149,17 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
     );
     write_result(ctx.renderer, "  /tutorial              alias for /welcome");
     write_result(ctx.renderer, "  /help                  show this message");
+    #[cfg(feature = "workflows")]
+    {
+        write_result(
+            ctx.renderer,
+            "  /workflow [list]       list available workflows",
+        );
+        write_result(
+            ctx.renderer,
+            "  /<name>                run a custom workflow",
+        );
+    }
     write_result(ctx.renderer, "");
     #[cfg(feature = "subagents")]
     {

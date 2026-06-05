@@ -7,6 +7,7 @@ mod memory;
 mod providers;
 mod session;
 mod settings;
+mod workflows;
 
 pub(crate) use providers::warm_model_cache;
 
@@ -305,12 +306,20 @@ pub async fn handle_slash(
         "/compress" | "/compact" | "/loop" | "/worktree" | "/wt-merge" | "/wt-exit" => {
             features::handle(&parts, &mut ctx).await
         }
+        "/workflow" => workflows::handle(&parts, &mut ctx).await,
         _ => {
-            write_error(
-                ctx.renderer,
-                format!("unknown command: {} (try /help)", parts[0]),
-            );
-            Ok(())
+            let result = workflows::handle(&parts, &mut ctx).await;
+            match result {
+                Err(e) if e.to_string().starts_with("DEFER_WORKFLOW:") => Err(e),
+                Err(e) => Err(e),
+                Ok(()) => {
+                    write_error(
+                        ctx.renderer,
+                        format!("unknown command: {} (try /help)", parts[0]),
+                    );
+                    Ok(())
+                }
+            }
         }
     }
 }

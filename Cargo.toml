@@ -11,7 +11,7 @@ readme = "README.md"
 keywords = ["ai", "cli", "dev"]
 
 [features]
-default = ['loop', 'git-worktree', 'mcp', 'subagents', 'archmd']
+default = ['loop', 'git-worktree', 'mcp', 'subagents', 'archmd', 'workflows']
 status-signals = []
 loop = []
 git-worktree = []
@@ -26,6 +26,7 @@ memory = []
 subagents = []
 archmd = []
 multithread = ["tokio/rt-multi-thread"]
+workflows = []
 
 [dependencies]
 rig = { version = "0.37", features = ["rmcp"] }

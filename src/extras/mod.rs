@@ -19,6 +19,9 @@ pub mod subagents;
 #[cfg(feature = "archmd")]
 pub mod archmd;
 
+#[cfg(feature = "workflows")]
+pub mod workflows;
+
 pub mod status_signals;
 
 pub(crate) mod truncate;

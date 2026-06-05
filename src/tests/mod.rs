@@ -34,5 +34,7 @@ mod slash_add_tests;
 mod slash_init_tests;
 #[cfg(all(test, feature = "subagents"))]
 mod subagents_tests;
+#[cfg(all(test, feature = "workflows"))]
+mod workflows_tests;
 #[cfg(all(test, feature = "git-worktree"))]
 mod worktree_tests;

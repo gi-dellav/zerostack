@@ -39,6 +39,7 @@ const COMMANDS: &[&str] = &[
     "/wt-exit",
     "/btw",
     "/queue",
+    "/workflow",
 ];
 
 pub struct ListPicker {
