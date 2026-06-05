@@ -14,6 +14,7 @@ use std::io::Write;
 use crate::ui::pickers::file::FilePicker;
 use crate::ui::pickers::list::ListPicker;
 use crate::ui::pickers::models::ModelsPicker;
+use crate::ui::utils::UiColors;
 
 const MAX_KILL_RING: usize = 30;
 
@@ -25,6 +26,7 @@ pub struct InputEditor {
     draft: Option<CompactString>,
     pub picker: Option<Picker>,
     monochrome: bool,
+    colors: UiColors,
     prompt_names: Vec<String>,
     theme_names: Vec<String>,
     quick_model_names: Vec<String>,
@@ -46,6 +48,7 @@ impl InputEditor {
             draft: None,
             picker: None,
             monochrome: false,
+            colors: UiColors::default_colors(),
             prompt_names: Vec::new(),
             theme_names: Vec::new(),
             quick_model_names: Vec::new(),
@@ -81,6 +84,13 @@ impl InputEditor {
         }
     }
 
+    pub fn set_colors(&mut self, colors: UiColors) {
+        self.colors = colors.clone();
+        if let Some(ref mut picker) = self.picker {
+            picker.set_colors(colors);
+        }
+    }
+
     pub fn set_prompt_names(&mut self, names: Vec<String>) {
         self.prompt_names = names;
     }
@@ -102,6 +112,7 @@ impl InputEditor {
     pub fn start_file_picker(&mut self) {
         let mut picker = FilePicker::new();
         picker.set_monochrome(self.monochrome);
+        picker.set_colors(self.colors.clone());
         picker.activate();
         self.picker = Some(Picker::File(picker));
     }
@@ -109,6 +120,7 @@ impl InputEditor {
     pub fn start_command_picker(&mut self) {
         let mut picker = ListPicker::with_static_commands();
         picker.set_monochrome(self.monochrome);
+        picker.set_colors(self.colors.clone());
         picker.activate();
         self.picker = Some(Picker::Command(picker));
     }
@@ -116,6 +128,7 @@ impl InputEditor {
     pub fn start_models_picker(&mut self) {
         let mut picker = ModelsPicker::new();
         picker.set_monochrome(self.monochrome);
+        picker.set_colors(self.colors.clone());
         picker.set_groups(
             self.quick_model_names.clone(),
             self.live_model_names.clone(),
@@ -127,6 +140,7 @@ impl InputEditor {
     pub fn start_provider_picker(&mut self) {
         let mut picker = ListPicker::new();
         picker.set_monochrome(self.monochrome);
+        picker.set_colors(self.colors.clone());
         if !self.provider_names.is_empty() {
             picker.set_items(self.provider_names.clone());
         }
@@ -137,6 +151,7 @@ impl InputEditor {
     pub fn start_prompt_picker(&mut self) {
         let mut picker = ListPicker::new();
         picker.set_monochrome(self.monochrome);
+        picker.set_colors(self.colors.clone());
         if !self.prompt_names.is_empty() {
             picker.set_items(self.prompt_names.clone());
         }
@@ -147,6 +162,7 @@ impl InputEditor {
     pub fn start_dot_picker(&mut self) {
         let mut picker = ListPicker::new();
         picker.set_monochrome(self.monochrome);
+        picker.set_colors(self.colors.clone());
         if !self.prompt_names.is_empty() {
             picker.set_items(self.prompt_names.clone());
         }
@@ -157,6 +173,7 @@ impl InputEditor {
     pub fn start_theme_picker(&mut self) {
         let mut picker = ListPicker::new();
         picker.set_monochrome(self.monochrome);
+        picker.set_colors(self.colors.clone());
         if !self.theme_names.is_empty() {
             picker.set_items(self.theme_names.clone());
         }

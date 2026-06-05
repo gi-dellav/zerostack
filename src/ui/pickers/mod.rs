@@ -7,10 +7,10 @@ use std::io::Write;
 
 use crossterm::ExecutableCommand;
 use crossterm::cursor::MoveTo;
-use crossterm::style::{Color, ResetColor, SetForegroundColor};
+use crossterm::style::{ResetColor, SetForegroundColor};
 use crossterm::terminal::Clear;
 
-use super::utils::resolve_color;
+use super::utils::{UiColors, resolve_color};
 
 pub(crate) fn fuzzy_score(item: &str, query: &str) -> Option<i32> {
     if query.is_empty() {
@@ -72,6 +72,7 @@ pub(crate) fn draw_picker_list(
     monochrome: bool,
     empty_message: Option<&str>,
     bottom_reserved: u16,
+    colors: &UiColors,
 ) -> std::io::Result<()> {
     let (cols, rows) = crossterm::terminal::size()?;
     let mut stdout = std::io::stdout();
@@ -81,7 +82,7 @@ pub(crate) fn draw_picker_list(
     if matches.is_empty() {
         let r = rows.saturating_sub(3);
         stdout.execute(MoveTo(0, r))?;
-        let color = resolve_color(Color::DarkGrey, monochrome);
+        let color = resolve_color(colors.picker_secondary, monochrome);
         write!(stdout, "{}", SetForegroundColor(color))?;
         write!(stdout, "{}", empty_message.unwrap_or("no matches"))?;
         write!(stdout, "{}", ResetColor)?;
@@ -117,14 +118,14 @@ pub(crate) fn draw_picker_list(
             write!(
                 stdout,
                 "{}",
-                SetForegroundColor(resolve_color(Color::Green, monochrome))
+                SetForegroundColor(resolve_color(colors.picker_selected, monochrome))
             )?;
             write!(stdout, "▸ {}", truncated)?;
         } else {
             write!(
                 stdout,
                 "{}",
-                SetForegroundColor(resolve_color(Color::DarkGrey, monochrome))
+                SetForegroundColor(resolve_color(colors.picker_secondary, monochrome))
             )?;
             write!(stdout, "  {}", truncated)?;
         }

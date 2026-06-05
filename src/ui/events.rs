@@ -1,13 +1,12 @@
 use chrono::Datelike;
 use compact_str::CompactString;
-use crossterm::style::Color;
 
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
 use crate::session::{MessageRole, Session};
 use crate::ui::markdown;
-use crate::ui::renderer::Renderer;
+use crate::ui::renderer::{LineColor, Renderer};
 
 pub fn format_time(rfc3339: &str) -> CompactString {
     let dt = chrono::DateTime::parse_from_rfc3339(rfc3339).ok();
@@ -40,16 +39,16 @@ pub fn render_session(
         cli.resolve_model(cfg),
         env!("CARGO_PKG_VERSION")
     );
-    renderer.write_line(&welcome, Color::Cyan)?;
-    renderer.write_line("", Color::White)?;
+    renderer.write_line(&welcome, LineColor::Heading)?;
+    renderer.write_line("", LineColor::AgentText)?;
     if context.agents.is_some() {
-        renderer.write_line("loaded AGENTS.md", Color::DarkGrey)?;
-        renderer.write_line("", Color::White)?;
+        renderer.write_line("loaded AGENTS.md", LineColor::Secondary)?;
+        renderer.write_line("", LineColor::AgentText)?;
     }
     #[cfg(feature = "archmd")]
     if context.architecture.is_some() {
-        renderer.write_line("loaded ARCHITECTURE.md", Color::DarkGrey)?;
-        renderer.write_line("", Color::White)?;
+        renderer.write_line("loaded ARCHITECTURE.md", LineColor::Secondary)?;
+        renderer.write_line("", LineColor::AgentText)?;
     }
     if !session.compactions.is_empty() {
         renderer.write_line(
@@ -62,15 +61,15 @@ pub fn render_session(
                     .map(|c| c.token_savings)
                     .unwrap_or(0),
             ),
-            Color::DarkGrey,
+            LineColor::Secondary,
         )?;
-        renderer.write_line("", Color::White)?;
+        renderer.write_line("", LineColor::AgentText)?;
     }
     for msg in &session.messages {
         let (prefix, _c) = match msg.role {
-            MessageRole::User => (">", Color::Green),
-            MessageRole::Assistant => ("<", Color::White),
-            MessageRole::System => ("#", Color::DarkGrey),
+            MessageRole::User => (">", LineColor::PromptMarker),
+            MessageRole::Assistant => ("<", LineColor::AgentText),
+            MessageRole::System => ("#", LineColor::Secondary),
         };
         if msg.role == MessageRole::Assistant {
             let max_width = renderer.line_width();
@@ -86,58 +85,76 @@ pub fn render_session(
                 renderer.write_line(&format!("{} {}", prefix, line), _c)?;
             }
         }
-        renderer.write_line("", Color::White)?;
+        renderer.write_line("", LineColor::AgentText)?;
     }
     Ok(())
 }
 
 pub fn show_welcome(renderer: &mut Renderer) -> std::io::Result<()> {
-    use super::C_TOOL;
-    use crossterm::style::Color;
-
-    renderer.write_line("──────────────────────────────────────────", Color::Cyan)?;
-    renderer.write_line("  zerostack Quickstart", Color::Cyan)?;
-    renderer.write_line("──────────────────────────────────────────", Color::Cyan)?;
-    renderer.write_line("", Color::White)?;
-    renderer.write_line("  Pickers:", C_TOOL)?;
+    renderer.write_line(
+        "──────────────────────────────────────────",
+        LineColor::Heading,
+    )?;
+    renderer.write_line("  zerostack Quickstart", LineColor::Heading)?;
+    renderer.write_line(
+        "──────────────────────────────────────────",
+        LineColor::Heading,
+    )?;
+    renderer.write_line("", LineColor::AgentText)?;
+    renderer.write_line("  Pickers:", LineColor::ToolCall)?;
     renderer.write_line(
         "    @<path>     File picker / auto-complete paths",
-        Color::White,
+        LineColor::AgentText,
     )?;
     renderer.write_line(
         "    !<command>  Run a shell command (output stored as assistant)",
-        Color::White,
+        LineColor::AgentText,
     )?;
     renderer.write_line(
         "    .<prompt>   Switch prompt or one-shot .<prompt> <message>",
-        Color::White,
+        LineColor::AgentText,
     )?;
-    renderer.write_line("", Color::White)?;
-    renderer.write_line("  Slash Commands:", C_TOOL)?;
-    renderer.write_line("    /model        Switch model", Color::White)?;
-    renderer.write_line("    /prompt       List / activate prompts", Color::White)?;
+    renderer.write_line("", LineColor::AgentText)?;
+    renderer.write_line("  Slash Commands:", LineColor::ToolCall)?;
+    renderer.write_line("    /model        Switch model", LineColor::AgentText)?;
+    renderer.write_line(
+        "    /prompt       List / activate prompts",
+        LineColor::AgentText,
+    )?;
     renderer.write_line(
         "    .autoconfig        Switches to auto-configurator",
-        Color::White,
+        LineColor::AgentText,
     )?;
-    renderer.write_line("    /mode         Change security mode", Color::White)?;
-    renderer.write_line("    /clear        Clear session", Color::White)?;
-    renderer.write_line("    /undo         Undo last exchange", Color::White)?;
-    renderer.write_line("    /compress     Free context window space", Color::White)?;
-    renderer.write_line("    /help         Show all commands", Color::White)?;
-    renderer.write_line("", Color::White)?;
-    renderer.write_line("  Keybindings:", C_TOOL)?;
-    renderer.write_line("    Ctrl+G     Open input in $EDITOR", Color::White)?;
-    renderer.write_line("    Ctrl+H     Launch lazygit", Color::White)?;
-    renderer.write_line("    Ctrl+S     Save session", Color::White)?;
-    renderer.write_line("    Tab        File picker / auto-complete", Color::White)?;
+    renderer.write_line(
+        "    /mode         Change security mode",
+        LineColor::AgentText,
+    )?;
+    renderer.write_line("    /clear        Clear session", LineColor::AgentText)?;
+    renderer.write_line("    /undo         Undo last exchange", LineColor::AgentText)?;
+    renderer.write_line(
+        "    /compress     Free context window space",
+        LineColor::AgentText,
+    )?;
+    renderer.write_line("    /help         Show all commands", LineColor::AgentText)?;
+    renderer.write_line("", LineColor::AgentText)?;
+    renderer.write_line("  Keybindings:", LineColor::ToolCall)?;
+    renderer.write_line("    Ctrl+G     Open input in $EDITOR", LineColor::AgentText)?;
+    renderer.write_line("    Ctrl+H     Launch lazygit", LineColor::AgentText)?;
+    renderer.write_line("    Ctrl+S     Save session", LineColor::AgentText)?;
+    renderer.write_line(
+        "    Tab        File picker / auto-complete",
+        LineColor::AgentText,
+    )?;
     renderer.write_line(
         "  Website: https://gi-dellav.github.io/zerostack/",
-        Color::White,
+        LineColor::AgentText,
     )?;
-    renderer.write_line("", Color::White)?;
-    renderer.write_line("──────────────────────────────────────────", Color::Cyan)?;
-    renderer.write_line("", Color::White)?;
+    renderer.write_line("", LineColor::AgentText)?;
+    renderer.write_line(
+        "──────────────────────────────────────────",
+        LineColor::Heading,
+    )?;
+    renderer.write_line("", LineColor::AgentText)?;
     Ok(())
 }
 

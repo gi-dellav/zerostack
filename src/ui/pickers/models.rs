@@ -5,7 +5,7 @@ use crossterm::cursor::MoveTo;
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use crossterm::terminal::Clear;
 
-use super::super::utils::resolve_color;
+use super::super::utils::{UiColors, resolve_color};
 use super::{draw_picker_list, fuzzy_score};
 
 pub struct ModelsPicker {
@@ -18,6 +18,7 @@ pub struct ModelsPicker {
     provider: Vec<String>,
     pub group: usize,
     monochrome: bool,
+    colors: UiColors,
 }
 
 impl ModelsPicker {
@@ -32,6 +33,7 @@ impl ModelsPicker {
             provider: Vec::new(),
             group: 0,
             monochrome: false,
+            colors: UiColors::default_colors(),
         }
     }
 
@@ -42,6 +44,10 @@ impl ModelsPicker {
     pub fn set_groups(&mut self, quick: Vec<String>, provider: Vec<String>) {
         self.quick = quick;
         self.provider = provider;
+    }
+
+    pub fn set_colors(&mut self, colors: UiColors) {
+        self.colors = colors;
     }
 
     fn color(&self, color: Color) -> Color {
@@ -166,7 +172,7 @@ impl ModelsPicker {
             write!(
                 stdout,
                 "{}",
-                SetForegroundColor(self.color(Color::DarkGrey))
+                SetForegroundColor(self.color(self.colors.picker_secondary))
             )?;
             write!(
                 stdout,
@@ -177,6 +183,13 @@ impl ModelsPicker {
             write!(stdout, "{}", ResetColor)?;
         }
 
-        draw_picker_list(&self.matches, self.selected, self.monochrome, None, 5)
+        draw_picker_list(
+            &self.matches,
+            self.selected,
+            self.monochrome,
+            None,
+            5,
+            &self.colors,
+        )
     }
 }

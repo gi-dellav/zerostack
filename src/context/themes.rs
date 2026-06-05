@@ -5,7 +5,7 @@ use include_dir::{Dir, include_dir};
 
 use crate::config::ColorsConfig;
 use crate::ui::renderer::Renderer;
-use crate::ui::utils::parse_color;
+use crate::ui::utils::UiColors;
 
 static EMBEDDED: Dir = include_dir!("$CARGO_MANIFEST_DIR/themes");
 
@@ -44,9 +44,6 @@ pub fn regen() -> anyhow::Result<()> {
 
 pub fn apply(content: &str, renderer: &mut Renderer) {
     if let Ok(colors) = serde_json::from_str::<ColorsConfig>(content) {
-        let chat_bg = colors.chat_background.as_deref().and_then(parse_color);
-        let input_bg = colors.input_background.as_deref().and_then(parse_color);
-        let status_bg = colors.status_background.as_deref().and_then(parse_color);
-        renderer.set_background_colors(chat_bg, input_bg, status_bg);
+        renderer.set_colors(UiColors::from_config(&colors));
     }
 }

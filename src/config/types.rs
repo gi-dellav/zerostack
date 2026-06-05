@@ -71,7 +71,42 @@ impl std::str::FromStr for EditSystem {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ColorsConfig {
+    // Background colors
     pub chat_background: Option<CompactString>,
     pub input_background: Option<CompactString>,
     pub status_background: Option<CompactString>,
+
+    // Semantic foreground colors
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_text: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_the_way: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub secondary: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub success: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_block: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_text: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_marker: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_foreground: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scroll_indicator: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picker_secondary: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picker_selected: Option<CompactString>,
 }

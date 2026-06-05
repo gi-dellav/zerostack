@@ -1,9 +1,10 @@
 use compact_str::CompactString;
-use crossterm::style::Color;
+
 use pulldown_cmark::{Alignment, Event, Options, Tag, TagEnd};
 use smallvec::{SmallVec, smallvec};
 
-use super::renderer::LineEntry;
+use super::renderer::{LineColor, LineEntry};
+
 use super::utils::display_width;
 
 pub(crate) fn word_wrap(text: &str, max_width: usize) -> SmallVec<[CompactString; 4]> {
@@ -83,7 +84,7 @@ pub(crate) fn word_wrap(text: &str, max_width: usize) -> SmallVec<[CompactString
     lines
 }
 
-fn flush_acc(acc: &str, color: Color, max_width: usize, out: &mut Vec<LineEntry>) {
+fn flush_acc(acc: &str, color: LineColor, max_width: usize, out: &mut Vec<LineEntry>) {
     if acc.is_empty() {
         return;
     }
@@ -102,11 +103,8 @@ fn flush_acc(acc: &str, color: Color, max_width: usize, out: &mut Vec<LineEntry>
     }
 }
 
-fn bullet_prefix(col: Color) -> &'static str {
-    match col {
-        Color::DarkGrey => "  ┊ ",
-        _ => "  • ",
-    }
+fn bullet_prefix(in_blockquote: bool) -> &'static str {
+    if in_blockquote { "  ┊ " } else { "  • " }
 }
 
 pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
@@ -141,17 +139,17 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
             Event::Start(tag) => match tag {
                 Tag::Paragraph => {}
                 Tag::Heading { level: _, .. } => {
-                    flush_acc(&acc, Color::White, max_width, &mut result);
+                    flush_acc(&acc, LineColor::AgentText, max_width, &mut result);
                     acc.clear();
                     in_heading = true;
                 }
                 Tag::CodeBlock(_kind) => {
-                    flush_acc(&acc, Color::White, max_width, &mut result);
+                    flush_acc(&acc, LineColor::AgentText, max_width, &mut result);
                     acc.clear();
                     in_code_block = true;
                 }
                 Tag::BlockQuote(_) => {
-                    flush_acc(&acc, Color::White, max_width, &mut result);
+                    flush_acc(&acc, LineColor::AgentText, max_width, &mut result);
                     acc.clear();
                     in_blockquote = true;
                 }
@@ -160,13 +158,13 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                     list_item_count = 0;
                 }
                 Tag::Item => {
-                    flush_acc(&acc, Color::White, max_width, &mut result);
+                    flush_acc(&acc, LineColor::AgentText, max_width, &mut result);
                     acc.clear();
                     list_item_count += 1;
                 }
                 Tag::FootnoteDefinition(_) => {}
                 Tag::Table(alignments) => {
-                    flush_acc(&acc, Color::White, max_width, &mut result);
+                    flush_acc(&acc, LineColor::AgentText, max_width, &mut result);
                     acc.clear();
                     table_rows.clear();
                     table_row.clear();
@@ -196,20 +194,20 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
             Event::End(tag_end) => match tag_end {
                 TagEnd::Paragraph => {
                     let color = if in_blockquote {
-                        Color::DarkGrey
+                        LineColor::Secondary
                     } else {
-                        Color::White
+                        LineColor::AgentText
                     };
                     flush_acc(&acc, color, max_width, &mut result);
                     acc.clear();
                 }
                 TagEnd::Heading(_) => {
-                    flush_acc(&acc, Color::Cyan, max_width, &mut result);
+                    flush_acc(&acc, LineColor::Heading, max_width, &mut result);
                     acc.clear();
                     in_heading = false;
                     result.push(LineEntry {
                         text: CompactString::new(""),
-                        color: Color::White,
+                        color: LineColor::AgentText,
                     });
                 }
                 TagEnd::CodeBlock => {
@@ -218,12 +216,12 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                         if trimmed.is_empty() {
                             result.push(LineEntry {
                                 text: CompactString::new(""),
-                                color: Color::DarkYellow,
+                                color: LineColor::CodeBlock,
                             });
                         } else {
                             result.push(LineEntry {
                                 text: CompactString::from(trimmed),
-                                color: Color::DarkYellow,
+                                color: LineColor::CodeBlock,
                             });
                         }
                     }
@@ -231,7 +229,7 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                     in_code_block = false;
                     result.push(LineEntry {
                         text: CompactString::new(""),
-                        color: Color::White,
+                        color: LineColor::AgentText,
                     });
                 }
                 TagEnd::BlockQuote(_) => {
@@ -241,14 +239,14 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                         if trimmed.is_empty() {
                             quoted.push(LineEntry {
                                 text: CompactString::new(""),
-                                color: Color::DarkGrey,
+                                color: LineColor::Secondary,
                             });
                         } else {
                             let prefixed = format!("│ {}", trimmed);
                             for chunk in word_wrap(&prefixed, max_width) {
                                 quoted.push(LineEntry {
                                     text: chunk,
-                                    color: Color::DarkGrey,
+                                    color: LineColor::Secondary,
                                 });
                             }
                         }
@@ -258,19 +256,19 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                     in_blockquote = false;
                     result.push(LineEntry {
                         text: CompactString::new(""),
-                        color: Color::White,
+                        color: LineColor::AgentText,
                     });
                 }
                 TagEnd::Item => {
                     let color = if in_blockquote {
-                        Color::DarkGrey
+                        LineColor::Secondary
                     } else {
-                        Color::White
+                        LineColor::AgentText
                     };
                     let bullet = if ordered_list {
                         format!(" {}. ", list_item_count)
                     } else {
-                        bullet_prefix(color).to_string()
+                        bullet_prefix(in_blockquote).to_string()
                     };
                     let mut item_lines = Vec::new();
                     let mut first = true;
@@ -301,7 +299,7 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                     list_item_count = 0;
                     result.push(LineEntry {
                         text: CompactString::new(""),
-                        color: Color::White,
+                        color: LineColor::AgentText,
                     });
                 }
                 TagEnd::Link => {
@@ -309,12 +307,12 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                         if in_table_cell {
                             table_cell.push_str(&format!(" ({})", link_url));
                         } else if !acc.is_empty() {
-                            flush_acc(&acc, Color::DarkCyan, max_width, &mut result);
+                            flush_acc(&acc, LineColor::LinkText, max_width, &mut result);
                             let note = format!("  ↪ {}", link_url);
                             for chunk in word_wrap(&note, max_width) {
                                 result.push(LineEntry {
                                     text: chunk,
-                                    color: Color::DarkGrey,
+                                    color: LineColor::Secondary,
                                 });
                             }
                             acc.clear();
@@ -328,7 +326,7 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                     table_alignments.clear();
                     result.push(LineEntry {
                         text: CompactString::new(""),
-                        color: Color::White,
+                        color: LineColor::AgentText,
                     });
                 }
                 TagEnd::TableHead => {
@@ -376,16 +374,16 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                 }
             }
             Event::Rule => {
-                flush_acc(&acc, Color::White, max_width, &mut result);
+                flush_acc(&acc, LineColor::AgentText, max_width, &mut result);
                 acc.clear();
                 let rule: String = "\u{2500}".repeat(max_width.min(40));
                 result.push(LineEntry {
                     text: CompactString::from(rule),
-                    color: Color::DarkGrey,
+                    color: LineColor::Secondary,
                 });
                 result.push(LineEntry {
                     text: CompactString::new(""),
-                    color: Color::White,
+                    color: LineColor::AgentText,
                 });
             }
             Event::Html(t) => {
@@ -418,13 +416,13 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
 
     if !acc.is_empty() {
         let color = if in_blockquote {
-            Color::DarkGrey
+            LineColor::Secondary
         } else if in_code_block {
-            Color::DarkYellow
+            LineColor::CodeBlock
         } else if in_heading {
-            Color::Cyan
+            LineColor::Heading
         } else {
-            Color::White
+            LineColor::AgentText
         };
         flush_acc(&acc, color, max_width, &mut result);
     }
@@ -474,16 +472,16 @@ fn flush_table(
     let sep = format_table_rule(&col_widths, '\u{251c}', '\u{253c}', '\u{2524}');
     let bot = format_table_rule(&col_widths, '\u{2514}', '\u{2534}', '\u{2518}');
 
-    push_table_line(&top, Color::DarkGrey, out);
+    push_table_line(&top, LineColor::Secondary, out);
     for (i, row) in rows.iter().enumerate() {
         for line in format_table_row(row, &col_widths, alignments) {
-            push_table_line(&line, Color::White, out);
+            push_table_line(&line, LineColor::AgentText, out);
         }
         if i == 0 && rows.len() > 1 {
-            push_table_line(&sep, Color::DarkGrey, out);
+            push_table_line(&sep, LineColor::Secondary, out);
         }
     }
-    push_table_line(&bot, Color::DarkGrey, out);
+    push_table_line(&bot, LineColor::Secondary, out);
 }
 
 fn format_table_rule(widths: &[usize], left: char, mid: char, right: char) -> String {
@@ -501,7 +499,7 @@ fn format_table_rule(widths: &[usize], left: char, mid: char, right: char) -> St
     s
 }
 
-fn push_table_line(text: &str, color: Color, out: &mut Vec<LineEntry>) {
+fn push_table_line(text: &str, color: LineColor, out: &mut Vec<LineEntry>) {
     out.push(LineEntry {
         text: CompactString::from(text),
         color,

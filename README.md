@@ -15,7 +15,7 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 - **Standard tools**: all of the standard tools exposed to coding agents, as described by the opencode documentation.
 - **Permission system**: five configurable modes with per-tool patterns, session allowlists, and configurable mode-to-rule application policies
 - **Session management**: save/load/resume sessions, auto-compaction to stay within context windows
-- **Terminal UI**: crossterm-based, markdown rendering, mouse selection/copy, scrollback, reasoning visibility toggle
+- **Terminal UI**: crossterm-based, markdown rendering, mouse selection/copy, scrollback, reasoning visibility toggle, customizable color themes
 - **Prompts system**: switch between system prompt modes at runtime (`code`, `plan`, `review`, `debug`, etc.) to tailor the agent's behavior to the task without having to manage Skills.
 - **MCP support**: connect MCP servers for extended tooling (exposed as an optional compile-time feature)
 - **Integrated Exa search**: allows for WebFetch and WebSearch tools
@@ -138,6 +138,19 @@ project root or any ancestor directory, injecting their contents into the
 system prompt. When enabled (feature `archmd`), `ARCHITECTURE.md` is also loaded
 the same way, providing high-level design context to speed up exploration.
 Use `-n` / `--no-context-files` to disable all context file loading.
+
+## Themes
+
+zerostack supports color themes that customize the TUI appearance. Built-in themes
+include popular dark palettes (gruvbox, dracula, tokyo-night, nord, etc.).
+
+Use `/theme` to list available themes, `/theme <name>` to activate one, and
+`/theme default` to revert to config colors. Colors can also be set directly in
+the config file — see [docs/CONFIG.md](docs/CONFIG.md#colors) for all fields
+and color syntax (named, hex, `ansi:N`).
+
+Custom themes can be created by placing a `.json` file in
+`~/.local/share/zerostack/themes/`.
 
 ## Permission system
 

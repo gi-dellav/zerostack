@@ -121,21 +121,10 @@ async fn handle_theme(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
             ctx.context.current_theme_name = None;
             let _ = storage::save_theme_name(None);
             if let Some(colors) = &ctx.cfg.colors {
-                let chat_bg = colors
-                    .chat_background
-                    .as_deref()
-                    .and_then(crate::ui::utils::parse_color);
-                let input_bg = colors
-                    .input_background
-                    .as_deref()
-                    .and_then(crate::ui::utils::parse_color);
-                let status_bg = colors
-                    .status_background
-                    .as_deref()
-                    .and_then(crate::ui::utils::parse_color);
                 ctx.renderer
-                    .set_background_colors(chat_bg, input_bg, status_bg);
+                    .set_colors(crate::ui::utils::UiColors::from_config(colors));
             }
+
             write_ok(ctx.renderer, "theme cleared (using config colors)");
         }
     } else {
@@ -144,6 +133,7 @@ async fn handle_theme(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
             ctx.context.current_theme_name = Some(name.to_string());
             let _ = storage::save_theme_name(Some(name));
             crate::context::themes::apply(content, ctx.renderer);
+
             write_ok(ctx.renderer, format!("active theme: {}", name));
         } else {
             write_error(ctx.renderer, format!("unknown theme: '{}'", name));

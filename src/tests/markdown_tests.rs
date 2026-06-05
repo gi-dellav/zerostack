@@ -1,6 +1,6 @@
 use crate::ui::markdown::{markdown_to_styled, word_wrap};
+use crate::ui::renderer::LineColor;
 use crate::ui::utils::display_width;
-use crossterm::style::Color;
 
 // ── word_wrap ───────────────────────────────────────────────────────
 
@@ -138,7 +138,7 @@ fn link_text_is_colored() {
     let styled = markdown_to_styled("[link text](https://x.com)", 80);
     let cyan_lines: Vec<_> = styled
         .iter()
-        .filter(|e| e.color == Color::DarkCyan)
+        .filter(|e| e.color == LineColor::LinkText)
         .collect();
     assert!(!cyan_lines.is_empty(), "link text should be DarkCyan");
 }
@@ -148,7 +148,7 @@ fn link_url_is_dark_grey() {
     let styled = markdown_to_styled("[text](https://x.com)", 80);
     let url_lines: Vec<_> = styled
         .iter()
-        .filter(|e| e.color == Color::DarkGrey && e.text.contains('\u{21aa}'))
+        .filter(|e| e.color == LineColor::Secondary && e.text.contains('\u{21aa}'))
         .collect();
     assert!(
         !url_lines.is_empty(),
@@ -208,7 +208,7 @@ fn table_borders_are_dark_grey() {
     let styled = markdown_to_styled(input, 80);
     let border_lines: Vec<_> = styled
         .iter()
-        .filter(|e| e.color == Color::DarkGrey && e.text.contains('\u{2500}'))
+        .filter(|e| e.color == LineColor::Secondary && e.text.contains('\u{2500}'))
         .collect();
     assert!(!border_lines.is_empty(), "table borders should be DarkGrey");
 }
@@ -219,7 +219,7 @@ fn table_content_is_white() {
     let styled = markdown_to_styled(input, 80);
     let content_lines: Vec<_> = styled
         .iter()
-        .filter(|e| e.color == Color::White && e.text.contains('y'))
+        .filter(|e| e.color == LineColor::AgentText && e.text.contains('y'))
         .collect();
     assert!(!content_lines.is_empty(), "table content should be White");
 }
@@ -262,8 +262,8 @@ fn empty_input_returns_empty_vec() {
 #[test]
 fn headings_still_work() {
     let styled = markdown_to_styled("# Hello", 80);
-    let heading = styled.iter().find(|e| e.color == Color::Cyan);
-    assert!(heading.is_some(), "heading should be Cyan");
+    let heading = styled.iter().find(|e| e.color == LineColor::Heading);
+    assert!(heading.is_some(), "heading should be Heading color");
     assert!(heading.unwrap().text.contains("Hello"));
 }
 
@@ -273,9 +273,12 @@ fn code_blocks_still_work() {
     let styled = markdown_to_styled(input, 80);
     let code_lines: Vec<_> = styled
         .iter()
-        .filter(|e| e.color == Color::DarkYellow)
+        .filter(|e| e.color == LineColor::CodeBlock)
         .collect();
-    assert!(!code_lines.is_empty(), "code block should be DarkYellow");
+    assert!(
+        !code_lines.is_empty(),
+        "code block should be CodeBlock color"
+    );
 }
 
 #[test]
@@ -288,6 +291,6 @@ fn lists_still_work() {
 #[test]
 fn blockquotes_still_work() {
     let styled = markdown_to_styled("> quoted text", 80);
-    let quoted = styled.iter().any(|e| e.color == Color::DarkGrey);
-    assert!(quoted, "blockquote text should be DarkGrey");
+    let quoted = styled.iter().any(|e| e.color == LineColor::Secondary);
+    assert!(quoted, "blockquote text should be Secondary color");
 }

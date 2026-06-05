@@ -1,4 +1,5 @@
 use super::draw_picker_list;
+use crate::ui::utils::UiColors;
 
 const COMMANDS: &[&str] = &[
     "/add",
@@ -49,6 +50,7 @@ pub struct ListPicker {
     pub selected: usize,
     items: Vec<String>,
     monochrome: bool,
+    colors: UiColors,
 }
 
 impl ListPicker {
@@ -61,6 +63,7 @@ impl ListPicker {
             selected: 0,
             items: Vec::new(),
             monochrome: false,
+            colors: UiColors::default_colors(),
         }
     }
 
@@ -149,6 +152,10 @@ impl ListPicker {
         self.matches.get(self.selected).map(|s| s.as_str())
     }
 
+    pub fn set_colors(&mut self, colors: UiColors) {
+        self.colors = colors;
+    }
+
     pub fn draw(&self, empty_message: Option<&str>) -> std::io::Result<()> {
         if !self.active {
             return Ok(());
@@ -159,6 +166,7 @@ impl ListPicker {
             self.monochrome,
             empty_message,
             4,
+            &self.colors,
         )
     }
 }

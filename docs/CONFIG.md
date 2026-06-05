@@ -221,17 +221,51 @@ gateways) — use with care, as it makes the connection vulnerable to MITM.
 
 ## Colors
 
-The `colors` object accepts three optional string fields, each of which can be a
-named color or hex color (e.g. `"#1e1e2e"`). Named colors are case-insensitive.
-Accepted values:
+The `colors` object accepts optional string fields for both background and
+foreground colors. Each value can be a named color, hex color (e.g. `"#1e1e2e"`),
+or ANSI color code (e.g. `"ansi:7"`). Named colors and ANSI codes are
+case-insensitive.
+
+### Background colors
 
 - `chat_background` — background color for the main conversation buffer.
 - `input_background` — background color for the text input area.
 - `status_background` — background color for the status bar (lowest line).
 
+### Foreground colors
+
+| Field | Default | Used for |
+|-------|---------|----------|
+| `agent_text` | `white` | Agent output, default text, table rows |
+| `error` | `red` | Error messages |
+| `tool_call` | `yellow` | Tool call output |
+| `permission` | `magenta` | Permission prompts |
+| `by_the_way` | `cyan` | BTW messages |
+| `reasoning` | `dark_magenta` | Reasoning tokens |
+| `secondary` | `dark_grey` | Tool results, blockquotes, rules |
+| `success` | `green` | Completed todos |
+| `heading` | `cyan` | Markdown headings |
+| `code_block` | `dark_yellow` | Code blocks |
+| `link_text` | `dark_cyan` | Markdown link text |
+| `prompt_marker` | `cyan` | The `>` input prompt |
+| `scroll_indicator` | `dark_grey` | Scroll position indicator |
+| `picker_secondary` | `dark_grey` | Unselected picker items |
+| `picker_selected` | `green` | Selected picker item highlight |
+| `status_foreground` | `dark_grey` | Status bar text |
+
+All foreground fields default to `None` (the built-in default shown above is
+used). Set a field to override only that color — unspecified fields keep their
+built-in defaults.
+
+### Color syntax
+
 Supported named colors: `reset`, `black`, `red`, `green`, `yellow`, `blue`,
 `magenta`, `cyan`, `white`, `grey`, `dark_grey`, `dark_red`, `dark_green`,
 `dark_yellow`, `dark_blue`, `dark_magenta`, `dark_cyan`.
+
+ANSI 256-color codes: `ansi:N` where N is 0–255 (e.g. `"ansi:7"`, `"ansi:214"`).
+
+Hex truecolor: `#RRGGBB` (e.g. `"#1e1e2e"`).
 
 Example:
 ```json
@@ -239,10 +273,44 @@ Example:
   "colors": {
     "chat_background": "#1e1e2e",
     "input_background": "#181825",
-    "status_background": "#11111b"
+    "status_background": "#11111b",
+    "agent_text": "ansi:7",
+    "error": "ansi:9",
+    "secondary": "ansi:8"
   }
 }
 ```
+
+### Built-in themes
+
+zerostack ships with built-in color themes that can be activated with
+`/theme <name>`. Themes are JSON files stored in the themes directory
+(`~/.local/share/zerostack/themes/`).
+
+Each theme file is a `colors` object — the same format as the `colors` key
+in the config file. Theme files set only the colors they define; unspecified
+fields keep the built-in defaults.
+
+To list available themes, use `/theme`. To regenerate built-in themes
+(e.g. after an update adds new ones), use `/regen-themes`.
+
+| Theme | Style |
+|-------|-------|
+| `default` | Empty theme (built-in defaults) |
+| `ayu-mirage` | Warm dark (hex backgrounds) |
+| `dracula` | Purple-tinted dark (hex backgrounds) |
+| `everforest` | Green-tinted dark (hex backgrounds) |
+| `gruvbox` | Warm earth tones (hex backgrounds) |
+| `kanagawa` | Blue-tinged dark (hex backgrounds) |
+| `monokai` | Classic editor dark (hex backgrounds) |
+| `nord` | Cool blue-grey (hex backgrounds) |
+| `one-dark` | Atom-inspired dark (hex backgrounds) |
+| `rose-pine` | Soft pastel dark (hex backgrounds) |
+| `solarized-dark` | Solarized palette (hex backgrounds) |
+| `tokyo-night` | Deep blue dark (hex backgrounds) |
+
+You can create custom themes by placing a `.json` file in the themes
+directory. The filename (without `.json`) becomes the theme name.
 
 Permission actions are lowercase strings: `allow`, `ask`, or `deny`. Each tool
 rule can be a single action or an object mapping patterns to actions. Supported

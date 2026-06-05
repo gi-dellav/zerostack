@@ -1,5 +1,7 @@
 use crossterm::event::KeyEvent;
 
+use crate::ui::utils::UiColors;
+
 use crate::ui::pickers::file::FilePicker;
 use crate::ui::pickers::handlers;
 use crate::ui::pickers::list::ListPicker;
@@ -28,6 +30,15 @@ impl Picker {
             Picker::Command(p) => p.set_monochrome(monochrome),
             Picker::Prefixed(p, _) => p.set_monochrome(monochrome),
             Picker::Models(p) => p.set_monochrome(monochrome),
+        }
+    }
+
+    pub fn set_colors(&mut self, colors: UiColors) {
+        match self {
+            Picker::File(p) => p.set_colors(colors),
+            Picker::Command(p) => p.set_colors(colors),
+            Picker::Prefixed(p, _) => p.set_colors(colors),
+            Picker::Models(p) => p.set_colors(colors),
         }
     }
 
@@ -66,7 +77,9 @@ impl InputEditor {
                 };
                 let (handled, replacement) =
                     handlers::handle_command_key(&mut self.buffer, &mut self.cursor, &ctx, p, key);
-                if let Some(new) = replacement {
+                if let Some(mut new) = replacement {
+                    new.set_monochrome(self.monochrome);
+                    new.set_colors(self.colors.clone());
                     self.picker = Some(new);
                 }
                 handled
