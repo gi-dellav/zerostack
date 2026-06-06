@@ -9099,6 +9099,7 @@ version = "1.4.5"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
+ "base64 0.22.1",
  "blocking",
  "chrono",
  "clap",

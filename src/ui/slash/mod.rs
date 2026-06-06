@@ -4,6 +4,8 @@ mod features;
 mod help;
 pub(crate) mod init;
 mod memory;
+#[cfg(feature = "multimodal")]
+pub use crate::extras::multimodal::slash as multimodal_slash;
 mod providers;
 mod session;
 mod settings;
@@ -305,6 +307,8 @@ pub async fn handle_slash(
         "/compress" | "/compact" | "/loop" | "/worktree" | "/wt-merge" | "/wt-exit" => {
             features::handle(&parts, &mut ctx).await
         }
+        #[cfg(feature = "multimodal")]
+        "/image" | "/image-drop" => multimodal_slash::handle(&parts, &mut ctx).await,
         _ => {
             write_error(
                 ctx.renderer,

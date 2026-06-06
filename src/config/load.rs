@@ -70,6 +70,15 @@ fn default_quick_models() -> HashMap<String, QuickModelConfig> {
             output_token_cost: 0.87,
         },
     );
+    map.insert(
+        "qwen3.5-27b-vision".to_string(),
+        QuickModelConfig {
+            provider: CompactString::new("openrouter"),
+            model: CompactString::new("qwen/qwen3.5-27b"),
+            input_token_cost: 0.0,
+            output_token_cost: 0.0,
+        },
+    );
     map
 }
 
@@ -140,6 +149,10 @@ fn rich_default_config() -> Config {
     cfg.default_prompt = Some(CompactString::new("code"));
     cfg.show_tool_details = Some(ShowToolDetails::Lines(1));
     cfg.subagent_model = Some(CompactString::new("deepseek-v4-flash"));
+    #[cfg(feature = "multimodal")]
+    {
+        cfg.vision_model = Some(CompactString::new("qwen3.5-27b-vision"));
+    }
     cfg
 }
 

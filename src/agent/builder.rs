@@ -176,6 +176,22 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
                 .tool(MemorySearch::new(permission.clone(), ask_tx.clone()));
         }
 
+        #[cfg(feature = "multimodal")]
+        if let Ok(vision_client) = crate::extras::multimodal::create_vision_client(cfg) {
+            let vision_model_name = cfg.vision_model.as_deref().unwrap_or("qwen3.5-27b-vision");
+            let quick_models = crate::config::quick_models_map(cfg);
+            let vision_model_id = quick_models
+                .get(vision_model_name)
+                .map(|q| q.model.as_str())
+                .unwrap_or(vision_model_name);
+            builder = builder.tool(crate::extras::multimodal::ViewImageTool::new(
+                permission.clone(),
+                ask_tx.clone(),
+                vision_client,
+                vision_model_id,
+            ));
+        }
+
         #[cfg(feature = "mcp")]
         if let Some(manager) = &mcp_manager {
             let allow_all = cfg.allow_all_mcp_calls.unwrap_or(false);

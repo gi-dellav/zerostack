@@ -54,7 +54,15 @@ impl InputEditor {
     pub fn handle_picker_key(&mut self, key: KeyEvent) -> bool {
         let handled = match self.picker.as_mut() {
             Some(Picker::File(p)) => {
-                handlers::handle_file_key(&mut self.buffer, &mut self.cursor, p, key)
+                let handled = handlers::handle_file_key(&mut self.buffer, &mut self.cursor, p, key);
+                #[cfg(feature = "multimodal")]
+                if handled && self.pending_image_attachment && !p.active {
+                    if let Some(path) = p.selected_path() {
+                        self.image_attachments.push(path.to_path_buf());
+                    }
+                    self.pending_image_attachment = false;
+                }
+                handled
             }
             Some(Picker::Command(p)) => {
                 let ctx = handlers::CommandPickerCtx {

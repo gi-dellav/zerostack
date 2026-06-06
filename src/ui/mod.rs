@@ -1220,10 +1220,54 @@ pub async fn run_interactive(
                                 }
                                 renderer.write_line("", Color::White)?;
 
+                                #[cfg(feature = "multimodal")]
+                                let processed_text = {
+                                    if !input.image_attachments.is_empty() {
+                                        match crate::extras::multimodal::create_vision_client(cfg) {
+                                            Ok(vision_client) => {
+                                                let vision_model_name = cfg.vision_model.as_deref().unwrap_or("qwen3.5-27b-vision");
+                                                let quick_models = crate::config::quick_models_map(cfg);
+                                                let vision_model_id = quick_models
+                                                    .get(vision_model_name)
+                                                    .map(|q| q.model.as_str())
+                                                    .unwrap_or(vision_model_name);
+                                                match crate::extras::multimodal::describe_images(
+                                                    &input.image_attachments,
+                                                    &vision_client,
+                                                    vision_model_id,
+                                                ).await {
+                                                    Ok(desc) => {
+                                                        input.image_attachments.clear();
+                                                        if !desc.is_empty() {
+                                                            format!("{desc}\n\n{text}")
+                                                        } else {
+                                                            text.to_string()
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        input.image_attachments.clear();
+                                                        renderer.write_line(&format!("image description error: {e}"), C_ERROR)?;
+                                                        text.to_string()
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                input.image_attachments.clear();
+                                                renderer.write_line(&format!("vision client error: {e}"), C_ERROR)?;
+                                                text.to_string()
+                                            }
+                                        }
+                                    } else {
+                                        text.to_string()
+                                    }
+                                };
+                                #[cfg(not(feature = "multimodal"))]
+                                let processed_text = text.to_string();
+
                                 // Guaranteed not running here (the is_running gate
                                 // above returns early), so this never orphans a run.
                                 start_main_run(
-                                    &text, &mut agent, &client, session, cli, cfg, context,
+                                    &processed_text, &mut agent, &client, session, cli, cfg, context,
                                     &permission, &ask_tx, &sandbox, reasoning_enabled,
                                     &mut agent_rx, &mut main_abort, &mut is_running,
                                     &status_signals,

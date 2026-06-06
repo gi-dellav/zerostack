@@ -41,6 +41,11 @@ const COMMANDS: &[&str] = &[
     "/queue",
 ];
 
+#[cfg(feature = "multimodal")]
+const MULTIMODAL_COMMANDS: &[&str] = &["/image", "/image-drop"];
+#[cfg(not(feature = "multimodal"))]
+const MULTIMODAL_COMMANDS: &[&str] = &[];
+
 pub struct ListPicker {
     pub active: bool,
     pub query: String,
@@ -66,7 +71,11 @@ impl ListPicker {
 
     pub fn with_static_commands() -> Self {
         let mut picker = ListPicker::new();
-        picker.items = COMMANDS.iter().map(|s| s.to_string()).collect();
+        picker.items = COMMANDS
+            .iter()
+            .chain(MULTIMODAL_COMMANDS.iter())
+            .map(|s| s.to_string())
+            .collect();
         picker
     }
 

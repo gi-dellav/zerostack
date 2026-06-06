@@ -19,6 +19,9 @@ pub mod subagents;
 #[cfg(feature = "archmd")]
 pub mod archmd;
 
+#[cfg(feature = "multimodal")]
+pub mod multimodal;
+
 pub mod status_signals;
 
 pub(crate) mod truncate;

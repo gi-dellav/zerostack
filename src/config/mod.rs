@@ -126,6 +126,9 @@ pub struct Config {
     pub subagent_provider: Option<CompactString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colors: Option<types::ColorsConfig>,
+    #[cfg(feature = "multimodal")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vision_model: Option<CompactString>,
 }
 
 impl Config {

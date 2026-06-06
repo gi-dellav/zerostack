@@ -34,6 +34,10 @@ pub struct InputEditor {
     kill_ring: Vec<CompactString>,
     yank_pos: Option<usize>,
     yank_len: usize,
+    #[cfg(feature = "multimodal")]
+    pub image_attachments: Vec<std::path::PathBuf>,
+    #[cfg(feature = "multimodal")]
+    pub pending_image_attachment: bool,
 }
 
 impl InputEditor {
@@ -55,6 +59,10 @@ impl InputEditor {
             kill_ring: Vec::with_capacity(MAX_KILL_RING),
             yank_pos: None,
             yank_len: 0,
+            #[cfg(feature = "multimodal")]
+            image_attachments: Vec::new(),
+            #[cfg(feature = "multimodal")]
+            pending_image_attachment: false,
         }
     }
 
@@ -103,6 +111,16 @@ impl InputEditor {
         let mut picker = FilePicker::new();
         picker.set_monochrome(self.monochrome);
         picker.activate();
+        self.picker = Some(Picker::File(picker));
+    }
+
+    #[cfg(feature = "multimodal")]
+
+    pub fn start_image_picker(&mut self) {
+        let mut picker = FilePicker::new();
+        picker.set_monochrome(self.monochrome);
+        picker.activate();
+        self.pending_image_attachment = true;
         self.picker = Some(Picker::File(picker));
     }
 
