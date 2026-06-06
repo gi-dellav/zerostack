@@ -275,7 +275,7 @@ async fn start_main_run(
     }
     session.add_message(MessageRole::User, text);
     #[cfg(feature = "advisor")]
-    crate::extras::adviser::update_session_snapshot(&session.messages);
+    crate::extras::advisor::update_session_snapshot(&session.messages);
     if !cli.no_session {
         let _ = crate::session::chat_history::append_entry(
             &crate::session::chat_history::ChatHistoryEntry {

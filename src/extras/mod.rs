@@ -20,7 +20,7 @@ pub mod subagents;
 pub mod archmd;
 
 #[cfg(feature = "advisor")]
-pub mod adviser;
+pub mod advisor;
 
 pub mod status_signals;
 

@@ -258,79 +258,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     #[cfg(feature = "advisor")]
-    {
-        let adviser_enabled = if cli.no_adviser {
-            false
-        } else {
-            cfg.adviser.as_ref().is_some_and(|a| a.enabled)
-        };
-
-        if adviser_enabled {
-            let adv_cfg = cfg.adviser.as_ref().unwrap();
-            let qm = config::quick_models_map(&cfg);
-
-            let adv_pair: Option<(compact_str::CompactString, compact_str::CompactString)> =
-                if let Some(ref cli_model) = cli.adviser_model {
-                    if let Some(q) = qm.get(cli_model.as_str()) {
-                        Some((q.provider.clone(), q.model.clone()))
-                    } else {
-                        Some((
-                            provider.clone(),
-                            compact_str::CompactString::new(cli_model.as_str()),
-                        ))
-                    }
-                } else if let Some(ref cfg_model) = adv_cfg.model {
-                    if let Some(q) = qm.get(cfg_model.as_str()) {
-                        Some((q.provider.clone(), q.model.clone()))
-                    } else {
-                        let prov = adv_cfg
-                            .provider
-                            .clone()
-                            .unwrap_or_else(|| provider.clone());
-                        Some((prov, cfg_model.clone()))
-                    }
-                } else if let Some(ref adv_prov) = adv_cfg.provider {
-                    Some((compact_str::CompactString::new(adv_prov.as_str()), model.clone()))
-                } else {
-                    tracing::warn!(
-                        "Adviser enabled but no adviser model configured. \
-                         Set `adviser.model` in config or pass --adviser-model. Disabling adviser."
-                    );
-                    None
-                };
-
-            if let Some((adv_provider, adv_model)) = adv_pair {
-                let adv_client = if adv_provider.as_str() == provider {
-                    client.clone()
-                } else {
-                    match crate::provider::create_client(
-                        &adv_provider,
-                        cli.api_key.as_deref(),
-                        &cfg.custom_providers_map(),
-                        cfg.api_keys.as_ref(),
-                    ) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            tracing::warn!(
-                                "Could not initialize adviser provider '{}' ({}); \
-                                 falling back to main provider '{}'.",
-                                adv_provider,
-                                e,
-                                provider
-                            );
-                            client.clone()
-                        }
-                    }
-                };
-
-                crate::extras::adviser::init(
-                    adv_client,
-                    adv_model.to_string(),
-                    adv_cfg.max_turns,
-                );
-            }
-        }
-    }
+    crate::extras::advisor::init::try_init(&cfg, &cli, &client, &provider, &model);
 
     #[cfg(feature = "acp")]
     if cli.acp_enabled {
@@ -441,7 +369,7 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(feature = "subagents")]
                 caps.push("- **Subagents**: delegate specific multi-step investigations to parallel subagents via the `task` tool");
             #[cfg(feature = "advisor")]
-                caps.push("- **Adviser**: consult a stronger model for strategic guidance via the `adviser` tool");
+            crate::extras::advisor::capabilities::push_cap(&mut caps);
 
             if !caps.is_empty() {
                 prompt_text.push_str("\n\n## Available Capabilities\n\n");
@@ -471,7 +399,7 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(feature = "subagents")]
                 caps.push("- **Subagents**: delegate specific multi-step investigations to parallel subagents via the `task` tool");
             #[cfg(feature = "advisor")]
-                caps.push("- **Adviser**: consult a stronger model for strategic guidance via the `adviser` tool");
+            crate::extras::advisor::capabilities::push_cap(&mut caps);
 
             if !caps.is_empty() {
                 prompt_text.push_str("\n\n## Available Capabilities\n\n");

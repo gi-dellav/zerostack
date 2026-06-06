@@ -17,6 +17,9 @@ use crate::extras::mcp::config::McpServerConfig;
 #[cfg(feature = "acp")]
 use crate::extras::acp::config::AcpServerConfig;
 
+#[cfg(feature = "advisor")]
+use crate::extras::advisor::config::AdvisorConfig;
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -126,7 +129,7 @@ pub struct Config {
     pub subagent_provider: Option<CompactString>,
     #[cfg(feature = "advisor")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub adviser: Option<types::AdviserConfig>,
+    pub advisor: Option<AdvisorConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colors: Option<types::ColorsConfig>,
 }

@@ -68,21 +68,6 @@ impl std::str::FromStr for EditSystem {
     }
 }
 
-#[cfg(feature = "advisor")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AdviserConfig {
-    pub enabled: bool,
-    pub model: Option<CompactString>,
-    pub provider: Option<CompactString>,
-    #[serde(default = "default_adviser_max_turns")]
-    pub max_turns: usize,
-}
-
-#[cfg(feature = "advisor")]
-fn default_adviser_max_turns() -> usize {
-    5
-}
-
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ColorsConfig {

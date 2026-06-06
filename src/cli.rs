@@ -197,14 +197,14 @@ pub struct Cli {
 
     #[cfg(feature = "advisor")]
     #[arg(
-        long = "adviser-model",
-        help = "Model for the adviser (stronger model)"
+        long = "advisor-model",
+        help = "Model for the advisor (stronger model)"
     )]
-    pub adviser_model: Option<String>,
+    pub advisor_model: Option<String>,
 
     #[cfg(feature = "advisor")]
-    #[arg(long = "no-adviser", help = "Disable the adviser tool")]
-    pub no_adviser: bool,
+    #[arg(long = "no-advisor", help = "Disable the advisor tool")]
+    pub no_advisor: bool,
 
     #[cfg(feature = "status-signals")]
     #[arg(

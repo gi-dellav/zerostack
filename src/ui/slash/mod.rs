@@ -303,7 +303,7 @@ pub async fn handle_slash(
         "/init" => init::handle(&parts, &mut ctx).await,
         "/memory" => memory::handle(&parts, &mut ctx).await,
         "/compress" | "/compact" | "/loop" | "/worktree" | "/wt-merge" | "/wt-exit"
-        | "/adviser" => features::handle(&parts, &mut ctx).await,
+        | "/advisor" => features::handle(&parts, &mut ctx).await,
         _ => {
             write_error(
                 ctx.renderer,

@@ -23,13 +23,13 @@ pub enum AgentEvent {
         output_tokens: u64,
     },
     #[cfg(feature = "advisor")]
-    AdviserConsulting,
+    AdvisorConsulting,
     #[cfg(feature = "advisor")]
-    AdviserResult {
+    AdvisorResult {
         text: CompactString,
     },
     #[cfg(feature = "advisor")]
-    AdviserError {
+    AdvisorError {
         error: CompactString,
     },
 }

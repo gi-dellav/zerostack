@@ -9,7 +9,7 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
         "/worktree" => handle_worktree(parts, ctx).await,
         "/wt-merge" => handle_wt_merge(parts, ctx).await,
         "/wt-exit" => handle_wt_exit(parts, ctx).await,
-        "/adviser" => handle_adviser(parts, ctx).await,
+        "/advisor" => handle_advisor(parts, ctx).await,
         _ => Ok(()),
     }
 }
@@ -76,47 +76,15 @@ async fn handle_loop(_parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
 }
 
 #[cfg(feature = "advisor")]
-async fn handle_adviser(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
-    if parts.len() < 2 || parts[1] == "status" {
-        let cfg = &ctx.cfg;
-        if let Some(adv_cfg) = cfg.adviser.as_ref()
-            && adv_cfg.enabled
-        {
-            let model = adv_cfg.model.as_deref().unwrap_or("(not set)");
-            let provider = adv_cfg.provider.as_deref().unwrap_or("(main provider)");
-            write_ok(
-                ctx.renderer,
-                format!(
-                    "adviser: enabled  model={}  provider={}  max_turns={}",
-                    model, provider, adv_cfg.max_turns
-                ),
-            );
-        } else {
-            write_ok(ctx.renderer, "adviser: disabled");
-            write_result(
-                ctx.renderer,
-                "Configure in config.toml: [adviser] enabled=true model=\"deepseek-v4-pro\"",
-            );
-        }
-    } else {
-        write_result(ctx.renderer, "adviser configuration is set in config.toml:");
-        write_result(ctx.renderer, "  [adviser]");
-        write_result(ctx.renderer, "  enabled = true");
-        write_result(ctx.renderer, "  model = \"deepseek-v4-pro\"");
-        write_result(
-            ctx.renderer,
-            "  provider = \"openrouter\"  # optional, defaults to main provider",
-        );
-        write_result(ctx.renderer, "  max_turns = 5  # adviser turn budget");
-    }
-    Ok(())
+async fn handle_advisor(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
+    crate::extras::advisor::slash::handle(parts, ctx).await
 }
 
 #[cfg(not(feature = "advisor"))]
-async fn handle_adviser(_parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
+async fn handle_advisor(_parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     write_error(
         ctx.renderer,
-        "/adviser requires the 'advisor' feature: cargo build --features advisor",
+        "/advisor requires the 'advisor' feature: cargo build --features advisor",
     );
     Ok(())
 }

@@ -105,13 +105,13 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
     }
     #[cfg(feature = "advisor")]
     {
-        write_result(ctx.renderer, "  /adviser               show adviser status");
+        crate::extras::advisor::help::write_help(ctx);
     }
     #[cfg(not(feature = "advisor"))]
     {
         write_result(
             ctx.renderer,
-            "  /adviser               show adviser status (req. 'advisor' feature)",
+            "  /advisor               show advisor status (req. 'advisor' feature)",
         );
     }
     write_result(
