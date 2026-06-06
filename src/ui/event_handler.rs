@@ -303,6 +303,28 @@ pub async fn handle_agent_event(
             response_buf.clear();
             *response_start_line = None;
         }
+        #[cfg(feature = "advisor")]
+        AgentEvent::AdviserConsulting => {
+            *was_reasoning = false;
+            if *agent_line_started {
+                renderer.write_line("", Color::White)?;
+                *agent_line_started = false;
+            }
+            response_buf.clear();
+            *response_start_line = None;
+            renderer.write_line("⬢ consulting adviser...", C_TOOL)?;
+        }
+        #[cfg(feature = "advisor")]
+        AgentEvent::AdviserResult { text } => {
+            renderer.write_line(&sanitize_output(&text), Color::DarkMagenta)?;
+        }
+        #[cfg(feature = "advisor")]
+        AgentEvent::AdviserError { error } => {
+            renderer.write_line(
+                &format!("adviser error: {}", sanitize_output(&error)),
+                C_ERROR,
+            )?;
+        }
     }
     Ok(())
 }
@@ -353,6 +375,8 @@ async fn handle_agent_done(
     renderer.write_line("", Color::White)?;
     renderer.write_line("", Color::White)?;
     session.add_message(MessageRole::Assistant, &response);
+    #[cfg(feature = "advisor")]
+    crate::extras::adviser::update_session_snapshot(&session.messages);
     session.total_input_tokens = session.total_input_tokens.saturating_add(input_tokens);
     session.total_output_tokens = session.total_output_tokens.saturating_add(output_tokens);
     session.total_cost += crate::pricing::estimate_cost(

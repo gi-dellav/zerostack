@@ -25,6 +25,7 @@ acp = ["dep:agent-client-protocol", "dep:blocking"]
 memory = []
 subagents = []
 archmd = []
+advisor = []
 multithread = ["tokio/rt-multi-thread"]
 
 [dependencies]

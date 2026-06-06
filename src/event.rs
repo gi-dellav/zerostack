@@ -22,6 +22,16 @@ pub enum AgentEvent {
         input_tokens: u64,
         output_tokens: u64,
     },
+    #[cfg(feature = "advisor")]
+    AdviserConsulting,
+    #[cfg(feature = "advisor")]
+    AdviserResult {
+        text: CompactString,
+    },
+    #[cfg(feature = "advisor")]
+    AdviserError {
+        error: CompactString,
+    },
 }
 
 /// Events emitted by an isolated `/btw` side-question run. Kept as a separate

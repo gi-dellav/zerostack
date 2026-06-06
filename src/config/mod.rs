@@ -124,6 +124,9 @@ pub struct Config {
     #[cfg(feature = "subagents")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subagent_provider: Option<CompactString>,
+    #[cfg(feature = "advisor")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adviser: Option<types::AdviserConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub colors: Option<types::ColorsConfig>,
 }

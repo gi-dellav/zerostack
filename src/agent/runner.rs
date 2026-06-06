@@ -183,6 +183,9 @@ where
     #[cfg(feature = "subagents")]
     crate::extras::subagents::set_subagent_event_tx(event_tx.clone());
 
+    #[cfg(feature = "advisor")]
+    crate::extras::adviser::set_adviser_event_tx(event_tx.clone());
+
     let join = tokio::spawn(async move {
         let retry_prompt = prompt.clone();
         let retry_history: Vec<Message> = history.clone();
@@ -396,8 +399,8 @@ fn format_tool_args_summary(args_json: &serde_json::Value) -> String {
 }
 
 /// Run an agent silently (no stdout/stderr printing), collecting the full
-/// response text. Used by subagent tasks.
-#[cfg(feature = "subagents")]
+/// response text. Used by subagent tasks and adviser.
+#[cfg(any(feature = "subagents", feature = "advisor"))]
 pub async fn run_subagent<M, P>(
     agent: &Agent<M, P>,
     prompt: &str,

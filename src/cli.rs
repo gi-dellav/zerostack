@@ -195,6 +195,17 @@ pub struct Cli {
     )]
     pub wt_force: bool,
 
+    #[cfg(feature = "advisor")]
+    #[arg(
+        long = "adviser-model",
+        help = "Model for the adviser (stronger model)"
+    )]
+    pub adviser_model: Option<String>,
+
+    #[cfg(feature = "advisor")]
+    #[arg(long = "no-adviser", help = "Disable the adviser tool")]
+    pub no_adviser: bool,
+
     #[cfg(feature = "status-signals")]
     #[arg(
         long = "status-socket",

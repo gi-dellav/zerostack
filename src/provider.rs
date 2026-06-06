@@ -440,7 +440,7 @@ impl AnyAgent {
         }
     }
 
-    #[cfg(feature = "subagents")]
+    #[cfg(any(feature = "subagents", feature = "advisor"))]
     pub async fn run_subagent(
         &self,
         prompt: &str,

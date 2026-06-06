@@ -13,6 +13,9 @@ use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
 use crate::sandbox::Sandbox;
 
+#[cfg(feature = "advisor")]
+use crate::extras::adviser::prompt::ADVISER_TOOLS_PROMPT;
+
 #[allow(clippy::too_many_arguments)]
 pub async fn build_agent_inner<M: CompletionModel + 'static>(
     model: M,
@@ -84,6 +87,8 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     let mut preamble = String::with_capacity(total_len);
     preamble.push_str(reasoning_prefix);
     preamble.push_str(SYSTEM_PROMPT);
+    #[cfg(feature = "advisor")]
+    preamble.push_str(ADVISER_TOOLS_PROMPT);
     preamble.push('\n');
     preamble.push_str(TODO_TOOLS_PROMPT);
     if !context_agents.is_empty() {
@@ -174,6 +179,12 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
                 .tool(MemoryWrite::new(permission.clone(), ask_tx.clone()))
                 .tool(MemoryRead::new(permission.clone(), ask_tx.clone()))
                 .tool(MemorySearch::new(permission.clone(), ask_tx.clone()));
+        }
+
+        #[cfg(feature = "advisor")]
+        {
+            use crate::extras::adviser::tool::AdviserTool;
+            builder = builder.tool(AdviserTool::new(permission.clone(), ask_tx.clone()));
         }
 
         #[cfg(feature = "mcp")]

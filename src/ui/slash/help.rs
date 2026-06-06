@@ -103,6 +103,17 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
             "  /loop [prompt]         start iterative coding loop (req. 'loop' feature)",
         );
     }
+    #[cfg(feature = "advisor")]
+    {
+        write_result(ctx.renderer, "  /adviser               show adviser status");
+    }
+    #[cfg(not(feature = "advisor"))]
+    {
+        write_result(
+            ctx.renderer,
+            "  /adviser               show adviser status (req. 'advisor' feature)",
+        );
+    }
     write_result(
         ctx.renderer,
         "  /prompt                list available prompts",
