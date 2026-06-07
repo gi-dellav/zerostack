@@ -26,6 +26,6 @@ done
 
 echo ""
 echo "Next steps:"
-echo "  1. Update SHA256 checksums in PKGBUILD and conda meta.yaml files"
-echo "  2. Regenerate .SRCINFO: cd packaging/aur && makepkg --printsrcinfo > .SRCINFO"
-echo "  3. Update the source tarball SHA256 in packaging/conda/zerostack/meta.yaml"
+echo "  just pre-release     # sync version + source SHA256 (safe before release)"
+echo "  just add-tag          # push tag, trigger GitHub release"
+echo "  just post-release     # download binaries, update checksums, regenerate .SRCINFO"

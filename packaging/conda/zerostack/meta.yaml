@@ -7,7 +7,7 @@ package:
 
 source:
   url: https://github.com/gi-dellav/zerostack/archive/refs/tags/v{{ version }}.tar.gz
-  sha256: PLACEHOLDER
+  sha256: 1e3f14bc2d32122a93b6e608a6c620b7585d9f8c8bb811927809398a141bdf0f
 
 build:
   number: 0
