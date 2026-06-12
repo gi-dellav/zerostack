@@ -58,12 +58,12 @@ pub fn render_session(
     renderer.write_line("Run /welcome or /help to get started", Color::White)?;
     renderer.write_line("", Color::White)?;
     if context.agents.is_some() {
-        renderer.write_line("loaded AGENTS.md", Color::DarkGrey)?;
+        renderer.write_line("[system] loaded AGENTS.md", Color::DarkGrey)?;
         renderer.write_line("", Color::White)?;
     }
     #[cfg(feature = "archmd")]
     if context.architecture.is_some() {
-        renderer.write_line("loaded ARCHITECTURE.md", Color::DarkGrey)?;
+        renderer.write_line("[system] loaded ARCHITECTURE.md", Color::DarkGrey)?;
         renderer.write_line("", Color::White)?;
     }
     if !session.compactions.is_empty() {

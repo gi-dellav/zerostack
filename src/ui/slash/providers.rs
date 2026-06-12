@@ -242,7 +242,7 @@ async fn handle_models(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
             if refresh {
                 // Explicit refresh: just confirm with a count overview — the picker
                 // already holds the full list, so don't dump it to the scrollback.
-                // Dim (DarkGrey), matching the "loaded AGENTS.md" startup notices.
+                // Dim (DarkGrey), matching the "[system] loaded AGENTS.md" startup notices.
                 write_result(
                     ctx.renderer,
                     format!(
