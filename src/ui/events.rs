@@ -34,13 +34,28 @@ pub fn render_session(
     context: &ContextFiles,
 ) -> anyhow::Result<()> {
     renderer.clear_content()?;
+    let cwd = std::env::current_dir().ok();
+    let cwd_str = cwd
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or(".");
     let welcome = format!(
-        "zerostack {}  {}  {}",
-        cli.resolve_provider(cfg),
+        "[>] zerostack {} | {} | {}",
+        env!("CARGO_PKG_VERSION"),
         cli.resolve_model(cfg),
-        env!("CARGO_PKG_VERSION")
+        cwd_str,
     );
     renderer.write_line(&welcome, Color::Cyan)?;
+    renderer.write_line(
+        "──────────────────────────────────────────────────",
+        Color::Cyan,
+    )?;
+    renderer.write_line(
+        "Ready to code; type a request or '/' for commands",
+        Color::White,
+    )?;
+    renderer.write_line("Run /welcome or /help to get started", Color::White)?;
     renderer.write_line("", Color::White)?;
     if context.agents.is_some() {
         renderer.write_line("loaded AGENTS.md", Color::DarkGrey)?;
