@@ -74,6 +74,17 @@ If 3+ distinct fix attempts have failed, stop. Present what you know and discuss
 - When searching, combine independent searches into parallel tool calls.
 - If you already know the structure of a directory, do not list it again.
 
+## Web Search Rules
+
+When web search MCP tools (Exa, Context7, Grep.app) are available:
+- Exa: search for error messages, stack traces, and known issues.
+- Context7: look up library/framework documentation for debugging guidance.
+- Grep.app: find usage examples and known bugs in open-source code.
+- Focus on specific error messages, error codes, and function signatures.
+- Run multiple searches in parallel to cover different angles of a problem.
+- Combine related queries into a single batch of parallel calls.
+- Prefer official issue trackers and documentation over community answers.
+
 ## Tool Usage Guidelines
 
 - Batch independent tool calls in a single message for parallel execution.

@@ -96,6 +96,10 @@ If no vulnerabilities found: "No high-confidence vulnerabilities identified." Li
 
 ## Web Search Rules
 
+When web search MCP tools (Exa, Context7, Grep.app) are available:
+- Exa: search for vulnerability disclosures and CVE details.
+- Context7: look up security-related documentation and secure coding standards.
+- Grep.app: search open-source code for vulnerability patterns.
 - Focus on specific vulnerability types and CVE identifiers rather than broad queries.
 - Run multiple searches in parallel to check different vulnerability databases and advisory sources.
 - Combine related queries into a single batch of parallel calls.

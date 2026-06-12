@@ -172,8 +172,11 @@ Accepted top-level keys:
 | `editor`                  | string  | Editor command for `Ctrl+G` (default: `$EDITOR` env var, then `editor`, then `nano`).                                                                                        |
 | `api_keys`                | object  | Map of provider names to API keys (e.g. `"openai": "sk-..."`). Used as fallback when the corresponding env var is not set.                                                   |
 | `quick_models`            | object  | Map of quick-model names to `{ "provider", "model" }`. Can be switched with `/models <name>` or `--quick-model=<name>`.                                                      |
-| `mcp_servers`             | object  | MCP server map when compiled with the `mcp` feature. When omitted, defaults to a single Exa Web Search server; see below.                                                   |
-| `allow_all_mcp_calls`     | boolean | When `true`, permission checks are skipped for all MCP tool calls. Default: `false`.                                                                                        |
+| `mcp_servers`             | object  | MCP server map when compiled with the `mcp` feature. When omitted, recommended MCPs are auto-configured (see below).                                                   |
+| `enable-exa-mcp`          | boolean | Auto-configure the Exa Web Search MCP server. Default: `true`.                                                                                                         |
+| `enable-context7-mcp`     | boolean | Auto-configure the Context7 MCP server. Default: `false`.                                                                                                              |
+| `enable-grepapp-mcp`      | boolean | Auto-configure the Grep.app MCP server. Default: `false`.                                                                                                              |
+| `allow_all_mcp_calls`     | boolean | When `true`, permission checks are skipped for all MCP tool calls. Default: `false`.                                                                                   |
 | `acp_servers`             | object  | ACP server config map when compiled with the `acp` feature. See the ACP section below.                                                                                       |
 | `acp_host`                | string  | TCP bind host for ACP server mode (equivalent to `--acp-host`).                                                                                                              |
 | `acp_port`                | integer | TCP bind port for ACP server mode (equivalent to `--acp-port`, default: 7243).                                                                                               |
@@ -330,10 +333,20 @@ servers:
 }
 ```
 
-If `mcp_servers` is omitted (`null`) and the `mcp` feature is enabled, zerostack
-adds a default Exa Web Search MCP server at `https://mcp.exa.ai/mcp` with the
-`x-api-key` header set to `EXA_API_KEY` when that environment variable is set.
-Set `"mcp_servers": {}` to disable all MCP servers.
+### Recommended MCP servers
+
+When `mcp_servers` is not explicitly set, three recommended MCP servers are
+available. Each can be toggled with a boolean config key (all default to the
+listed API key environment variable when that variable is set):
+
+| Key                    | Default | Description                                     | Env var              |
+| ---------------------- | ------- | ----------------------------------------------- | -------------------- |
+| `enable-exa-mcp`       | `true`  | Exa web search (mcp.exa.ai)                     | `EXA_API_KEY`        |
+| `enable-context7-mcp`  | `false` | Context7 documentation lookup (mcp.context7.com) | `CONTEXT7_API_KEY`   |
+| `enable-grepapp-mcp`   | `false` | Grep.app semantic code search (mcp.grep.app)     | `GREP_APP_API_KEY`   |
+
+Set `enable-exa-mcp = false` to disable the Exa default without touching
+`mcp_servers`. Set `"mcp_servers": {}` to disable all MCP auto-configuration.
 
 ## ACP (Agent Communication Protocol) configuration
 

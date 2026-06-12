@@ -1231,11 +1231,11 @@ fn guarded_mcp_tool_asks_when_no_rule() {
 fn readonly_allows_exa_mcp_tools() {
     let mut checker = make_checker(SecurityMode::ReadOnly);
     assert!(matches!(
-        checker.check("mcp_tool", "mcp_tool:exa:websearch"),
+        checker.check("mcp_tool", "mcp_tool:Exa Web Search:websearch"),
         CheckResult::Allowed,
     ));
     assert!(matches!(
-        checker.check("mcp_tool", "mcp_tool:exa:webfetch"),
+        checker.check("mcp_tool", "mcp_tool:Exa Web Search:webfetch"),
         CheckResult::Allowed,
     ));
 }
@@ -1244,17 +1244,82 @@ fn readonly_allows_exa_mcp_tools() {
 fn planwrite_allows_exa_mcp_tools() {
     let mut checker = make_checker(SecurityMode::PlanWrite);
     assert!(matches!(
-        checker.check("mcp_tool", "mcp_tool:exa:websearch"),
+        checker.check("mcp_tool", "mcp_tool:Exa Web Search:websearch"),
         CheckResult::Allowed,
     ));
     assert!(matches!(
-        checker.check("mcp_tool", "mcp_tool:exa:webfetch"),
+        checker.check("mcp_tool", "mcp_tool:Exa Web Search:webfetch"),
         CheckResult::Allowed,
     ));
 }
 
 #[test]
-fn readonly_denies_non_exa_mcp_tools() {
+fn readonly_allows_context7_mcp_tools() {
+    let mut checker = make_checker(SecurityMode::ReadOnly);
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Context7:get_context"),
+        CheckResult::Allowed,
+    ));
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Context7:search_docs"),
+        CheckResult::Allowed,
+    ));
+}
+
+#[test]
+fn planwrite_allows_context7_mcp_tools() {
+    let mut checker = make_checker(SecurityMode::PlanWrite);
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Context7:get_context"),
+        CheckResult::Allowed,
+    ));
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Context7:search_docs"),
+        CheckResult::Allowed,
+    ));
+}
+
+#[test]
+fn readonly_allows_grepapp_mcp_tools() {
+    let mut checker = make_checker(SecurityMode::ReadOnly);
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Grep.app:search_code"),
+        CheckResult::Allowed,
+    ));
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Grep.app:search_repos"),
+        CheckResult::Allowed,
+    ));
+}
+
+#[test]
+fn planwrite_allows_grepapp_mcp_tools() {
+    let mut checker = make_checker(SecurityMode::PlanWrite);
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Grep.app:search_code"),
+        CheckResult::Allowed,
+    ));
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Grep.app:search_repos"),
+        CheckResult::Allowed,
+    ));
+}
+
+#[test]
+fn readonly_case_insensitive_mcp_prefix_match() {
+    let mut checker = make_checker(SecurityMode::ReadOnly);
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:exa web search:websearch"),
+        CheckResult::Allowed,
+    ));
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:CONTEXT7:some_tool"),
+        CheckResult::Allowed,
+    ));
+}
+
+#[test]
+fn readonly_denies_non_read_equivalent_mcp_tools() {
     let mut checker = make_checker(SecurityMode::ReadOnly);
     assert!(matches!(
         checker.check("mcp_tool", "mcp_tool:filesystem:write_file"),
@@ -1267,11 +1332,15 @@ fn readonly_denies_non_exa_mcp_tools() {
 }
 
 #[test]
-fn readonly_denies_exa_mcp_with_extra_suffix() {
+fn readonly_denies_unrelated_prefix() {
     let mut checker = make_checker(SecurityMode::ReadOnly);
-    // Must be exact match, not prefix
+    // Similar-looking prefixes that don"t match read-equivalent servers
     assert!(matches!(
-        checker.check("mcp_tool", "mcp_tool:exa:websearch_extra"),
+        checker.check("mcp_tool", "mcp_tool:exa:websearch"),
+        CheckResult::Denied(_),
+    ));
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:context7extra:some_tool"),
         CheckResult::Denied(_),
     ));
 }
@@ -1280,7 +1349,7 @@ fn readonly_denies_exa_mcp_with_extra_suffix() {
 fn standard_mode_still_allows_exa_mcp_via_default() {
     let mut checker = make_checker(SecurityMode::Standard);
     assert!(matches!(
-        checker.check("mcp_tool", "mcp_tool:exa:websearch"),
+        checker.check("mcp_tool", "mcp_tool:Exa Web Search:websearch"),
         CheckResult::Allowed,
     ));
 }

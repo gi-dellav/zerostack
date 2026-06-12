@@ -3,6 +3,8 @@ use std::path::PathBuf;
 
 use compact_str::CompactString;
 
+use std::io;
+
 use crate::config::{Config, EditSystem, QuickModelConfig, ShowToolDetails};
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::config::McpServerConfig;
@@ -154,10 +156,11 @@ fn rich_default_config() -> Config {
     cfg
 }
 
-pub fn load() -> Config {
+pub fn load() -> (Config, bool) {
     let path = resolve_config_path();
+    let is_first_startup = !path.exists();
     #[allow(unused_mut)]
-    let mut cfg: Config = if !path.exists() {
+    let mut cfg: Config = if is_first_startup {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
@@ -182,7 +185,7 @@ pub fn load() -> Config {
             Some("toml") => toml::from_str(&content).unwrap_or_else(|e| {
                 eprintln!(
                     "error: {} is not a valid config: {}\n\
-                     Fix the file or remove it to use defaults.",
+                      Fix the file or remove it to use defaults.",
                     path.display(),
                     e,
                 );
@@ -191,7 +194,7 @@ pub fn load() -> Config {
             _ => serde_json::from_str(&content).unwrap_or_else(|e| {
                 eprintln!(
                     "error: {} is not a valid config: {}\n\
-                     Fix the file or remove it to use defaults.",
+                      Fix the file or remove it to use defaults.",
                     path.display(),
                     e,
                 );
@@ -201,12 +204,23 @@ pub fn load() -> Config {
     };
 
     #[cfg(feature = "mcp")]
-    if cfg.mcp_servers.is_none() {
+    inject_mcp_defaults(&mut cfg);
+
+    (cfg, is_first_startup)
+}
+
+#[cfg(feature = "mcp")]
+pub fn inject_mcp_defaults(cfg: &mut Config) {
+    if cfg.mcp_servers.is_some() {
+        return;
+    }
+    let mut defaults = HashMap::new();
+
+    if cfg.resolve_enable_exa_mcp() {
         let mut headers = HashMap::new();
         if let Ok(key) = std::env::var("EXA_API_KEY") {
             headers.insert("x-api-key".to_string(), key);
         }
-        let mut defaults = HashMap::new();
         defaults.insert(
             "Exa Web Search".to_string(),
             McpServerConfig::Url {
@@ -214,8 +228,51 @@ pub fn load() -> Config {
                 headers,
             },
         );
-        cfg.mcp_servers = Some(defaults);
     }
 
-    cfg
+    if cfg.resolve_enable_context7_mcp() {
+        let mut headers = HashMap::new();
+        if let Ok(key) = std::env::var("CONTEXT7_API_KEY") {
+            headers.insert("authorization".to_string(), format!("Bearer {key}"));
+        }
+        defaults.insert(
+            "Context7".to_string(),
+            McpServerConfig::Url {
+                url: "https://mcp.context7.com/mcp".to_string(),
+                headers,
+            },
+        );
+    }
+
+    if cfg.resolve_enable_grepapp_mcp() {
+        let mut headers = HashMap::new();
+        if let Ok(key) = std::env::var("GREP_APP_API_KEY") {
+            headers.insert("authorization".to_string(), format!("Bearer {key}"));
+        }
+        defaults.insert(
+            "Grep.app".to_string(),
+            McpServerConfig::Url {
+                url: "https://mcp.grep.app".to_string(),
+                headers,
+            },
+        );
+    }
+
+    cfg.mcp_servers = Some(defaults);
+}
+
+pub fn save_config(cfg: &Config) -> io::Result<()> {
+    let path = resolve_config_path();
+    let parent = path
+        .parent()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid config path"))?;
+    std::fs::create_dir_all(parent)?;
+    match path.extension().and_then(|e| e.to_str()) {
+        Some("toml") => {
+            let content = toml::to_string(cfg).map_err(io::Error::other)?;
+            std::fs::write(&path, content)?;
+        }
+        _ => std::fs::write(&path, serde_json::to_string_pretty(cfg)?)?,
+    }
+    Ok(())
 }

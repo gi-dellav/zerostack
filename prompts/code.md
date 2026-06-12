@@ -62,6 +62,17 @@ Use direct `read` / `grep` / `find_files` for single-step operations: finding fi
 - When searching, combine independent searches into parallel tool calls.
 - If you already know the structure of a directory, do not list it again.
 
+## Web Search Rules
+
+When web search MCP tools (Exa, Context7, Grep.app) are available:
+- Exa: web searches and content fetching — prefer official docs.
+- Context7: documentation lookup and code context (library APIs, framework docs).
+- Grep.app: semantic code search across open-source repositories.
+- Focus on specific, targeted keywords rather than broad natural-language queries.
+- Run multiple searches in parallel to cover different angles of a topic simultaneously.
+- Combine related queries into a single batch of parallel calls.
+- Prefer official documentation sources over community answers.
+
 ## Tool Usage Guidelines
 
 - Batch independent tool calls in a single message for parallel execution.

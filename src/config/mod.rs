@@ -101,6 +101,18 @@ pub struct Config {
     pub sandbox_backend: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_all_mcp_calls: Option<bool>,
+    #[cfg(feature = "mcp")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "enable-exa-mcp")]
+    pub enable_exa_mcp: Option<bool>,
+    #[cfg(feature = "mcp")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "enable-context7-mcp"
+    )]
+    pub enable_context7_mcp: Option<bool>,
+    #[cfg(feature = "mcp")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "enable-grepapp-mcp")]
+    pub enable_grepapp_mcp: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", rename = "permission-modes")]
@@ -237,6 +249,21 @@ impl Config {
 
     pub fn resolve_auto_update_themes(&self) -> Option<bool> {
         self.auto_update_themes
+    }
+
+    #[cfg(feature = "mcp")]
+    pub fn resolve_enable_exa_mcp(&self) -> bool {
+        self.enable_exa_mcp.unwrap_or(true)
+    }
+
+    #[cfg(feature = "mcp")]
+    pub fn resolve_enable_context7_mcp(&self) -> bool {
+        self.enable_context7_mcp.unwrap_or(false)
+    }
+
+    #[cfg(feature = "mcp")]
+    pub fn resolve_enable_grepapp_mcp(&self) -> bool {
+        self.enable_grepapp_mcp.unwrap_or(false)
     }
 
     pub fn build_permission_config(&self) -> PermissionConfigs {

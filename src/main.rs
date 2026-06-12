@@ -103,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = cli::Cli::parse();
-    let cfg = config::load();
+    let (mut cfg, is_first_startup) = config::load();
 
     if cli.print_config {
         print_config(&cli, &cfg);
@@ -401,6 +401,40 @@ async fn main() -> anyhow::Result<()> {
         if regenerated {
             // Reload context to pick up freshly-regenerated prompts/themes
             context = context::load(cli.resolve_no_context_files(&cfg));
+        }
+    }
+
+    // ── Recommended MCP prompts on first startup ──
+    #[cfg(feature = "mcp")]
+    if is_first_startup && is_interactive {
+        let prompted = cfg.enable_context7_mcp.is_none() || cfg.enable_grepapp_mcp.is_none();
+        if prompted {
+            if cfg.enable_context7_mcp.is_none() {
+                let mut input = String::new();
+                eprint!("Enable Context7 MCP (documentation and code context lookup)? [y/N] ");
+                let _ = std::io::Write::flush(&mut std::io::stderr());
+                std::io::stdin().read_line(&mut input)?;
+                let enable = matches!(input.trim().to_lowercase().as_str(), "y" | "yes");
+                cfg.enable_context7_mcp = Some(enable);
+                if enable {
+                    eprintln!("Context7 MCP enabled.");
+                }
+            }
+            if cfg.enable_grepapp_mcp.is_none() {
+                let mut input = String::new();
+                eprint!("Enable Grep.app MCP (semantic code search across repositories)? [y/N] ");
+                let _ = std::io::Write::flush(&mut std::io::stderr());
+                std::io::stdin().read_line(&mut input)?;
+                let enable = matches!(input.trim().to_lowercase().as_str(), "y" | "yes");
+                cfg.enable_grepapp_mcp = Some(enable);
+                if enable {
+                    eprintln!("Grep.app MCP enabled.");
+                }
+            }
+            config::inject_mcp_defaults(&mut cfg);
+            if let Err(e) = config::save_config(&cfg) {
+                tracing::warn!("Failed to save config with MCP choices: {e}");
+            }
         }
     }
 

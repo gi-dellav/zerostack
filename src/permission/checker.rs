@@ -509,5 +509,8 @@ fn is_plan_file(path: &str) -> bool {
 }
 
 fn is_read_equivalent_mcp(input: &str) -> bool {
-    input == "mcp_tool:exa:websearch" || input == "mcp_tool:exa:webfetch"
+    let lower = input.to_lowercase();
+    lower.starts_with("mcp_tool:exa web search:")
+        || lower.starts_with("mcp_tool:context7:")
+        || lower.starts_with("mcp_tool:grep.app:")
 }

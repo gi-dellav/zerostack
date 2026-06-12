@@ -60,6 +60,10 @@ Do NOT write code, run tests, or take implementation action until the user expli
 
 ## Web Search Rules
 
+When web search MCP tools (Exa, Context7, Grep.app) are available:
+- Exa: web searches and content fetching — prefer official docs.
+- Context7: documentation lookup and code context (library APIs, framework docs).
+- Grep.app: semantic code search across open-source repositories.
 - Focus on specific, targeted keywords rather than broad natural-language queries.
 - Run multiple searches in parallel to cover different angles of a topic simultaneously.
 - Combine related queries into a single batch of parallel calls.
