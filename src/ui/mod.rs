@@ -259,7 +259,8 @@ async fn spawn_merge_agent(
          2. git fetch --all\n\
          3. git checkout {target}\n\
          4. git pull --no-edit\n\
-         5. git merge --no-edit {branch}\n\n\
+         5. git merge --squash {branch}\n\
+         6. git commit --no-edit\n\n\
          After step 5, CHECK THE EXIT CODE and output.\n\
          - If the merge Succeeded (no conflicts), continue to step 6.\n\
          - If there is a MERGE CONFLICT:\n\
@@ -271,10 +272,10 @@ async fn spawn_merge_agent(
               - 'leave': leave the conflict state as-is for manual resolution.\n\
            d. WAIT for the user's response before continuing.\n\
            e. Follow their instruction.\n\n\
-         6. If the merge succeeded (or conflicts were resolved):\n\
+         7. If the merge succeeded (or conflicts were resolved):\n\
            - git worktree remove {wt_remove_flag} {wt_path}\n\
            - git branch {branch_delete_flag} {branch}\n\n\
-         7. cd {main_path} and report completion.\n\n\
+         8. cd {main_path} and report completion.\n\n\
          Important: Do NOT skip any step. Always check for conflicts after merge.",
         branch = branch,
         wt_path = wt_path,
@@ -1634,7 +1635,61 @@ pub async fn run_interactive(
             ),
             C_AGENT,
         );
-        let (state, outcome) = crate::extras::git_worktree::try_merge(&info, &target);
+        let mut proceed = true;
+        if crate::extras::git_worktree::worktree_has_uncommitted(&info.worktree_path) {
+            let _ = renderer.write_line(
+                "worktree has uncommitted changes. [c]ommit all and continue  [a]bort merge",
+                C_PERM,
+            );
+            let action = loop {
+                tokio::select! {
+                    Some(ev) = user_rx.recv() => {
+                        if let crate::event::UserEvent::Key(key) = ev {
+                            match key.code {
+                                KeyCode::Char('c') | KeyCode::Char('C') => break 'c',
+                                KeyCode::Char('a') | KeyCode::Char('A') => break 'a',
+                                KeyCode::Enter | KeyCode::Esc => break 'a',
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            };
+            match action {
+                'c' => {
+                    if let Err(e) =
+                        crate::extras::git_worktree::worktree_auto_commit_all(&info.worktree_path)
+                    {
+                        let _ = renderer.write_line(&format!("auto-commit failed: {}", e), C_ERROR);
+                        proceed = false;
+                    } else {
+                        let _ = renderer.write_line(
+                            "committed all worktree changes, proceeding with merge",
+                            C_AGENT,
+                        );
+                    }
+                }
+                'a' => {
+                    let _ = renderer.write_line("merge aborted, worktree left untouched", C_AGENT);
+                    proceed = false;
+                }
+                _ => unreachable!(),
+            }
+        }
+        let (state, outcome) = if proceed {
+            crate::extras::git_worktree::try_merge(&info, &target)
+        } else {
+            // Skip merge; outcome is unused, construct a dummy state.
+            (
+                crate::extras::git_worktree::MergeState {
+                    info: info.clone(),
+                    original_branch: String::new(),
+                    orig_dir: std::path::PathBuf::new(),
+                    stashed: false,
+                },
+                crate::extras::git_worktree::MergeOutcome::Error("aborted by user".into()),
+            )
+        };
         match outcome {
             crate::extras::git_worktree::MergeOutcome::Success => {
                 let merge_result = if cli.resolve_wt_force(cfg) {
@@ -1692,6 +1747,12 @@ pub async fn run_interactive(
                 match action {
                     'a' => {
                         let _ = crate::extras::git_worktree::cancel_merge(&state);
+                        crate::extras::git_worktree::cleanup_worktree(
+                            &info.worktree_path.to_string_lossy(),
+                            &info.branch,
+                            &info.main_repo_path.to_string_lossy(),
+                            cli.resolve_wt_force(cfg),
+                        );
                         let _ =
                             renderer.write_line("merge aborted, restored original state", C_AGENT);
                     }
