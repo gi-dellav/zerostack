@@ -414,7 +414,7 @@ where
     Ok(response)
 }
 
-fn serialize_conversation(messages: &[SessionMessage]) -> String {
+pub(crate) fn serialize_conversation(messages: &[SessionMessage]) -> String {
     let mut result = String::new();
     for msg in messages {
         let role_tag = match msg.role {

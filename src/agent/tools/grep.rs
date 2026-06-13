@@ -20,7 +20,7 @@ impl GrepTool {
         }
     }
 
-    fn glob_to_regex(glob: &str) -> String {
+    pub(crate) fn glob_to_regex(glob: &str) -> String {
         let mut re = String::with_capacity(glob.len() * 2);
         for c in glob.chars() {
             match c {
@@ -36,7 +36,7 @@ impl GrepTool {
         re
     }
 
-    fn is_binary(data: &[u8]) -> bool {
+    pub(crate) fn is_binary(data: &[u8]) -> bool {
         data.iter().take(8192).any(|&b| b == 0)
     }
 }

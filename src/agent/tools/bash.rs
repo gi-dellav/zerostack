@@ -6,7 +6,7 @@ use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm}
 use crate::extras::truncate::head_lines;
 use crate::sandbox::Sandbox;
 
-fn split_bash_commands(input: &str) -> Vec<String> {
+pub(crate) fn split_bash_commands(input: &str) -> Vec<String> {
     let mut result = Vec::new();
     let mut current = String::new();
     let mut in_single_quote = false;
