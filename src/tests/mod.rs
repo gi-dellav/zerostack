@@ -20,6 +20,8 @@ mod input_tests;
 mod markdown_tests;
 #[cfg(all(test, feature = "memory"))]
 mod memory_tests;
+#[cfg(all(test, feature = "multimodal"))]
+mod multimodal_tests;
 #[cfg(test)]
 mod normalize_tests;
 #[cfg(test)]

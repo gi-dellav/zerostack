@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Maximum file size for media attachments: 20 MB.
 pub const MAX_MEDIA_BYTES: u64 = 20 * 1024 * 1024;
@@ -8,9 +8,21 @@ pub const MAX_MEDIA_BYTES: u64 = 20 * 1024 * 1024;
 /// when the message is submitted.
 #[derive(Debug, Clone)]
 pub enum MediaAttachment {
-    Image { data: Vec<u8>, mime: String },
-    Audio { data: Vec<u8>, mime: String },
-    Document { data: Vec<u8>, mime: String },
+    Image {
+        path: PathBuf,
+        data: Vec<u8>,
+        mime: String,
+    },
+    Audio {
+        path: PathBuf,
+        data: Vec<u8>,
+        mime: String,
+    },
+    Document {
+        path: PathBuf,
+        data: Vec<u8>,
+        mime: String,
+    },
 }
 
 impl MediaAttachment {
@@ -19,6 +31,14 @@ impl MediaAttachment {
             MediaAttachment::Image { data, .. }
             | MediaAttachment::Audio { data, .. }
             | MediaAttachment::Document { data, .. } => data.len(),
+        }
+    }
+
+    pub fn path(&self) -> &Path {
+        match self {
+            MediaAttachment::Image { path, .. }
+            | MediaAttachment::Audio { path, .. }
+            | MediaAttachment::Document { path, .. } => path,
         }
     }
 }
@@ -69,11 +89,12 @@ pub fn load_attachment(path: &Path) -> std::io::Result<MediaAttachment> {
         .to_string();
 
     // We already know the mime from detect_media — dispatch on the prefix.
+    let path = path.to_path_buf();
     Ok(if mime.starts_with("image/") {
-        MediaAttachment::Image { data, mime }
+        MediaAttachment::Image { path, data, mime }
     } else if mime.starts_with("audio/") {
-        MediaAttachment::Audio { data, mime }
+        MediaAttachment::Audio { path, data, mime }
     } else {
-        MediaAttachment::Document { data, mime }
+        MediaAttachment::Document { path, data, mime }
     })
 }

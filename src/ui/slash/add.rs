@@ -44,18 +44,21 @@ async fn handle_add(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
             }
             #[cfg(feature = "multimodal")]
             for m in &ctx.session.pending_media {
-                let (kind, size, mime) = match m {
-                    crate::extras::multimodal::MediaAttachment::Image { data, mime, .. } => {
-                        ("image", data.len(), mime.as_str())
+                let (kind, size) = match m {
+                    crate::extras::multimodal::MediaAttachment::Image { data, .. } => {
+                        ("image", data.len())
                     }
-                    crate::extras::multimodal::MediaAttachment::Audio { data, mime, .. } => {
-                        ("audio", data.len(), mime.as_str())
+                    crate::extras::multimodal::MediaAttachment::Audio { data, .. } => {
+                        ("audio", data.len())
                     }
-                    crate::extras::multimodal::MediaAttachment::Document { data, mime, .. } => {
-                        ("document", data.len(), mime.as_str())
+                    crate::extras::multimodal::MediaAttachment::Document { data, .. } => {
+                        ("document", data.len())
                     }
                 };
-                write_result(ctx.renderer, format!("  [{kind}] {mime} ({size}B)"));
+                write_result(
+                    ctx.renderer,
+                    format!("  [{kind}] {} ({size}B)", m.path().display()),
+                );
             }
         }
         return Ok(());
@@ -77,17 +80,18 @@ async fn handle_add(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
         match crate::extras::multimodal::load_attachment(&path) {
             Ok(attachment) => {
                 let size = attachment.size();
-                let mime = match &attachment {
+                let mime_str: &str = match &attachment {
                     crate::extras::multimodal::MediaAttachment::Image { mime, .. }
                     | crate::extras::multimodal::MediaAttachment::Audio { mime, .. }
                     | crate::extras::multimodal::MediaAttachment::Document { mime, .. } => {
-                        mime.clone()
+                        mime.as_str()
                     }
                 };
+                let mime_str = mime_str.to_string();
                 ctx.session.pending_media.push(attachment);
                 write_ok(
                     ctx.renderer,
-                    format!("attached: {} ({mime}, {size}B)", path.display()),
+                    format!("attached: {} ({mime_str}, {size}B)", path.display()),
                 );
             }
             Err(e) => {
@@ -118,39 +122,86 @@ async fn handle_add(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
 
 async fn handle_drop(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     if parts.len() < 2 {
-        write_error(ctx.renderer, "usage: /drop <path>");
+        write_error(ctx.renderer, "usage: /drop <path-or-index>");
         return Ok(());
     }
 
     let path = resolve_path(parts[1]);
     let canonical = path.canonicalize().unwrap_or(path);
 
-    let idx = ctx.context.extra_files.iter().position(|f| f == &canonical);
+    // Try extra_files first.
+    if let Some(i) = ctx.context.extra_files.iter().position(|f| f == &canonical) {
+        ctx.context.extra_files.remove(i);
+        ctx.rebuild_agent().await;
+        write_ok(ctx.renderer, format!("dropped: {}", canonical.display()));
+        return Ok(());
+    }
 
-    match idx {
-        Some(i) => {
-            ctx.context.extra_files.remove(i);
-            ctx.rebuild_agent().await;
-            write_ok(ctx.renderer, format!("dropped: {}", canonical.display()));
-        }
-        None => {
-            write_error(
+    // Try pending_media by path match.
+    #[cfg(feature = "multimodal")]
+    {
+        let canonical_str = canonical.to_string_lossy();
+        if let Some(i) = ctx
+            .session
+            .pending_media
+            .iter()
+            .position(|m| m.path().to_string_lossy() == canonical_str)
+        {
+            ctx.session.pending_media.remove(i);
+            write_ok(
                 ctx.renderer,
-                format!("not in context: {} (use /add to see)", canonical.display()),
+                format!("dropped media: {}", canonical.display()),
             );
+            return Ok(());
+        }
+        // Also try parsing as an index into the pending_media list.
+        if let Ok(idx) = parts[1].parse::<usize>() {
+            if idx < ctx.session.pending_media.len() {
+                let removed = ctx.session.pending_media.remove(idx);
+                write_ok(
+                    ctx.renderer,
+                    format!("dropped media: {}", removed.path().display()),
+                );
+                return Ok(());
+            }
         }
     }
+
+    write_error(
+        ctx.renderer,
+        format!("not in context: {} (use /add to see)", canonical.display()),
+    );
     Ok(())
 }
 
 async fn handle_drop_all(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
-    let count = ctx.context.extra_files.len();
-    if count == 0 {
-        write_ok(ctx.renderer, "no files to drop");
-    } else {
+    let file_count = ctx.context.extra_files.len();
+    #[cfg(feature = "multimodal")]
+    let media_count = ctx.session.pending_media.len();
+    #[cfg(not(feature = "multimodal"))]
+    let media_count = 0;
+
+    if file_count == 0 && media_count == 0 {
+        write_ok(ctx.renderer, "no files or media to drop");
+        return Ok(());
+    }
+
+    if file_count > 0 {
         ctx.context.extra_files.clear();
         ctx.rebuild_agent().await;
-        write_ok(ctx.renderer, format!("dropped {count} file(s)"));
     }
+    #[cfg(feature = "multimodal")]
+    {
+        ctx.session.pending_media.clear();
+    }
+
+    let mut parts = vec![];
+    if file_count > 0 {
+        parts.push(format!("{file_count} file(s)"));
+    }
+    if media_count > 0 {
+        parts.push(format!("{media_count} media"));
+    }
+    write_ok(ctx.renderer, format!("dropped {}", parts.join(", ")));
     Ok(())
 }

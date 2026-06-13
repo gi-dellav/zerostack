@@ -142,59 +142,61 @@ pub fn media_to_messages(media: &[crate::extras::multimodal::MediaAttachment]) -
     media
         .iter()
         .map(|m| match m {
-            crate::extras::multimodal::MediaAttachment::Image { data, mime } => Message::User {
+            crate::extras::multimodal::MediaAttachment::Image { data, mime, .. } => Message::User {
                 content: OneOrMany::one(UserContent::image_raw(
                     data.clone(),
-                    image_media_type(mime),
+                    Some(image_media_type(mime)),
                     None,
                 )),
             },
-            crate::extras::multimodal::MediaAttachment::Audio { data, mime } => Message::User {
+            crate::extras::multimodal::MediaAttachment::Audio { data, mime, .. } => Message::User {
                 content: OneOrMany::one(UserContent::audio_raw(
                     data.clone(),
-                    audio_media_type(mime),
+                    Some(audio_media_type(mime)),
                 )),
             },
-            crate::extras::multimodal::MediaAttachment::Document { data, mime } => Message::User {
-                content: OneOrMany::one(UserContent::document_raw(
-                    data.clone(),
-                    document_media_type(mime),
-                )),
-            },
+            crate::extras::multimodal::MediaAttachment::Document { data, mime, .. } => {
+                Message::User {
+                    content: OneOrMany::one(UserContent::document_raw(
+                        data.clone(),
+                        Some(document_media_type(mime)),
+                    )),
+                }
+            }
         })
         .collect()
 }
 
 #[cfg(feature = "multimodal")]
-fn image_media_type(mime: &str) -> Option<ImageMediaType> {
-    Some(match mime {
+fn image_media_type(mime: &str) -> ImageMediaType {
+    match mime {
         "image/png" => ImageMediaType::PNG,
         "image/jpeg" => ImageMediaType::JPEG,
         "image/gif" => ImageMediaType::GIF,
         "image/webp" => ImageMediaType::WEBP,
-        _ => return None,
-    })
+        _ => unreachable!("unknown image mime type: {mime}"),
+    }
 }
 
 #[cfg(feature = "multimodal")]
-fn audio_media_type(mime: &str) -> Option<AudioMediaType> {
-    Some(match mime {
+fn audio_media_type(mime: &str) -> AudioMediaType {
+    match mime {
         "audio/mpeg" => AudioMediaType::MP3,
         "audio/wav" => AudioMediaType::WAV,
         "audio/ogg" => AudioMediaType::OGG,
         "audio/flac" => AudioMediaType::FLAC,
         "audio/mp4" => AudioMediaType::M4A,
         "audio/aac" => AudioMediaType::AAC,
-        _ => return None,
-    })
+        _ => unreachable!("unknown audio mime type: {mime}"),
+    }
 }
 
 #[cfg(feature = "multimodal")]
-fn document_media_type(mime: &str) -> Option<DocumentMediaType> {
-    Some(match mime {
+fn document_media_type(mime: &str) -> DocumentMediaType {
+    match mime {
         "application/pdf" => DocumentMediaType::PDF,
-        _ => return None,
-    })
+        _ => unreachable!("unknown document mime type: {mime}"),
+    }
 }
 
 async fn continue_prompt_injector<M, P>(
