@@ -885,6 +885,104 @@ pub async fn run_interactive(
                             continue;
                         }
 
+                        // Chain prompt active: intercept Y/N/B keystrokes
+                        if renderer.chain_prompt.is_some() && !renderer.chain_but_mode {
+                            match key.code {
+                                KeyCode::Char('y') | KeyCode::Char('Y') => {
+                                    renderer.chain_prompt = None;
+                                    if let Some(phase) = chain_pending.take() {
+                                        chain_label_msg = None;
+                                        let next_name = phase.next_prompt_name();
+                                        if let Some(content) = context.prompts.get(next_name).cloned() {
+                                            let (mode_directive_str, clean_content) =
+                                                crate::permission::parse_prompt_mode(&content);
+                                            let mode_directive = mode_directive_str.map(|s| s.to_string());
+                                            context.current_prompt = Some(if mode_directive.is_some() {
+                                                clean_content.to_string()
+                                            } else {
+                                                content
+                                            });
+                                            context.current_prompt_name = Some(next_name.to_string());
+                                            if let Some(ref mode_str) = mode_directive {
+                                                if mode_str == "last_user_mode"
+                                                    && let Some(perm) = &permission
+                                                {
+                                                    let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
+                                                    guard.restore_user_mode();
+                                                } else if let Some(mode) =
+                                                    crate::permission::SecurityMode::from_str(mode_str)
+                                                    && let Some(perm) = &permission
+                                                {
+                                                    let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
+                                                    guard.set_prompt_mode(mode);
+                                                }
+                                            }
+                                        }
+                                        let msg = phase.transition_message().to_string();
+                                        for line in msg.lines() {
+                                            renderer.write_line(
+                                                &format!("> {}", sanitize_output(line)),
+                                                Color::Green,
+                                            )?;
+                                        }
+                                        renderer.write_line("", Color::White)?;
+                                        session.add_message(MessageRole::User, &msg);
+                                        start_main_run(
+                                            &msg, &mut agent, &client, session, cli,
+                                            cfg, context, &permission, &ask_tx, &sandbox,
+                                            reasoning_enabled, &mut agent_rx,
+                                            &mut main_abort, &mut is_running,
+                                            &status_signals,
+                                            #[cfg(feature = "mcp")] &mut mcp_manager,
+                                        ).await;
+                                    }
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                                    continue;
+                                }
+                                KeyCode::Char('n') | KeyCode::Char('N') => {
+                                    renderer.chain_prompt = None;
+                                    chain_pending = None;
+                                    chain_label_msg = None;
+                                    renderer.write_line(
+                                        "chain declined — won't ask again this session",
+                                        C_AGENT,
+                                    )?;
+                                    if let Some(ref name) = context.current_prompt_name {
+                                        if !context.chain_declined.contains(name) {
+                                            context.chain_declined.push(name.clone());
+                                        }
+                                    }
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                                    continue;
+                                }
+                                KeyCode::Char('b') | KeyCode::Char('B') => {
+                                    renderer.chain_but_mode = true;
+                                    renderer.chain_prompt = None;
+                                    input.clear_buffer();
+                                    chain_label_msg = chain_pending.map(|p| p.chain_label().to_string().into());
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                                    continue;
+                                }
+                                _ => {
+                                    // Ignore other keystrokes while chain prompt is active
+                                    continue;
+                                }
+                            }
+                        }
+                        // Chain but mode: Esc cancels back to ask
+                        if renderer.chain_but_mode && key.code == KeyCode::Esc {
+                            renderer.chain_but_mode = false;
+                            if let Some(phase) = chain_pending {
+                                renderer.chain_prompt = Some(renderer::ChainPrompt {
+                                    question: compact_str::CompactString::from(phase.chain_label()),
+                                });
+                                chain_label_msg = Some(phase.chain_label().to_string());
+                            }
+                            input.clear_buffer();
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                            continue;
+                        }
+
                         if let Some(mut text) = input.handle_key(key) {
                             #[cfg(feature = "loop")]
                             if loop_state.as_ref().is_some_and(|ls| ls.active) && !text.starts_with('/') {
@@ -895,113 +993,70 @@ pub async fn run_interactive(
                             if renderer.is_scrolling() {
                                 renderer.scroll_to_bottom()?;
                             }
-                            // Chain-of-prompts: intercept the next input if a
-                            // phase just finished and we're waiting for a decision.
+                            // Chain-of-prompts: handle text submission after B (but) mode
                             if !is_running
                                 && let Some(phase) = chain_pending.take()
                             {
                                 chain_label_msg = None;
-                                let decision =
-                                    crate::extras::chain::parse_chain_decision(&text);
-                                match decision {
-                                    crate::extras::chain::ChainDecision::Accept(extra) => {
-                                        let next_name = phase.next_prompt_name();
-                                        if let Some(content) =
-                                            context.prompts.get(next_name).cloned()
+                                renderer.chain_but_mode = false;
+                                let trimmed = text.trim().to_string();
+                                if trimmed.is_empty() {
+                                    // Empty but — restore ask prompt
+                                    chain_pending = Some(phase);
+                                    chain_label_msg = Some(phase.chain_label().to_string());
+                                    renderer.chain_prompt = Some(renderer::ChainPrompt {
+                                        question: compact_str::CompactString::from(phase.chain_label()),
+                                    });
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                                    continue;
+                                }
+                                // Accept with extra instruction
+                                let next_name = phase.next_prompt_name();
+                                if let Some(content) = context.prompts.get(next_name).cloned() {
+                                    let (mode_directive_str, clean_content) =
+                                        crate::permission::parse_prompt_mode(&content);
+                                    let mode_directive = mode_directive_str.map(|s| s.to_string());
+                                    context.current_prompt = Some(if mode_directive.is_some() {
+                                        clean_content.to_string()
+                                    } else {
+                                        content
+                                    });
+                                    context.current_prompt_name = Some(next_name.to_string());
+                                    if let Some(ref mode_str) = mode_directive {
+                                        if mode_str == "last_user_mode"
+                                            && let Some(perm) = &permission
                                         {
-                                            let (mode_directive_str, clean_content) =
-                                                crate::permission::parse_prompt_mode(
-                                                    &content,
-                                                );
-                                            let mode_directive = mode_directive_str
-                                                .map(|s| s.to_string());
-                                            context.current_prompt =
-                                                Some(if mode_directive.is_some() {
-                                                    clean_content.to_string()
-                                                } else {
-                                                    content
-                                                });
-                                            context.current_prompt_name =
-                                                Some(next_name.to_string());
-                                            if let Some(ref mode_str) = mode_directive {
-                                                if mode_str == "last_user_mode"
-                                                    && let Some(perm) = &permission
-                                                {
-                                                    let mut guard = perm
-                                                        .lock()
-                                                        .unwrap_or_else(|e| e.into_inner());
-                                                    guard.restore_user_mode();
-                                                } else if let Some(mode) =
-                                                    crate::permission::SecurityMode::from_str(
-                                                        mode_str,
-                                                    )
-                                                    && let Some(perm) = &permission
-                                                {
-                                                    let mut guard = perm
-                                                        .lock()
-                                                        .unwrap_or_else(|e| e.into_inner());
-                                                    guard.set_prompt_mode(mode);
-                                                }
-                                            }
-                                        }
-                                        let base_msg =
-                                            phase.transition_message().to_string();
-                                        let msg = if let Some(extra) = extra {
-                                            format!(
-                                                "{}\n\nAdditional instructions: {}",
-                                                base_msg, extra
-                                            )
-                                        } else {
-                                            base_msg
-                                        };
-                                        for line in msg.lines() {
-                                            renderer.write_line(
-                                                &format!("> {}", sanitize_output(line)),
-                                                Color::Green,
-                                            )?;
-                                        }
-                                        renderer.write_line("", Color::White)?;
-                                        session.add_message(
-                                            MessageRole::User,
-                                            &msg,
-                                        );
-                                        start_main_run(
-                                            &msg, &mut agent, &client, session, cli,
-                                            cfg, context, &permission, &ask_tx, &sandbox,
-                                            reasoning_enabled, &mut agent_rx,
-                                            &mut main_abort, &mut is_running,
-                                            &status_signals,
-                                            #[cfg(feature = "mcp")] &mut mcp_manager,
-                                        ).await;
-                                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
-                                        continue;
-                                    }
-                                    crate::extras::chain::ChainDecision::Decline => {
-                                        renderer.write_line(
-                                            "chain declined — won't ask again this session",
-                                            C_AGENT,
-                                        )?;
-                                        // Remember so we don't ask again until /clear
-                                        if let Some(ref name) =
-                                            context.current_prompt_name
+                                            let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
+                                            guard.restore_user_mode();
+                                        } else if let Some(mode) =
+                                            crate::permission::SecurityMode::from_str(mode_str)
+                                            && let Some(perm) = &permission
                                         {
-                                            if !context
-                                                .chain_declined
-                                                .contains(name)
-                                            {
-                                                context
-                                                    .chain_declined
-                                                    .push(name.clone());
-                                            }
+                                            let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
+                                            guard.set_prompt_mode(mode);
                                         }
-                                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
-                                        continue;
-                                    }
-                                    crate::extras::chain::ChainDecision::NotChain => {
-                                        // Not a chain decision — fall through to
-                                        // process as normal input.
                                     }
                                 }
+                                let base_msg = phase.transition_message().to_string();
+                                let msg = format!("{}\n\nAdditional instructions: {}", base_msg, trimmed);
+                                for line in msg.lines() {
+                                    renderer.write_line(
+                                        &format!("> {}", sanitize_output(line)),
+                                        Color::Green,
+                                    )?;
+                                }
+                                renderer.write_line("", Color::White)?;
+                                session.add_message(MessageRole::User, &msg);
+                                start_main_run(
+                                    &msg, &mut agent, &client, session, cli,
+                                    cfg, context, &permission, &ask_tx, &sandbox,
+                                    reasoning_enabled, &mut agent_rx,
+                                    &mut main_abort, &mut is_running,
+                                    &status_signals,
+                                    #[cfg(feature = "mcp")] &mut mcp_manager,
+                                ).await;
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                                continue;
                             }
                             // A main run is active: never spawn a second one (that
                             // would silently orphan the running one — it would keep
@@ -1534,12 +1589,21 @@ pub async fn run_interactive(
                     chain_pending = Some(phase);
                     chain_label_msg =
                         Some(phase.chain_label().to_string());
+                    renderer.chain_but_mode = false;
+                    renderer.chain_prompt = Some(renderer::ChainPrompt {
+                        question: compact_str::CompactString::from(phase.chain_label()),
+                    });
                 }
                 // Run finished: drop its (now-dead) abort handle and, if the user
                 // queued input while it ran, replay the next one as a new run.
                 if !is_running {
                     main_abort = None;
                     if let Some(next) = pending_inputs.pop_front() {
+                        // Clear any chain prompt since we're starting a new run
+                        renderer.chain_prompt = None;
+                        renderer.chain_but_mode = false;
+                        chain_pending = None;
+                        chain_label_msg = None;
                         for line in next.lines() {
                             renderer.write_line(&format!("> {}", sanitize_output(line)), Color::Green)?;
                         }

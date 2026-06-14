@@ -47,11 +47,9 @@ impl ChainPhase {
 
     pub fn chain_label(self) -> &'static str {
         match self {
-            ChainPhase::Brainstorm => {
-                "Continue to plan? [Yes/But/No] — But = add custom instruction"
-            }
-            ChainPhase::Plan => "Continue to code? [Yes/But/No] — But = add custom instruction",
-            ChainPhase::Code => "Run /review? [Yes/But/No] — But = add custom instruction",
+            ChainPhase::Brainstorm => "Continue to plan? [Y/N/B]",
+            ChainPhase::Plan => "Continue to code? [Y/N/B]",
+            ChainPhase::Code => "Run /review? [Y/N/B]",
         }
     }
 }

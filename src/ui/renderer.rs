@@ -23,6 +23,10 @@ pub struct PermissionPrompt {
     pub options: CompactString,
 }
 
+pub struct ChainPrompt {
+    pub question: CompactString,
+}
+
 pub struct Renderer {
     lines: u16,
     col: u16,
@@ -41,6 +45,8 @@ pub struct Renderer {
     pub selection_end: Option<usize>,
     prev_input_height: usize,
     pub permission_prompt: Option<PermissionPrompt>,
+    pub chain_prompt: Option<ChainPrompt>,
+    pub chain_but_mode: bool,
 }
 
 impl Renderer {
@@ -63,6 +69,8 @@ impl Renderer {
             selection_end: None,
             prev_input_height: 0,
             permission_prompt: None,
+            chain_prompt: None,
+            chain_but_mode: false,
         })
     }
 
@@ -640,6 +648,110 @@ impl Renderer {
                     write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
                 }
                 write!(stdout, "{}", SetForegroundColor(perm_color))?;
+                write!(stdout, "{}", line)?;
+                write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+                write!(stdout, "{}", ResetColor)?;
+            }
+
+            // Separator below
+            let sep_below = rows.saturating_sub(2);
+            if sep_below < rows.saturating_sub(1) {
+                stdout.execute(MoveTo(0, sep_below))?;
+                if let Some(bg) = self.input_bg {
+                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                }
+                write!(
+                    stdout,
+                    "{}",
+                    SetForegroundColor(self.color(Color::DarkGrey))
+                )?;
+                let sep: String = "─".repeat(cols as usize);
+                write!(stdout, "{}", sep)?;
+                write!(stdout, "{}", ResetColor)?;
+            }
+
+            // Status line
+            stdout.execute(MoveTo(0, status_row))?;
+            if let Some(bg) = self.status_bg {
+                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+            }
+            write!(stdout, "{}", Clear(ClearType::CurrentLine))?;
+            stdout.execute(MoveTo(0, status_row))?;
+            if let Some(bg) = self.status_bg {
+                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+            }
+            write!(
+                stdout,
+                "{}",
+                SetForegroundColor(self.color(Color::DarkGrey))
+            )?;
+            let truncated: String = status.chars().take(cols as usize).collect();
+            write!(stdout, "{}", truncated)?;
+            if let Some(cb) = chain_badge {
+                write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)))?;
+                write!(stdout, "{}", cb)?;
+            }
+            write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+            write!(stdout, "{}", ResetColor)?;
+
+            write!(stdout, "{}", Hide)?;
+            stdout.flush()?;
+            return Ok(());
+        }
+
+        if let Some(ref cp) = self.chain_prompt {
+            let question = cp.question.as_str();
+            let options = if self.chain_but_mode {
+                "[Enter] send  [Esc] cancel"
+            } else {
+                "[Y] Yes  [N] No  [B] But (add instruction)"
+            };
+            let line_count = 2usize;
+            let input_top = rows
+                .saturating_sub(3)
+                .saturating_sub(line_count as u16)
+                .saturating_add(1);
+            let sep_above = input_top.saturating_sub(1);
+
+            if line_count < self.prev_input_height {
+                let old_start = rows.saturating_sub(3) - self.prev_input_height as u16 + 1;
+                let new_start = rows.saturating_sub(3) - line_count as u16 + 1;
+                for row in old_start..new_start {
+                    stdout.execute(MoveTo(0, row))?;
+                    if let Some(bg) = self.input_bg {
+                        write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                    }
+                    write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+                    write!(stdout, "{}", ResetColor)?;
+                }
+            }
+            self.prev_input_height = line_count;
+
+            // Separator above
+            if sep_above < input_top {
+                stdout.execute(MoveTo(0, sep_above))?;
+                if let Some(bg) = self.input_bg {
+                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                }
+                write!(
+                    stdout,
+                    "{}",
+                    SetForegroundColor(self.color(Color::DarkGrey))
+                )?;
+                let sep: String = "─".repeat(cols as usize);
+                write!(stdout, "{}", sep)?;
+                write!(stdout, "{}", ResetColor)?;
+            }
+
+            let chain_color = self.color(Color::DarkYellow);
+            let render_lines = [question, options];
+            for (i, line) in render_lines.iter().enumerate() {
+                let render_row = input_top + i as u16;
+                stdout.execute(MoveTo(0, render_row))?;
+                if let Some(bg) = self.input_bg {
+                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                }
+                write!(stdout, "{}", SetForegroundColor(chain_color))?;
                 write!(stdout, "{}", line)?;
                 write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
                 write!(stdout, "{}", ResetColor)?;
