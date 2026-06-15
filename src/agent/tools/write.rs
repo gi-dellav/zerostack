@@ -70,7 +70,7 @@ impl Tool for WriteTool {
                 bytes, self.max_text_file_size
             )));
         }
-        tokio::fs::write(path, &args.content).await?;
+        crate::fs::atomic_write(path, &args.content).await?;
         crate::agent::tools::untrack_read_path(&expanded);
         let mut result = format!("Written {} bytes to {}", bytes, expanded);
         if let Some(msg) = coaching {

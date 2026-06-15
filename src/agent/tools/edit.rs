@@ -588,7 +588,7 @@ impl Tool for EditTool {
             modified
         };
 
-        tokio::fs::write(&path, &output).await?;
+        crate::fs::atomic_write(&path, &output).await?;
         crate::agent::tools::untrack_read_path(&path);
 
         let mut result = format!("Applied {} edit(s) to {}", edit_count, path);
