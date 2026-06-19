@@ -17,6 +17,15 @@ pub enum AgentEvent {
         args: serde_json::Value,
     },
     Error(CompactString),
+    /// Provider call finished mid-stream. Carries the real provider-reported
+    /// token usage for that call (when available). Used to update the
+    /// status-bar estimate and to drive mid-turn compaction decisions
+    /// independently of the local `len()/4` heuristic.
+    CompletionCall {
+        call_index: usize,
+        input_tokens: u64,
+        output_tokens: u64,
+    },
     Done {
         response: CompactString,
         input_tokens: u64,

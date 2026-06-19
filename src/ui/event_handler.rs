@@ -294,6 +294,20 @@ pub async fn handle_agent_event(
             )
             .await?;
         }
+        AgentEvent::CompletionCall {
+            call_index: _,
+            input_tokens,
+            output_tokens,
+        } => {
+            // Real provider-reported usage for the call that just finished.
+            // The local len()/4 heuristic in session.total_estimated_tokens
+            // undercounts code-heavy turns; trust the real number as a floor
+            // so the status bar's x/y/% reflects what llama.cpp actually saw.
+            let real = input_tokens.saturating_add(output_tokens);
+            if real > session.total_estimated_tokens {
+                session.total_estimated_tokens = real;
+            }
+        }
         AgentEvent::Error(e) => {
             *was_reasoning = false;
             let safe = sanitize_output(&e);

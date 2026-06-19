@@ -37,6 +37,7 @@ Example (JSON):
   "reserve_tokens": 8192,
   "keep_recent_tokens": 10000,
   "compact_enabled": true,
+  "mid_turn_compact_threshold": 0.80,
   "deny_repeated_reads": false,
   "default_prompt": "code",
   "default_permission_mode": "standard",
@@ -100,6 +101,7 @@ context_window = 128000
 reserve_tokens = 8192
 keep_recent_tokens = 10000
 compact_enabled = true
+mid_turn_compact_threshold = 0.80
 edit_system = "similarity"
 default_prompt = "code"
 default_permission_mode = "standard"
@@ -150,7 +152,8 @@ Accepted top-level keys:
 | `keep_recent_tokens`      | integer | Approximate recent-token budget kept verbatim during compaction. Default: `10000`.                                                                                          |
 | `max_text_file_size`      | integer | Maximum allowed file size in bytes for read/write tool operations. Default: `1048576` (1 MB).                                                                               |
 | `deny_repeated_reads`     | boolean | Block repeated reads of the same file section within a session until the file is edited or written. Default: `true`. Set to `false` to allow re-reading.                     |
-| `compact_enabled`         | boolean | Enable automatic conversation compaction. Default: `true`.                                                                                                                  |
+| `compact_enabled`         | boolean | Master switch for all automatic conversation compaction (both between-turn and mid-turn). Default: `true`. When `false`, nothing is ever compacted automatically.            |
+| `mid_turn_compact_threshold` | number | Opt-in mid-turn compaction. Fraction of the context window (`0.0`–`1.0`) of real provider prompt pressure at which to compact *during* a turn, not just between turns. Unset by default, meaning no mid-turn compaction. Honored only when `compact_enabled` is `true`. Recommended starting value: `0.80`. See Mid-turn compaction below.            |
 | `always_show_welcome`     | boolean | Always show the welcome banner on startup, bypassing the one-shot marker file. Default: `false`.                                                                               |
 | `auto-update-prompts`     | boolean | When `true`, always regenerate prompts on version change without asking. When `false`, never regenerate. When unset, asks interactively.                                         |
 | `auto-update-themes`      | boolean | When `true`, always regenerate themes on version change without asking. When `false`, never regenerate. When unset, asks interactively.                                         |
@@ -181,6 +184,37 @@ Accepted top-level keys:
 | `acp_host`                | string  | TCP bind host for ACP server mode (equivalent to `--acp-host`).                                                                                                              |
 | `acp_port`                | integer | TCP bind port for ACP server mode (equivalent to `--acp-port`, default: 7243).                                                                                               |
 | `colors`                  | object  | Background color overrides for the TUI. See the colors section below.                                                                                                       |
+
+## Mid-turn compaction
+
+By default zerostack only compacts the conversation *between* turns, after a
+response finishes, when the accumulated session history exceeds
+`context_window - reserve_tokens`. A single long turn (many tool calls and large
+tool results) can still blow past the model's real context limit before that
+check ever runs, because the in-flight tool traffic never enters the session's
+token estimate.
+
+`mid_turn_compact_threshold` opts in to a second, *within-turn* check. On every
+provider call zerostack compares the real provider-reported prompt size against
+`context_window`; when the ratio crosses the threshold it stops the run at a
+clean boundary, compacts, and resumes the same task on the compacted history.
+
+- **Unset by default.** With no value set, behavior is unchanged: no mid-turn
+  compaction. Setting a value is the opt-in.
+- **Gated by `compact_enabled`.** `compact_enabled` is the master switch. If it
+  is `false`, `mid_turn_compact_threshold` is ignored and nothing compacts.
+- **Range.** A fraction in `(0.0, 1.0]`. An out-of-range value is ignored
+  (mid-turn compaction stays off) and zerostack prints a warning at startup
+  explaining the correct form, rather than failing silently. `0.80` is a
+  reasonable starting value; it leaves headroom below the
+  context window while still keeping the live prompt small enough to avoid the
+  attention degradation ("context rot") that large, full context windows suffer.
+
+```toml
+compact_enabled = true            # master switch (default true)
+context_window = 24576
+mid_turn_compact_threshold = 0.80 # compact mid-turn at 80% real prompt pressure
+```
 
 ## OpenAI API styles and custom headers
 

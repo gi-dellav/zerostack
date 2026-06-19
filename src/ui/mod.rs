@@ -404,6 +404,255 @@ async fn start_main_run(
     }
 }
 
+/// Continuation prompt injected after a mid-turn compaction. Hardcoded as a
+/// `const` rather than a `prompts/*.md` file: every `.md` under `prompts/` is
+/// loaded as a selectable mode, so a file here would pollute the prompt picker.
+/// Acknowledging the compaction is deliberate — it frames the summary as "what
+/// I already did," not as new user instructions. The narrow-tool-calls line is
+/// always present because any mid-turn fire means the configured ceiling was
+/// hit, so the urgency always applies.
+const MID_TURN_CONTINUE_PROMPT: &str = "[Context was compacted to save space; \
+the full prior history is in the system summary above.]\n\nContinue with the \
+user's original task. Do not redo work already completed per the summary; focus \
+on what remains. Context was tight, so prefer narrower follow-up tool calls over \
+wide ones until pressure subsides.";
+
+/// Mid-turn auto-compaction (PR H). Invoked when real provider prompt pressure
+/// (`CompletionCall` usage / context window) crosses
+/// `mid_turn_compact_threshold`, and only when `compact_enabled` is true.
+///
+/// The in-flight run is aborted at the `CompletionCall` boundary — the model's
+/// just-returned tool calls have not executed yet, so nothing is left half
+/// applied. This turn's progress is recorded as a recap message (tool traffic
+/// lives only in the now-aborted runner and never reaches the session, so
+/// without this the agent would redo the turn), the session is compacted, and
+/// the agent is respawned on the compacted history with a continuation prompt.
+/// The dominant pressure relief is dropping the aborted run's in-flight tool
+/// context, which the respawn achieves even when the session itself is under the
+/// between-turn limit and `handle_compress` is a no-op.
+#[allow(clippy::too_many_arguments)]
+async fn mid_turn_compact_and_respawn(
+    pressure: f64,
+    renderer: &mut Renderer,
+    agent: &mut Option<AnyAgent>,
+    client: &mut AnyClient,
+    session: &mut Session,
+    cli: &Cli,
+    cfg: &Config,
+    context: &mut ContextFiles,
+    permission: &Option<PermCheck>,
+    ask_tx: &Option<AskSender>,
+    sandbox: &Sandbox,
+    reasoning_enabled: bool,
+    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
+    main_abort: &mut Option<tokio::task::AbortHandle>,
+    is_running: &mut bool,
+    status_signals: &Option<StatusSignals>,
+    turn_trace: &mut Vec<compact_str::CompactString>,
+    response_buf: &mut String,
+    response_start_line: &mut Option<usize>,
+    agent_line_started: &mut bool,
+    was_reasoning: &mut bool,
+    #[cfg(feature = "mcp")] mcp_manager: &mut Option<McpClientManager>,
+) -> anyhow::Result<()> {
+    // 1. Stop the in-flight run. bash children die via kill_on_drop.
+    if let Some(h) = main_abort.take() {
+        h.abort();
+    }
+    *is_running = false;
+    *agent_rx = None;
+    *was_reasoning = false;
+
+    // 2. Record progress so far. `turn_trace` is a capped/truncated digest, so
+    // this is best-effort continuity, paired with any partial response text.
+    let mut recap = String::new();
+    if !response_buf.trim().is_empty() {
+        recap.push_str(response_buf.trim());
+        recap.push_str("\n\n");
+    }
+    if !turn_trace.is_empty() {
+        recap.push_str("[Progress this turn before context compaction]\n");
+        for line in turn_trace.iter() {
+            recap.push_str(line);
+            recap.push('\n');
+        }
+    }
+    let recap = recap.trim();
+    if !recap.is_empty() {
+        session.add_message(MessageRole::Assistant, recap);
+    }
+    turn_trace.clear();
+    response_buf.clear();
+    *response_start_line = None;
+    *agent_line_started = false;
+
+    renderer.write_line(
+        &format!(
+            "mid-turn auto-compacting (context at {}%)...",
+            (pressure * 100.0).round() as u64
+        ),
+        Color::DarkGrey,
+    )?;
+
+    // 3. Compact the session (no-op if its text history is under the limit).
+    #[cfg(feature = "mcp")]
+    let mcp_ref = ensure_mcp_manager(mcp_manager, cfg).await;
+    let compress_result = handle_compress(
+        None,
+        agent,
+        client,
+        renderer,
+        session,
+        cli,
+        cfg,
+        context,
+        reasoning_enabled,
+        permission,
+        ask_tx,
+        sandbox,
+        #[cfg(feature = "mcp")]
+        mcp_ref,
+    )
+    .await;
+    if let Err(e) = compress_result {
+        renderer.write_line(&format!("mid-turn compact error: {}", e), C_ERROR)?;
+    }
+
+    // 4. Respawn on the compacted history with the continuation prompt.
+    #[cfg(feature = "mcp")]
+    let mcp_ref = ensure_mcp_manager(mcp_manager, cfg).await;
+    ensure_agent(
+        agent,
+        client,
+        session,
+        cli,
+        cfg,
+        context,
+        permission,
+        ask_tx,
+        sandbox,
+        reasoning_enabled,
+        #[cfg(feature = "mcp")]
+        mcp_ref,
+    )
+    .await;
+    let history = crate::agent::runner::convert_history(session);
+    let runner = agent
+        .as_ref()
+        .unwrap()
+        .clone()
+        .spawn_runner(MID_TURN_CONTINUE_PROMPT.to_string(), history);
+    *agent_rx = Some(runner.event_rx);
+    *main_abort = Some(runner.abort_handle);
+    *is_running = true;
+    if let Some(ss) = status_signals.as_ref() {
+        ss.send_start();
+    }
+    Ok(())
+}
+
+/// Hard stop for a turn whose context cannot be brought under the mid-turn
+/// ceiling even after a compaction. What remains is the irreducible floor
+/// (system prompt, tool schemas, kept-recent transcript, reserved response
+/// space), so compacting again is futile. Aborts the run and shows the user the
+/// full arithmetic — the model and context-window combination is simply too
+/// small to run the agentic loop on this task.
+#[allow(clippy::too_many_arguments)]
+fn stop_turn_context_exhausted(
+    prompt_tokens: u64,
+    threshold: f64,
+    renderer: &mut Renderer,
+    session: &Session,
+    cfg: &Config,
+    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
+    main_abort: &mut Option<tokio::task::AbortHandle>,
+    is_running: &mut bool,
+    status_signals: &Option<StatusSignals>,
+    turn_trace: &mut Vec<compact_str::CompactString>,
+    response_buf: &mut String,
+    response_start_line: &mut Option<usize>,
+    agent_line_started: &mut bool,
+    was_reasoning: &mut bool,
+) -> anyhow::Result<()> {
+    if let Some(h) = main_abort.take() {
+        h.abort();
+    }
+    *is_running = false;
+    *agent_rx = None;
+    *was_reasoning = false;
+    *agent_line_started = false;
+    turn_trace.clear();
+    response_buf.clear();
+    *response_start_line = None;
+    if let Some(ss) = status_signals.as_ref() {
+        ss.send_stop();
+    }
+
+    renderer.write_line("error: not enough context to continue this turn.", C_ERROR)?;
+    renderer.write_line(
+        "Compaction ran, but the next prompt was still over the mid-turn ceiling. \
+         Compacting again cannot help: what remains is the irreducible floor (system \
+         prompt, tool schemas, the kept-recent transcript, and reserved response \
+         space). Stopping the turn so the conversation is not corrupted.",
+        Color::White,
+    )?;
+    renderer.write_line("", Color::White)?;
+    for line in context_exhausted_report(
+        prompt_tokens,
+        threshold,
+        session.context_window,
+        cfg.resolve_reserve_tokens(),
+        cfg.resolve_keep_recent_tokens(),
+    ) {
+        renderer.write_line(&line, Color::White)?;
+    }
+    Ok(())
+}
+
+/// Builds the math-and-guidance body for a context-exhaustion stop. Pure (no
+/// I/O) so the arithmetic can be unit-tested. `window` must be non-zero (the
+/// caller only reaches here after gating on `context_window > 0`).
+pub(crate) fn context_exhausted_report(
+    prompt_tokens: u64,
+    threshold: f64,
+    window: u64,
+    reserve: u64,
+    keep_recent: u64,
+) -> Vec<String> {
+    let ceiling = (threshold * window as f64) as u64;
+    let pressure_pct = prompt_tokens as f64 / window as f64 * 100.0;
+    let overflow = prompt_tokens.saturating_sub(ceiling);
+    vec![
+        format!("  context window .............. {window} tokens"),
+        format!(
+            "  mid-turn ceiling ............ {ceiling} tokens  ({:.0}% of window)",
+            threshold * 100.0
+        ),
+        format!(
+            "  prompt after compaction ..... {prompt_tokens} tokens  ({pressure_pct:.0}% of window)"
+        ),
+        format!("  overflow above ceiling ...... {overflow} tokens"),
+        format!("  reserved for response ....... {reserve} tokens"),
+        format!("  kept-recent budget .......... {keep_recent} tokens"),
+        String::new(),
+        "This model and context-window combination is too small to run zerostack's \
+         agentic loop on this task. To proceed you can:"
+            .to_string(),
+        "  - increase context_window (and the model server's real KV cache) so the \
+         window clears the floor above;"
+            .to_string(),
+        format!(
+            "  - raise mid_turn_compact_threshold above {pressure_pct:.0}% so this prompt \
+             fits under the ceiling (trades safety for room: the real KV cache must still \
+             hold {prompt_tokens}+ tokens);"
+        ),
+        "  - lower keep_recent_tokens or reserve_tokens to shrink the floor;".to_string(),
+        "  - switch to a model/server with a larger context window, or split the task \
+         into smaller pieces."
+            .to_string(),
+    ]
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn run_interactive(
     mut client: AnyClient,
@@ -492,6 +741,12 @@ pub async fn run_interactive(
     // session itself only records the final assistant text per turn).
     let mut turn_trace: Vec<compact_str::CompactString> = Vec::new();
     const TURN_TRACE_MAX: usize = 64;
+    // True between a mid-turn compaction and the next provider call. If that
+    // call is *still* over the ceiling, compaction failed to free space and the
+    // turn is stopped (see `stop_turn_context_exhausted`); if it comes back
+    // under, relief worked and the flag clears so a later accumulation can
+    // compact again. Reset at every turn boundary.
+    let mut awaiting_compaction_relief = false;
     let mut dot_prompt_restore: Option<String> = None;
     let mut chain_pending: Option<crate::extras::chain::ChainPhase> = None;
     let mut chain_label_msg: Option<String> = None;
@@ -745,6 +1000,7 @@ pub async fn run_interactive(
                                 }
                                 agent_rx = None;
                                 turn_trace.clear();
+                                awaiting_compaction_relief = false;
                                 pending_inputs.clear();
                                 #[cfg(feature = "loop")]
                                 if let Some(ref mut ls) = loop_state {
@@ -1543,8 +1799,64 @@ pub async fn run_interactive(
                             )));
                         }
                     }
-                    AgentEvent::Done { .. } | AgentEvent::Error(_) => turn_trace.clear(),
+                    AgentEvent::Done { .. } | AgentEvent::Error(_) => {
+                        turn_trace.clear();
+                        awaiting_compaction_relief = false;
+                    }
                     _ => {}
+                }
+                // Mid-turn compaction (PR H). On a provider-call boundary, if
+                // real prompt pressure crossed the opt-in threshold, abort the
+                // run cleanly, compact, and respawn on the compacted history.
+                // Gated by `compact_enabled` (master switch) and suppressed in
+                // /loop runs and `--no-session` mode (which never compact).
+                #[cfg(feature = "loop")]
+                let loop_running = loop_state.as_ref().is_some_and(|ls| ls.active);
+                #[cfg(not(feature = "loop"))]
+                let loop_running = false;
+                if let AgentEvent::CompletionCall { input_tokens, .. } = &event
+                    && is_running
+                    && !loop_running
+                    && !cli.no_session
+                    && cfg.resolve_compact_enabled()
+                    && session.context_window > 0
+                    && let Some(threshold) = cfg.resolve_mid_turn_compact_threshold()
+                {
+                    let pressure = *input_tokens as f64 / session.context_window as f64;
+                    if pressure > threshold {
+                        if awaiting_compaction_relief {
+                            // We already compacted this turn and the very next
+                            // provider call is STILL over the ceiling — the floor
+                            // exceeds the budget, so compacting again is futile.
+                            // Stop the turn and show the user the arithmetic.
+                            stop_turn_context_exhausted(
+                                *input_tokens, threshold, &mut renderer, session, cfg,
+                                &mut agent_rx, &mut main_abort, &mut is_running,
+                                &status_signals, &mut turn_trace, &mut response_buf,
+                                &mut response_start_line, &mut agent_line_started,
+                                &mut was_reasoning,
+                            )?;
+                            awaiting_compaction_relief = false;
+                        } else {
+                            mid_turn_compact_and_respawn(
+                                pressure, &mut renderer, &mut agent, &mut client, session,
+                                cli, cfg, context, &permission, &ask_tx, &sandbox,
+                                reasoning_enabled, &mut agent_rx, &mut main_abort,
+                                &mut is_running, &status_signals, &mut turn_trace,
+                                &mut response_buf, &mut response_start_line,
+                                &mut agent_line_started, &mut was_reasoning,
+                                #[cfg(feature = "mcp")] &mut mcp_manager,
+                            ).await?;
+                            awaiting_compaction_relief = true;
+                        }
+                        refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                        continue;
+                    } else {
+                        // A provider call came back under the ceiling: either we
+                        // never compacted, or the compaction worked. Either way a
+                        // later accumulation is allowed to compact afresh.
+                        awaiting_compaction_relief = false;
+                    }
                 }
                 #[cfg(feature = "mcp")]
                 let mcp_ref = ensure_mcp_manager(&mut mcp_manager, cfg).await;
