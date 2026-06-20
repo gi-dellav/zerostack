@@ -3,9 +3,7 @@ use std::path::PathBuf;
 use chrono::Utc;
 
 fn transcript_dir(session_id: &str) -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from(".zerostack"))
-        .join("zerostack")
+    crate::session::storage::data_dir()
         .join("loops")
         .join(session_id)
 }
