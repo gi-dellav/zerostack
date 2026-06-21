@@ -59,6 +59,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 futures = "0.3"
 reqwest = "0.13"
+rusqlite = { version = "0.37", features = ["bundled"] }
 dirs = "6"
 compact_str = { version = "0.9", features = ["serde"] }
 smallvec = "1"
