@@ -28,7 +28,7 @@ pub struct ChainPrompt {
 }
 
 pub struct Renderer {
-    lines: u16,
+    cursor_row: u16,
     col: u16,
     spinner_frame: u8,
     buffer: Vec<LineEntry>,
@@ -52,7 +52,7 @@ pub struct Renderer {
 impl Renderer {
     pub fn new() -> io::Result<Self> {
         Ok(Renderer {
-            lines: 0,
+            cursor_row: 0,
             col: 0,
             spinner_frame: 0,
             buffer: Vec::new(),
@@ -114,7 +114,7 @@ impl Renderer {
         self.commit_partial();
         self.buffer.truncate(start);
         self.buffer.extend(lines);
-        self.lines = self.buffer.len() as u16;
+        self.cursor_row = self.buffer.len() as u16;
         self.col = 0;
         self.partial.clear();
         let visible = self.visible_lines();
@@ -126,18 +126,28 @@ impl Renderer {
 
     pub fn visible_lines(&self) -> usize {
         let (_, rows) = self.terminal_size();
-        rows.saturating_sub(4) as usize
+        let input_height = self.prev_input_height.max(1);
+        rows.saturating_sub(input_height as u16 + 3) as usize
     }
 
     pub fn buffer_line_at_row(&self, row: u16) -> Option<usize> {
         let (cols, rows) = self.terminal_size();
         let max_width = cols.saturating_sub(1) as usize;
-        let visible = rows.saturating_sub(4) as usize;
+        let visible = self.visible_lines();
         let total = self.buffer.len();
         if total == 0 {
             return None;
         }
-        let start = if self.scroll_offset == 0 {
+
+        let auto_scroll = self.scroll_offset == 0;
+        if auto_scroll && total < visible {
+            let pad = visible - total;
+            if (row as usize) < pad {
+                return None;
+            }
+        }
+
+        let start = if auto_scroll {
             total.saturating_sub(visible)
         } else {
             total.saturating_sub(self.scroll_offset + visible)
@@ -262,14 +272,14 @@ impl Renderer {
     fn sync_to_buffer(&mut self) -> io::Result<()> {
         self.commit_partial();
         self.col = 0;
-        self.lines = self.buffer.len() as u16;
+        self.cursor_row = self.buffer.len() as u16;
         self.render_viewport()
     }
 
     pub fn render_viewport(&mut self) -> io::Result<()> {
         let (cols, rows) = self.terminal_size();
         let max_width = cols.saturating_sub(1) as usize;
-        let visible = rows.saturating_sub(4) as usize;
+        let visible = self.visible_lines();
         let total = self.buffer.len();
         let mut stdout = io::stdout();
         write!(stdout, "{}", Hide)?;
@@ -318,14 +328,12 @@ impl Renderer {
                 stdout.execute(MoveTo(0, visual_row))?;
 
                 let is_selected = self.selection_active
-                    && self.selection_start.is_some()
-                    && self.selection_end.is_some()
-                    && {
-                        let s = self.selection_start.unwrap();
-                        let e = self.selection_end.unwrap();
+                    && if let (Some(s), Some(e)) = (self.selection_start, self.selection_end) {
                         let lo = s.min(e);
                         let hi = s.max(e);
                         buf_idx >= lo && buf_idx <= hi
+                    } else {
+                        false
                     };
 
                 if let Some(bg) = self.chat_bg {
@@ -388,14 +396,14 @@ impl Renderer {
             return;
         }
         let (cols, rows) = self.terminal_size();
-        if rows < 5 {
+        let max_content = self.visible_lines() as u16;
+        if max_content < 2 {
             return;
         }
-        let max_content = rows.saturating_sub(4);
-        if self.lines >= max_content {
+        if self.cursor_row >= max_content {
             let mut stdout = io::stdout();
             let _ = stdout.execute(ScrollUp(1));
-            self.lines = self.lines.saturating_sub(1);
+            self.cursor_row = self.cursor_row.saturating_sub(1);
             for &r in &[max_content.saturating_sub(1), max_content] {
                 let _ = stdout.execute(MoveTo(0, r));
                 if let Some(bg) = self.chat_bg {
@@ -409,8 +417,8 @@ impl Renderer {
     }
 
     fn content_row(&self) -> u16 {
-        let (_, rows) = self.terminal_size();
-        self.lines.min(rows.saturating_sub(5))
+        let max_row = self.visible_lines().saturating_sub(1) as u16;
+        self.cursor_row.min(max_row)
     }
 
     pub fn resize(&mut self) {
@@ -443,7 +451,7 @@ impl Renderer {
                     write!(stdout, "{}", SetForegroundColor(self.color(color)))?;
                     writeln!(stdout, "{}", chunk)?;
                     write!(stdout, "{}", ResetColor)?;
-                    self.lines = self.lines.saturating_add(1);
+                    self.cursor_row = self.cursor_row.saturating_add(1);
                     self.col = 0;
                 }
             }
@@ -493,7 +501,7 @@ impl Renderer {
                         write!(stdout, "{}", ResetColor)?;
                     }
                     writeln!(stdout)?;
-                    self.lines = self.lines.saturating_add(1);
+                    self.cursor_row = self.cursor_row.saturating_add(1);
                     self.col = 0;
                 }
             } else if !segment.is_empty() {
@@ -504,7 +512,7 @@ impl Renderer {
                     if avail == 0 {
                         self.commit_partial();
                         if self.scroll_offset == 0 {
-                            self.lines = self.lines.saturating_add(1);
+                            self.cursor_row = self.cursor_row.saturating_add(1);
                             self.col = 0;
                         }
                         continue;
@@ -556,7 +564,7 @@ impl Renderer {
                     if idx < chars.len() {
                         self.commit_partial();
                         if self.scroll_offset == 0 {
-                            self.lines = self.lines.saturating_add(1);
+                            self.cursor_row = self.cursor_row.saturating_add(1);
                             self.col = 0;
                         }
                     }
@@ -582,8 +590,84 @@ impl Renderer {
         write!(stdout, "{}", ResetColor)?;
         stdout.execute(MoveTo(0, 0))?;
         stdout.flush()?;
-        self.lines = 0;
+        self.cursor_row = 0;
         self.col = 0;
+        Ok(())
+    }
+
+    fn clear_shrunk_rows(&self, old_height: usize, new_height: usize) -> io::Result<()> {
+        if new_height >= old_height {
+            return Ok(());
+        }
+        let (_, rows) = self.terminal_size();
+        let old_start = rows.saturating_sub(3) - old_height as u16 + 1;
+        let new_start = rows.saturating_sub(3) - new_height as u16 + 1;
+        let mut stdout = io::stdout();
+        for row in old_start..new_start {
+            stdout.execute(MoveTo(0, row))?;
+            if let Some(bg) = self.input_bg {
+                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+            }
+            write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+            write!(stdout, "{}", ResetColor)?;
+        }
+        Ok(())
+    }
+
+    fn draw_separator(&self, row: u16, cols: u16) -> io::Result<()> {
+        let mut stdout = io::stdout();
+        stdout.execute(MoveTo(0, row))?;
+        if let Some(bg) = self.input_bg {
+            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+        }
+        write!(
+            stdout,
+            "{}",
+            SetForegroundColor(self.color(Color::DarkGrey))
+        )?;
+        let sep: String = "─".repeat(cols as usize);
+        write!(stdout, "{}", sep)?;
+        write!(stdout, "{}", ResetColor)?;
+        Ok(())
+    }
+
+    fn draw_status_line(
+        &self,
+        status: &str,
+        chain_badge: Option<&str>,
+        cols: u16,
+        is_scrolling: bool,
+    ) -> io::Result<()> {
+        let (_, rows) = self.terminal_size();
+        let status_row = rows.saturating_sub(1);
+        let mut stdout = io::stdout();
+        stdout.execute(MoveTo(0, status_row))?;
+        if let Some(bg) = self.status_bg {
+            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+        }
+        write!(stdout, "{}", Clear(ClearType::CurrentLine))?;
+        stdout.execute(MoveTo(0, status_row))?;
+        if let Some(bg) = self.status_bg {
+            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+        }
+        write!(
+            stdout,
+            "{}",
+            SetForegroundColor(self.color(Color::DarkGrey))
+        )?;
+        let status_display = if is_scrolling {
+            format!("-- SCROLL -- {}", status)
+        } else {
+            status.to_string()
+        };
+        let truncated: String = status_display.chars().take(cols as usize).collect();
+        write!(stdout, "{}", truncated)?;
+        if let Some(cb) = chain_badge {
+            write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)))?;
+            write!(stdout, "{}", cb)?;
+        }
+        write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
+        write!(stdout, "{}", ResetColor)?;
         Ok(())
     }
 
@@ -598,8 +682,6 @@ impl Renderer {
         let (cols, rows) = crossterm::terminal::size()?;
         let mut stdout = io::stdout();
 
-        let status_row = rows.saturating_sub(1);
-
         if let Some(ref pp) = self.permission_prompt {
             let perm_lines = [pp.tool.as_str(), pp.options.as_str()];
             let line_count = 2usize;
@@ -609,35 +691,11 @@ impl Renderer {
                 .saturating_add(1);
             let sep_above = input_top.saturating_sub(1);
 
-            // Clear previous input area if it shrunk
-            if line_count < self.prev_input_height {
-                let old_start = rows.saturating_sub(3) - self.prev_input_height as u16 + 1;
-                let new_start = rows.saturating_sub(3) - line_count as u16 + 1;
-                for row in old_start..new_start {
-                    stdout.execute(MoveTo(0, row))?;
-                    if let Some(bg) = self.input_bg {
-                        write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-                    }
-                    write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-                    write!(stdout, "{}", ResetColor)?;
-                }
-            }
+            self.clear_shrunk_rows(self.prev_input_height, line_count)?;
             self.prev_input_height = line_count;
 
-            // Separator above
             if sep_above < input_top {
-                stdout.execute(MoveTo(0, sep_above))?;
-                if let Some(bg) = self.input_bg {
-                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-                }
-                write!(
-                    stdout,
-                    "{}",
-                    SetForegroundColor(self.color(Color::DarkGrey))
-                )?;
-                let sep: String = "─".repeat(cols as usize);
-                write!(stdout, "{}", sep)?;
-                write!(stdout, "{}", ResetColor)?;
+                self.draw_separator(sep_above, cols)?;
             }
 
             let perm_color = self.color(Color::DarkYellow);
@@ -653,47 +711,12 @@ impl Renderer {
                 write!(stdout, "{}", ResetColor)?;
             }
 
-            // Separator below
             let sep_below = rows.saturating_sub(2);
             if sep_below < rows.saturating_sub(1) {
-                stdout.execute(MoveTo(0, sep_below))?;
-                if let Some(bg) = self.input_bg {
-                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-                }
-                write!(
-                    stdout,
-                    "{}",
-                    SetForegroundColor(self.color(Color::DarkGrey))
-                )?;
-                let sep: String = "─".repeat(cols as usize);
-                write!(stdout, "{}", sep)?;
-                write!(stdout, "{}", ResetColor)?;
+                self.draw_separator(sep_below, cols)?;
             }
 
-            // Status line
-            stdout.execute(MoveTo(0, status_row))?;
-            if let Some(bg) = self.status_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-            }
-            write!(stdout, "{}", Clear(ClearType::CurrentLine))?;
-            stdout.execute(MoveTo(0, status_row))?;
-            if let Some(bg) = self.status_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-            }
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkGrey))
-            )?;
-            let truncated: String = status.chars().take(cols as usize).collect();
-            write!(stdout, "{}", truncated)?;
-            if let Some(cb) = chain_badge {
-                write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)))?;
-                write!(stdout, "{}", cb)?;
-            }
-            write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(stdout, "{}", ResetColor)?;
-
+            self.draw_status_line(status, chain_badge, cols, false)?;
             write!(stdout, "{}", Hide)?;
             stdout.flush()?;
             return Ok(());
@@ -713,34 +736,11 @@ impl Renderer {
                 .saturating_add(1);
             let sep_above = input_top.saturating_sub(1);
 
-            if line_count < self.prev_input_height {
-                let old_start = rows.saturating_sub(3) - self.prev_input_height as u16 + 1;
-                let new_start = rows.saturating_sub(3) - line_count as u16 + 1;
-                for row in old_start..new_start {
-                    stdout.execute(MoveTo(0, row))?;
-                    if let Some(bg) = self.input_bg {
-                        write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-                    }
-                    write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-                    write!(stdout, "{}", ResetColor)?;
-                }
-            }
+            self.clear_shrunk_rows(self.prev_input_height, line_count)?;
             self.prev_input_height = line_count;
 
-            // Separator above
             if sep_above < input_top {
-                stdout.execute(MoveTo(0, sep_above))?;
-                if let Some(bg) = self.input_bg {
-                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-                }
-                write!(
-                    stdout,
-                    "{}",
-                    SetForegroundColor(self.color(Color::DarkGrey))
-                )?;
-                let sep: String = "─".repeat(cols as usize);
-                write!(stdout, "{}", sep)?;
-                write!(stdout, "{}", ResetColor)?;
+                self.draw_separator(sep_above, cols)?;
             }
 
             let chain_color = self.color(Color::DarkYellow);
@@ -757,47 +757,12 @@ impl Renderer {
                 write!(stdout, "{}", ResetColor)?;
             }
 
-            // Separator below
             let sep_below = rows.saturating_sub(2);
             if sep_below < rows.saturating_sub(1) {
-                stdout.execute(MoveTo(0, sep_below))?;
-                if let Some(bg) = self.input_bg {
-                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-                }
-                write!(
-                    stdout,
-                    "{}",
-                    SetForegroundColor(self.color(Color::DarkGrey))
-                )?;
-                let sep: String = "─".repeat(cols as usize);
-                write!(stdout, "{}", sep)?;
-                write!(stdout, "{}", ResetColor)?;
+                self.draw_separator(sep_below, cols)?;
             }
 
-            // Status line
-            stdout.execute(MoveTo(0, status_row))?;
-            if let Some(bg) = self.status_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-            }
-            write!(stdout, "{}", Clear(ClearType::CurrentLine))?;
-            stdout.execute(MoveTo(0, status_row))?;
-            if let Some(bg) = self.status_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-            }
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkGrey))
-            )?;
-            let truncated: String = status.chars().take(cols as usize).collect();
-            write!(stdout, "{}", truncated)?;
-            if let Some(cb) = chain_badge {
-                write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)))?;
-                write!(stdout, "{}", cb)?;
-            }
-            write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(stdout, "{}", ResetColor)?;
-
+            self.draw_status_line(status, chain_badge, cols, false)?;
             write!(stdout, "{}", Hide)?;
             stdout.flush()?;
             return Ok(());
@@ -860,18 +825,7 @@ impl Renderer {
             line_count
         };
 
-        if visible_line_count < self.prev_input_height {
-            let old_start = rows.saturating_sub(3) - self.prev_input_height as u16 + 1;
-            let new_start = rows.saturating_sub(3) - visible_line_count as u16 + 1;
-            for row in old_start..new_start {
-                stdout.execute(MoveTo(0, row))?;
-                if let Some(bg) = self.input_bg {
-                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-                }
-                write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-                write!(stdout, "{}", ResetColor)?;
-            }
-        }
+        self.clear_shrunk_rows(self.prev_input_height, visible_line_count)?;
         self.prev_input_height = visible_line_count;
 
         // Thin separator line above input
@@ -881,18 +835,7 @@ impl Renderer {
             .saturating_add(1);
         let sep_above = input_top.saturating_sub(1);
         if sep_above < input_top {
-            stdout.execute(MoveTo(0, sep_above))?;
-            if let Some(bg) = self.input_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-            }
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkGrey))
-            )?;
-            let sep: String = "─".repeat(cols as usize);
-            write!(stdout, "{}", sep)?;
-            write!(stdout, "{}", ResetColor)?;
+            self.draw_separator(sep_above, cols)?;
         }
 
         for (i, line) in lines
@@ -951,48 +894,11 @@ impl Renderer {
         // Thin separator line below input
         let sep_below = rows.saturating_sub(2);
         if sep_below < rows.saturating_sub(1) {
-            stdout.execute(MoveTo(0, sep_below))?;
-            if let Some(bg) = self.input_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-            }
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkGrey))
-            )?;
-            let sep: String = "─".repeat(cols as usize);
-            write!(stdout, "{}", sep)?;
-            write!(stdout, "{}", ResetColor)?;
+            self.draw_separator(sep_below, cols)?;
         }
 
         // Status line
-        stdout.execute(MoveTo(0, status_row))?;
-        if let Some(bg) = self.status_bg {
-            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-        }
-        write!(stdout, "{}", Clear(ClearType::CurrentLine))?;
-        stdout.execute(MoveTo(0, status_row))?;
-        if let Some(bg) = self.status_bg {
-            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
-        }
-        write!(
-            stdout,
-            "{}",
-            SetForegroundColor(self.color(Color::DarkGrey))
-        )?;
-        let status_display = if self.scroll_offset > 0 {
-            format!("-- SCROLL -- {}", status)
-        } else {
-            status.to_string()
-        };
-        let truncated: String = status_display.chars().take(cols as usize).collect();
-        write!(stdout, "{}", truncated)?;
-        if let Some(cb) = chain_badge {
-            write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)))?;
-            write!(stdout, "{}", cb)?;
-        }
-        write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-        write!(stdout, "{}", ResetColor)?;
+        self.draw_status_line(status, chain_badge, cols, self.scroll_offset > 0)?;
 
         // Cursor
         let cursor_render_idx = cursor_line.saturating_sub(first_visible);
