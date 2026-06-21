@@ -25,6 +25,22 @@ pub struct BtwRunner {
     pub abort_handle: tokio::task::AbortHandle,
 }
 
+fn streamed_reasoning_text<R>(content: &StreamedAssistantContent<R>) -> Option<CompactString> {
+    match content {
+        StreamedAssistantContent::Reasoning(reasoning) => {
+            Some(CompactString::new(reasoning.display_text()))
+        }
+        StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
+            if reasoning.is_empty() {
+                None
+            } else {
+                Some(CompactString::from(reasoning.as_str()))
+            }
+        }
+        _ => None,
+    }
+}
+
 /// Spawn an isolated, single-turn, tool-less side-question run. The full result
 /// is delivered as a single [`BtwEvent::Done`] (or [`BtwEvent::Error`]) tagged
 /// with `id`. Unlike [`spawn_agent`], it never registers a subagent event sink
@@ -261,31 +277,30 @@ where
         loop {
             while let Some(item) = stream.next().await {
                 match item {
-                    Ok(MultiTurnStreamItem::StreamAssistantItem(
-                        StreamedAssistantContent::Text(text),
-                    )) => {
-                        let _ = event_tx
-                            .send(AgentEvent::Token(CompactString::from(text.text)))
-                            .await;
-                    }
-                    Ok(MultiTurnStreamItem::StreamAssistantItem(
-                        StreamedAssistantContent::Reasoning(r),
-                    )) => {
-                        let _ = event_tx
-                            .send(AgentEvent::Reasoning(CompactString::new(r.display_text())))
-                            .await;
-                    }
-                    Ok(MultiTurnStreamItem::StreamAssistantItem(
-                        StreamedAssistantContent::ToolCall { tool_call, .. },
-                    )) => {
-                        last_tool_name = Some(tool_call.function.name.clone());
-                        tool_interactions.push(tool_call.clone().into());
-                        let _ = event_tx
-                            .send(AgentEvent::ToolCall {
-                                name: CompactString::from(tool_call.function.name),
-                                args: tool_call.function.arguments,
-                            })
-                            .await;
+                    Ok(MultiTurnStreamItem::StreamAssistantItem(content)) => {
+                        if let Some(reasoning) = streamed_reasoning_text(&content) {
+                            let _ = event_tx.send(AgentEvent::Reasoning(reasoning)).await;
+                            continue;
+                        }
+
+                        match content {
+                            StreamedAssistantContent::Text(text) => {
+                                let _ = event_tx
+                                    .send(AgentEvent::Token(CompactString::from(text.text)))
+                                    .await;
+                            }
+                            StreamedAssistantContent::ToolCall { tool_call, .. } => {
+                                last_tool_name = Some(tool_call.function.name.clone());
+                                tool_interactions.push(tool_call.clone().into());
+                                let _ = event_tx
+                                    .send(AgentEvent::ToolCall {
+                                        name: CompactString::from(tool_call.function.name),
+                                        args: tool_call.function.arguments,
+                                    })
+                                    .await;
+                            }
+                            _ => {}
+                        }
                     }
                     Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                         tool_result,
@@ -531,4 +546,33 @@ where
     }
 
     Ok(full_response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::streamed_reasoning_text;
+    use rig::streaming::StreamedAssistantContent;
+
+    #[test]
+    fn streamed_reasoning_delta_is_forwardable_as_reasoning_text() {
+        let content = StreamedAssistantContent::<()>::ReasoningDelta {
+            id: Some("rs_demo".to_string()),
+            reasoning: "thinking in progress".to_string(),
+        };
+
+        assert_eq!(
+            streamed_reasoning_text(&content).as_deref(),
+            Some("thinking in progress")
+        );
+    }
+
+    #[test]
+    fn empty_reasoning_delta_is_ignored() {
+        let content = StreamedAssistantContent::<()>::ReasoningDelta {
+            id: None,
+            reasoning: String::new(),
+        };
+
+        assert!(streamed_reasoning_text(&content).is_none());
+    }
 }
