@@ -364,6 +364,10 @@ async fn run_prompt(
                     tracing::warn!("ACP failed to send tool result notification: {}", e);
                 }
             }
+            AgentEvent::CompletionCall { .. } => {
+                // Mid-stream provider usage; ACP has no status bar to update, so
+                // there is nothing to surface for this event.
+            }
             AgentEvent::Done { .. } => {
                 break;
             }
