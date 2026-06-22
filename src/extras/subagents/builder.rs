@@ -4,6 +4,7 @@ use crate::provider::{AnyAgent, AnyModel, OpenAiAgent, OpenAiModel};
 use rig::agent::{Agent, AgentBuilder};
 use rig::completion::CompletionModel;
 
+#[allow(clippy::too_many_arguments)]
 fn build_explore_agent_inner<M: CompletionModel + 'static>(
     model: M,
     max_turns: usize,

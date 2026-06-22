@@ -161,7 +161,7 @@ impl Mem {
         }
     }
 
-    fn truncate_to_bytes<'a>(s: &'a str, max: usize) -> &'a str {
+    fn truncate_to_bytes(s: &str, max: usize) -> &str {
         if s.len() <= max {
             return s;
         }

@@ -129,29 +129,28 @@ pub fn save_quick_model(
 }
 
 fn rich_default_config() -> Config {
-    let mut cfg = Config::default();
-    cfg.quick_models = Some(default_quick_models());
-    cfg.provider = Some(CompactString::new("openrouter"));
-    cfg.model = Some(CompactString::new("deepseek/deepseek-v4-pro"));
-    cfg.max_tokens = Some(16384);
-    cfg.compact_enabled = Some(true);
-    cfg.max_text_file_size = Some(1_048_576);
-    cfg.edit_system = Some(EditSystem::Similarity);
-    cfg.default_permission_mode = Some("standard".to_string());
-    cfg.default_prompt = Some(CompactString::new("code"));
-    cfg.show_tool_details = None;
-    #[cfg(feature = "subagents")]
-    {
-        cfg.subagent_max_read_lines = Some(2000);
-        cfg.subagent_max_grep_results = Some(200);
-        cfg.subagent_max_find_results = Some(200);
+    Config {
+        quick_models: Some(default_quick_models()),
+        provider: Some(CompactString::new("openrouter")),
+        model: Some(CompactString::new("deepseek/deepseek-v4-pro")),
+        max_tokens: Some(16384),
+        compact_enabled: Some(true),
+        max_text_file_size: Some(1_048_576),
+        edit_system: Some(EditSystem::Similarity),
+        default_permission_mode: Some("standard".to_string()),
+        default_prompt: Some(CompactString::new("code")),
+        show_tool_details: None,
+        chain: Some(crate::config::types::ChainConfig::default()),
+        #[cfg(feature = "subagents")]
+        subagent_max_read_lines: Some(2000),
+        #[cfg(feature = "subagents")]
+        subagent_max_grep_results: Some(200),
+        #[cfg(feature = "subagents")]
+        subagent_max_find_results: Some(200),
+        #[cfg(feature = "advisor")]
+        advisor: Some(crate::config::types::AdvisorConfig::default()),
+        ..Default::default()
     }
-    cfg.chain = Some(crate::config::types::ChainConfig::default());
-    #[cfg(feature = "advisor")]
-    {
-        cfg.advisor = Some(crate::config::types::AdvisorConfig::default());
-    }
-    cfg
 }
 
 pub fn load() -> (Config, bool) {

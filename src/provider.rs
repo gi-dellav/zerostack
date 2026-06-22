@@ -882,6 +882,7 @@ pub async fn build_agent(
 }
 
 /// Builds the isolated, tool-less `/btw` agent for the active provider.
+#[allow(clippy::too_many_arguments)]
 pub fn build_btw_agent(
     model: AnyModel,
     cli: &Cli,

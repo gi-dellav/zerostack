@@ -39,11 +39,9 @@ impl StatusLine {
             .unwrap_or(&session.working_dir);
 
         let ctx = session.context_window;
-        let pct = if ctx > 0 {
-            (session.effective_context_tokens() * 100) / ctx
-        } else {
-            0
-        };
+        let pct = (session.effective_context_tokens() * 100)
+            .checked_div(ctx)
+            .unwrap_or(0);
 
         let cost_str = if session.total_cost > 0.0 {
             format!(" ${:.4}", session.total_cost)
@@ -95,10 +93,7 @@ impl StatusLine {
             _ => String::new(),
         };
 
-        let chain_badge = match chain_label {
-            Some(label) => Some(format!(" | {}", label)),
-            None => None,
-        };
+        let chain_badge = chain_label.map(|label| format!(" | {}", label));
 
         let status = format!(
             "{}{}{} | {}{} | {}%/{}{}{} | {}{}",
