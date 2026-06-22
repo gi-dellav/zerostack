@@ -131,7 +131,7 @@ impl Renderer {
     }
 
     pub fn buffer_line_at_row(&self, row: u16) -> Option<usize> {
-        let (cols, rows) = self.terminal_size();
+        let (cols, _rows) = self.terminal_size();
         let max_width = cols.saturating_sub(1) as usize;
         let visible = self.visible_lines();
         let total = self.buffer.len();
@@ -277,7 +277,7 @@ impl Renderer {
     }
 
     pub fn render_viewport(&mut self) -> io::Result<()> {
-        let (cols, rows) = self.terminal_size();
+        let (cols, _rows) = self.terminal_size();
         let max_width = cols.saturating_sub(1) as usize;
         let visible = self.visible_lines();
         let total = self.buffer.len();
@@ -395,7 +395,7 @@ impl Renderer {
         if self.scroll_offset > 0 {
             return;
         }
-        let (cols, rows) = self.terminal_size();
+        let (cols, _rows) = self.terminal_size();
         let max_content = self.visible_lines() as u16;
         if max_content < 2 {
             return;

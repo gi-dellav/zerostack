@@ -88,7 +88,7 @@ pub fn find_recent_sessions(limit: usize) -> anyhow::Result<Vec<Session>> {
         .collect();
 
     // Sort newest first
-    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries.sort_by_key(|b| std::cmp::Reverse(b.0));
 
     let mut sessions: Vec<Session> = Vec::new();
     for (_, path) in entries.iter().take(limit) {

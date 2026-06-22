@@ -155,15 +155,15 @@ async fn handle_drop(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<(
             return Ok(());
         }
         // Also try parsing as an index into the pending_media list.
-        if let Ok(idx) = parts[1].parse::<usize>() {
-            if idx < ctx.session.pending_media.len() {
-                let removed = ctx.session.pending_media.remove(idx);
-                write_ok(
-                    ctx.renderer,
-                    format!("dropped media: {}", removed.path().display()),
-                );
-                return Ok(());
-            }
+        if let Ok(idx) = parts[1].parse::<usize>()
+            && idx < ctx.session.pending_media.len()
+        {
+            let removed = ctx.session.pending_media.remove(idx);
+            write_ok(
+                ctx.renderer,
+                format!("dropped media: {}", removed.path().display()),
+            );
+            return Ok(());
         }
     }
 

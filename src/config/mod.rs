@@ -213,10 +213,10 @@ impl Config {
             return rt;
         }
         for qmc in qm.values() {
-            if qmc.model.as_str() == model_id {
-                if let Some(rt) = qmc.reserve_tokens {
-                    return rt;
-                }
+            if qmc.model.as_str() == model_id
+                && let Some(rt) = qmc.reserve_tokens
+            {
+                return rt;
             }
         }
         8_192
@@ -238,10 +238,10 @@ impl Config {
             return Some(temp.clamp(0.0, 2.0));
         }
         for qmc in qm.values() {
-            if qmc.model.as_str() == model_id {
-                if let Some(temp) = qmc.temperature {
-                    return Some(temp.clamp(0.0, 2.0));
-                }
+            if qmc.model.as_str() == model_id
+                && let Some(temp) = qmc.temperature
+            {
+                return Some(temp.clamp(0.0, 2.0));
             }
         }
         self.temperature.map(|t| t.clamp(0.0, 2.0))

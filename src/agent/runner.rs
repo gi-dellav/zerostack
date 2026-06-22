@@ -463,7 +463,7 @@ fn format_tool_args_summary(args_json: &serde_json::Value) -> String {
                     } else {
                         s
                     };
-                    return format!("{}", truncated);
+                    return truncated.to_string();
                 }
             }
             String::new()

@@ -480,12 +480,12 @@ async fn main() -> anyhow::Result<()> {
                 content.clone()
             };
 
-            #[allow(unused_mut)]
-            let mut caps: Vec<&str> = Vec::new();
-            #[cfg(feature = "memory")]
-                caps.push("- **Memory**: persistent memory across sessions (memory_read, memory_write, memory_search)");
-            #[cfg(feature = "subagents")]
-                caps.push("- **Subagents**: delegate specific multi-step investigations to parallel subagents via the `task` tool");
+            let caps: &[&str] = &[
+                #[cfg(feature = "memory")]
+                "- **Memory**: persistent memory across sessions (memory_read, memory_write, memory_search)",
+                #[cfg(feature = "subagents")]
+                "- **Subagents**: delegate specific multi-step investigations to parallel subagents via the `task` tool",
+            ];
 
             if !caps.is_empty() {
                 prompt_text.push_str("\n\n## Available Capabilities\n\n");
@@ -508,12 +508,12 @@ async fn main() -> anyhow::Result<()> {
                 content.clone()
             };
 
-            #[allow(unused_mut)]
-            let mut caps: Vec<&str> = Vec::new();
-            #[cfg(feature = "memory")]
-                caps.push("- **Memory**: persistent memory across sessions (memory_read, memory_write, memory_search)");
-            #[cfg(feature = "subagents")]
-                caps.push("- **Subagents**: delegate specific multi-step investigations to parallel subagents via the `task` tool");
+            let caps: &[&str] = &[
+                #[cfg(feature = "memory")]
+                "- **Memory**: persistent memory across sessions (memory_read, memory_write, memory_search)",
+                #[cfg(feature = "subagents")]
+                "- **Subagents**: delegate specific multi-step investigations to parallel subagents via the `task` tool",
+            ];
 
             if !caps.is_empty() {
                 prompt_text.push_str("\n\n## Available Capabilities\n\n");

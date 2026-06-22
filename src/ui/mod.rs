@@ -232,6 +232,7 @@ pub(crate) fn classify_submission(is_running: bool, text: &str) -> SubmitAction 
 }
 
 #[cfg(feature = "git-worktree")]
+#[allow(clippy::too_many_arguments)]
 async fn spawn_merge_agent(
     branch: &str,
     target: &str,
@@ -1204,10 +1205,10 @@ pub async fn run_interactive(
                                         "chain declined — won't ask again this session",
                                         C_AGENT,
                                     )?;
-                                    if let Some(ref name) = context.current_prompt_name {
-                                        if !context.chain_declined.contains(name) {
-                                            context.chain_declined.push(name.clone());
-                                        }
+                                    if let Some(ref name) = context.current_prompt_name
+                                        && !context.chain_declined.contains(name)
+                                    {
+                                        context.chain_declined.push(name.clone());
                                     }
                                     refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                     continue;
@@ -1216,7 +1217,7 @@ pub async fn run_interactive(
                                     renderer.chain_but_mode = true;
                                     renderer.chain_prompt = None;
                                     input.clear_buffer();
-                                    chain_label_msg = chain_pending.map(|p| p.chain_label().to_string().into());
+                                    chain_label_msg = chain_pending.map(|p| p.chain_label().to_string());
                                     refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                     continue;
                                 }
@@ -1980,30 +1981,30 @@ pub async fn run_interactive(
         }
 
         #[cfg(feature = "advisor")]
-        if let Some(ref mut rx) = handoff_rx {
-            if let Ok(handoff_req) = rx.try_recv() {
-                handle_human_handoff(
-                    handoff_req,
-                    &mut renderer,
-                    &mut user_rx,
-                    &mut agent_line_started,
-                    &mut was_reasoning,
-                )
-                .await?;
-                refresh_display(
-                    &mut renderer,
-                    &mut input,
-                    session,
-                    is_running,
-                    loop_label.as_deref(),
-                    context.current_prompt_name.as_deref(),
-                    perm_mode().as_deref(),
-                    chain_label_msg.as_deref(),
-                    btw_total_cost,
-                    btw_total_in,
-                    btw_total_out,
-                )?;
-            }
+        if let Some(ref mut rx) = handoff_rx
+            && let Ok(handoff_req) = rx.try_recv()
+        {
+            handle_human_handoff(
+                handoff_req,
+                &mut renderer,
+                &mut user_rx,
+                &mut agent_line_started,
+                &mut was_reasoning,
+            )
+            .await?;
+            refresh_display(
+                &mut renderer,
+                &mut input,
+                session,
+                is_running,
+                loop_label.as_deref(),
+                context.current_prompt_name.as_deref(),
+                perm_mode().as_deref(),
+                chain_label_msg.as_deref(),
+                btw_total_cost,
+                btw_total_in,
+                btw_total_out,
+            )?;
         }
     }
 
