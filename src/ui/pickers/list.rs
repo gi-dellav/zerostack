@@ -1,46 +1,86 @@
 use super::draw_picker_list;
 
-const COMMANDS: &[&str] = &[
+/// Slash commands that are always available, regardless of which optional
+/// features were compiled in. Feature-gated commands are appended by
+/// [`available_commands`].
+///
+/// Kept in alphabetical order for ease of maintenance.
+const BASE_COMMANDS: &[&str] = &[
     "/add",
+    "/btw",
+    "/clear",
+    "/compact",
+    "/compress",
     "/drop",
     "/drop-all",
+    "/editsys",
+    "/exit",
+    "/help",
+    "/history",
     "/init",
-    "/memory",
+    "/mode",
     "/model",
     "/models",
     "/models-add",
-    "/provider",
-    "/sessions",
-    "/reasoning",
-    "/thinking",
-    "/mode",
-    "/mcp",
-    "/toggle",
-    "/compress",
-    "/compact",
-    "/loop",
+    "/new",
     "/prompt",
-    "/theme",
-    "/history",
+    "/provider",
+    "/queue",
+    "/quit",
+    "/reasoning",
     "/regen-prompts",
     "/regen-themes",
-    "/editsys",
-    "/quit",
-    "/exit",
-    "/clear",
-    "/new",
-    "/undo",
     "/retry",
-    "/help",
-    "/welcome",
-    "/tutorial",
     "/review",
-    "/worktree",
-    "/wt-merge",
-    "/wt-exit",
-    "/btw",
-    "/queue",
+    "/sessions",
+    "/theme",
+    "/thinking",
+    "/toggle",
+    "/tutorial",
+    "/undo",
+    "/welcome",
 ];
+
+/// Build the autocomplete command list, including only the commands whose
+/// backing feature was actually compiled in.
+///
+/// `#[cfg]` cannot be attached to elements of an array literal on stable Rust
+/// (that requires the unstable `stmt_expr_attributes` feature), so the
+/// feature-gated commands are appended via conditionally-compiled statements
+/// instead. Feature blocks are ordered alphabetically by feature name, and the
+/// commands within each block are likewise alphabetical. Keep this in sync with
+/// the dispatcher in `crate::ui::slash`.
+fn available_commands() -> Vec<&'static str> {
+    #[allow(unused_mut)]
+    let mut cmds: Vec<&'static str> = BASE_COMMANDS.to_vec();
+
+    #[cfg(feature = "advisor")]
+    cmds.push("/advisor");
+
+    #[cfg(feature = "git-worktree")]
+    {
+        cmds.push("/worktree");
+        cmds.push("/wt-exit");
+        cmds.push("/wt-merge");
+    }
+
+    #[cfg(feature = "loop")]
+    cmds.push("/loop");
+
+    #[cfg(feature = "mcp")]
+    cmds.push("/mcp");
+
+    #[cfg(feature = "memory")]
+    cmds.push("/memory");
+
+    #[cfg(feature = "subagents")]
+    {
+        cmds.push("/model-subagent");
+        cmds.push("/models-subagent");
+    }
+
+    cmds
+}
 
 pub struct ListPicker {
     pub active: bool,
@@ -67,7 +107,7 @@ impl ListPicker {
 
     pub fn with_static_commands() -> Self {
         let mut picker = ListPicker::new();
-        picker.items = COMMANDS.iter().map(|s| s.to_string()).collect();
+        picker.items = available_commands().iter().map(|s| s.to_string()).collect();
         picker
     }
 
