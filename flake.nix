@@ -10,46 +10,25 @@
     flake-utils.lib.eachDefaultSystem (system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        manifest = (pkgs.lib.importTOML ./Cargo.toml).package;
       in
       {
-        packages.default = pkgs.rustPlatform.buildRustPackage {
-          pname = manifest.name;
-          version = manifest.version;
-          src = pkgs.lib.cleanSource ./.;
-          cargoLock.lockFile = ./Cargo.lock;
+        packages = {
+          zerostack = pkgs.callPackage ./nix/package/zerostack.nix { };
 
-          nativeBuildInputs = with pkgs; [
-            pkg-config
-          ];
+          default = self.packages.${system}.zerostack;
+        };
 
-          buildInputs = with pkgs; [
-            openssl
-          ];
-
-          buildFeatures = [ "acp" "memory" "multithread" ];
-
-          meta = with pkgs.lib; {
-            description = manifest.description;
-            license = licenses.gpl3Only;
-            homepage = manifest.homepage;
-            mainProgram = "zerostack";
-            platforms = platforms.linux ++ platforms.darwin;
+        apps = {
+          zerostack = {
+            type = "app";
+            program = pkgs.lib.getExe self.packages.${system}.zerostack;
           };
+
+          default = self.apps.${system}.zerostack;
         };
 
-        apps.default = {
-          type = "app";
-          program = "${self.packages.${system}.default}/bin/zerostack";
-        };
-
-        devShells.default = pkgs.mkShell {
-          inputsFrom = [ self.packages.${system}.default ];
-          buildInputs = with pkgs; [
-            rust-analyzer
-            rustfmt
-            clippy
-          ];
+        devShells.default = pkgs.callPackage ./nix/package/dev-shell.nix {
+          inherit (self.packages.${system}) zerostack;
         };
       }
     );
