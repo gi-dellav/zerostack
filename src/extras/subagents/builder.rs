@@ -27,6 +27,11 @@ fn build_explore_agent_inner<M: CompletionModel + 'static>(
         preamble.push_str(arch);
     }
 
+    if let Some(s) = crate::session::storage::load_suffix() {
+        preamble.push_str("\n\n---\n\n");
+        preamble.push_str(&s);
+    }
+
     let tools: Vec<Box<dyn rig::tool::ToolDyn>> = vec![
         Box::new(tools::ReadTool::new(
             None,

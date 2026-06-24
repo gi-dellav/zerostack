@@ -1,6 +1,8 @@
 use crate::session::MessageRole;
 use crate::session::Session;
-use crate::session::storage::{delete_session, find_sessions_by_prefix, save_session};
+use crate::session::storage::{
+    delete_session, find_sessions_by_prefix, load_suffix, save_session, suffix_path,
+};
 use std::env;
 use std::sync::Mutex;
 
@@ -10,6 +12,12 @@ struct TestEnv {
     dir: std::path::PathBuf,
     data_dir: String,
     _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl Drop for TestEnv {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
 }
 
 fn setup_test_env() -> TestEnv {
@@ -125,5 +133,61 @@ fn save_session_creates_parent_dirs() {
     save_session(&s).unwrap();
     let found = find_sessions_by_prefix(&s.id[..8].to_string()).unwrap();
     assert_eq!(found.len(), 1);
+    drop(env);
+}
+
+#[test]
+fn load_suffix_returns_none_when_file_missing() {
+    let env = setup_test_env();
+    let result = load_suffix();
+    assert!(result.is_none());
+    drop(env);
+}
+
+#[test]
+fn load_suffix_returns_none_when_file_is_empty() {
+    let env = setup_test_env();
+    let path = suffix_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&path, "").unwrap();
+    let result = load_suffix();
+    assert!(result.is_none());
+    drop(env);
+}
+
+#[test]
+fn load_suffix_returns_none_when_file_is_whitespace_only() {
+    let env = setup_test_env();
+    let path = suffix_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&path, "   \n  \t  \n").unwrap();
+    let result = load_suffix();
+    assert!(result.is_none());
+    drop(env);
+}
+
+#[test]
+fn load_suffix_returns_content_when_file_has_text() {
+    let env = setup_test_env();
+    let path = suffix_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    std::fs::write(&path, "Always respond in haiku form.").unwrap();
+    let result = load_suffix();
+    assert_eq!(result.as_deref(), Some("Always respond in haiku form."));
+    drop(env);
+}
+
+#[test]
+fn suffix_path_is_inside_config_dir() {
+    let env = setup_test_env();
+    let config = crate::session::storage::config_path();
+    let suffix = suffix_path();
+    assert_eq!(suffix, config.join("SUFFIX.md"));
     drop(env);
 }

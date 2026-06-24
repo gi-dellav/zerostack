@@ -110,6 +110,21 @@ pub fn architecture_path() -> PathBuf {
     config_path().join("agent").join("ARCHITECTURE.md")
 }
 
+pub fn suffix_path() -> PathBuf {
+    config_path().join("SUFFIX.md")
+}
+
+pub fn load_suffix() -> Option<String> {
+    let path = suffix_path();
+    if path.exists() {
+        std::fs::read_to_string(path)
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+    } else {
+        None
+    }
+}
+
 fn theme_file_path() -> PathBuf {
     data_dir().join("theme.json")
 }

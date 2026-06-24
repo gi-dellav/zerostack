@@ -305,8 +305,14 @@ where
     M: rig::completion::CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
 {
+    let mut preamble = ADVISOR_SYSTEM_PROMPT.to_string();
+    if let Some(s) = crate::session::storage::load_suffix() {
+        preamble.push_str("\n\n---\n\n");
+        preamble.push_str(&s);
+    }
+
     let agent = rig::agent::AgentBuilder::new(model)
-        .preamble(ADVISOR_SYSTEM_PROMPT)
+        .preamble(&preamble)
         .build();
 
     use futures::StreamExt;

@@ -35,6 +35,7 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     } else {
         "You respond concisely without showing your reasoning.\n\n"
     };
+    let suffix = crate::session::storage::load_suffix();
     let context_agents = context.agents.as_deref().unwrap_or("");
     #[cfg(feature = "archmd")]
     let context_architecture = context.architecture.as_deref().unwrap_or("");
@@ -72,6 +73,8 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     let total_len = total_len
         + context.memory.as_deref().map_or(0, |m| m.len() + 8) // "\n\n---\n\n" + content
         + crate::agent::prompt::MEMORY_TOOLS_PROMPT.len();
+
+    let total_len = total_len + suffix.as_ref().map_or(0, |s| s.len() + 6); // "\n\n---\n\n"
 
     // Add extra files content to preamble budget
     let extra_files_content: Vec<String> = context
@@ -116,6 +119,10 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     {
         crate::extras::memory::append_memory_block(&mut preamble, context.memory.as_deref());
         preamble.push_str(crate::agent::prompt::MEMORY_TOOLS_PROMPT);
+    }
+    if let Some(s) = &suffix {
+        preamble.push_str("\n\n---\n\n");
+        preamble.push_str(s);
     }
 
     let mut builder = AgentBuilder::new(model).preamble(&preamble);
@@ -315,6 +322,11 @@ pub fn build_btw_agent_inner<M: CompletionModel + 'static>(
     }
     #[cfg(feature = "memory")]
     crate::extras::memory::append_memory_block(&mut preamble, context.memory.as_deref());
+
+    if let Some(s) = crate::session::storage::load_suffix() {
+        preamble.push_str("\n\n---\n\n");
+        preamble.push_str(&s);
+    }
 
     let max_tokens = cli.resolve_max_tokens(cfg);
 

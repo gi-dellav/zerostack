@@ -395,8 +395,14 @@ where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
 {
+    let mut preamble = "You are a conversation summarizer.".to_string();
+    if let Some(s) = crate::session::storage::load_suffix() {
+        preamble.push_str("\n\n---\n\n");
+        preamble.push_str(&s);
+    }
+
     let agent = rig::agent::AgentBuilder::new(model)
-        .preamble("You are a conversation summarizer.")
+        .preamble(&preamble)
         .build();
 
     let mut stream = agent
