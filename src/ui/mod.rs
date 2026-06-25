@@ -394,6 +394,7 @@ async fn start_main_run(
     status_signals: &Option<StatusSignals>,
     #[cfg(feature = "mcp")] mcp_manager: &mut Option<McpClientManager>,
     prebuild_rx: &mut Option<mpsc::Receiver<PrebuildPayload>>,
+    pending_send: &mut Option<String>,
 ) {
     // Wait for the background prebuild if it hasn't completed yet.
     #[cfg(feature = "mcp")]
@@ -442,6 +443,9 @@ async fn start_main_run(
         ss.send_start();
     }
     session.add_message(MessageRole::User, text);
+    // Mark this message as the rollback target if the turn fails (see the
+    // failed-send handling in the main event loop).
+    *pending_send = Some(text.to_string());
     #[cfg(feature = "advisor")]
     crate::extras::advisor::set_session_messages(session.messages.clone());
     if !cli.no_session {
@@ -779,6 +783,10 @@ pub async fn run_interactive(
     // prompt + context files from T0, before the first request is calibrated.
     // `ensure_agent` refreshes this whenever the preamble is rebuilt.
     session.overhead_tokens = crate::agent::builder::estimate_overhead(context, reasoning_enabled);
+    // Text of the in-flight interactive send. Set by `start_main_run`; on a
+    // failed turn it is rolled back into the input editor so the message never
+    // poisons the session (which would 400 forever until a manual `/undo`).
+    let mut pending_send: Option<String> = None;
     let mut was_reasoning = false;
     let mut todo_tools_enabled = false;
     #[allow(unused_mut)]
@@ -1349,6 +1357,7 @@ pub async fn run_interactive(
                                             &status_signals,
                                             #[cfg(feature = "mcp")] &mut mcp_manager,
                                             &mut prebuild_rx,
+                                            &mut pending_send,
                                         ).await;
                                     }
                                     refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
@@ -1471,6 +1480,7 @@ pub async fn run_interactive(
                                     &status_signals,
                                     #[cfg(feature = "mcp")] &mut mcp_manager,
                                     &mut prebuild_rx,
+                                    &mut pending_send,
                                 ).await;
                                 refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
@@ -1981,6 +1991,7 @@ pub async fn run_interactive(
                                     &status_signals,
                                     #[cfg(feature = "mcp")] &mut mcp_manager,
                                     &mut prebuild_rx,
+                                    &mut pending_send,
                                 ).await;
                             }
                             }
@@ -2118,6 +2129,9 @@ pub async fn run_interactive(
                 }
                 #[cfg(feature = "mcp")]
                 let mcp_ref = ensure_mcp_manager(&mut mcp_manager, cfg).await;
+                // Peek before the event is consumed: a failed turn rolls the
+                // in-flight interactive message back into the input editor.
+                let turn_errored = matches!(&event, AgentEvent::Error(_));
                 handle_agent_event(
                     event, &mut renderer, session, cfg, cli, context,
                     &mut is_running, &mut agent_rx, &mut agent_line_started,
@@ -2130,6 +2144,24 @@ pub async fn run_interactive(
                     #[cfg(feature = "git-worktree")] &mut wt_return_path,
                     #[cfg(feature = "mcp")] mcp_ref,
                 ).await?;
+                if turn_errored {
+                    // The turn produced no response, so the trailing user message
+                    // is still pending. Remove it (so it never poisons the next
+                    // request) and restore it to the input editor for the user to
+                    // edit or resend. Provider-agnostic: works for too-long, auth,
+                    // rate-limit, and transient errors alike.
+                    if let Some(text) = pending_send.take() {
+                        let len = session.messages.len();
+                        if len > 0 && session.messages[len - 1].role == MessageRole::User {
+                            session.truncate_to(len - 1);
+                        }
+                        input.buffer = text.into();
+                        input.cursor = input.buffer.len();
+                    }
+                } else if !is_running {
+                    // Turn completed normally; the message is committed.
+                    pending_send = None;
+                }
                 if !is_running
                     && let Some(restore_name) = dot_prompt_restore.take()
                 {
@@ -2185,6 +2217,7 @@ pub async fn run_interactive(
                             &status_signals,
                             #[cfg(feature = "mcp")] &mut mcp_manager,
                             &mut prebuild_rx,
+                            &mut pending_send,
                         ).await;
                     }
                 }

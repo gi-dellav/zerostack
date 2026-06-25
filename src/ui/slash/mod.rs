@@ -140,27 +140,21 @@ pub fn undo_last(session: &mut Session) -> usize {
         return 0;
     }
     let removed = if session.messages[len - 1].role == MessageRole::Assistant {
-        session.messages.pop();
-        if session
-            .messages
-            .last()
-            .is_some_and(|m| m.role == MessageRole::User)
-        {
-            session.messages.pop();
+        if len >= 2 && session.messages[len - 2].role == MessageRole::User {
             2
         } else {
             1
         }
     } else if session.messages[len - 1].role == MessageRole::User {
-        session.messages.pop();
         1
     } else {
         0
     };
-    // Removing messages invalidates the calibration anchor; recompute so the
-    // context figure reflects the shortened history instead of staying stale.
+    // Truncate via the session helper so the context figure tracks the
+    // shortened history (subtracts the removed turn from the calibration anchor
+    // rather than going stale or resetting to a cold estimate).
     if removed > 0 {
-        session.recompute_after_removal();
+        session.truncate_to(len - removed);
     }
     removed
 }

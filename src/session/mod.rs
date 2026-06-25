@@ -242,14 +242,30 @@ impl Session {
         self.calibrated_msg_count = 0;
     }
 
-    /// Call after removing messages (e.g. `/undo` or rolling back a failed
-    /// send). Drops the now-mismatched calibration anchor and recomputes the
-    /// per-message estimate total, so the context figure reflects the shortened
-    /// history instead of the stale pre-removal value. The figure falls back to
-    /// the estimate path (overhead + remaining messages, marked `~`) until the
-    /// next provider response recalibrates it.
-    pub fn recompute_after_removal(&mut self) {
-        self.reset_calibration();
+    /// Truncate the conversation to `new_len` messages while keeping the context
+    /// figure accurate (used by `/undo` and the failed-send rollback).
+    ///
+    /// If any removed message was part of the calibration anchor, subtract its
+    /// estimated tokens from the anchor rather than discarding the whole
+    /// calibration. Resetting to a cold estimate would undercount (the estimate
+    /// omits tool schemas), and leaving the anchor untouched would overcount by
+    /// the removed turn — subtracting keeps the figure ≈ the real remaining
+    /// size. Messages beyond the anchor were never in it, so removing them only
+    /// shrinks the estimated tail.
+    pub fn truncate_to(&mut self, new_len: usize) {
+        if new_len >= self.messages.len() {
+            return;
+        }
+        let cal = self.calibrated_msg_count.min(self.messages.len());
+        if self.calibrated_tokens > 0 && new_len < cal {
+            let removed: u64 = self.messages[new_len..cal]
+                .iter()
+                .map(|m| m.estimated_tokens)
+                .sum();
+            self.calibrated_tokens = self.calibrated_tokens.saturating_sub(removed);
+            self.calibrated_msg_count = new_len;
+        }
+        self.messages.truncate(new_len);
         self.total_estimated_tokens = self.messages.iter().map(|m| m.estimated_tokens).sum();
     }
 
