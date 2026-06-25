@@ -139,7 +139,7 @@ pub fn undo_last(session: &mut Session) -> usize {
     if len == 0 {
         return 0;
     }
-    if session.messages[len - 1].role == MessageRole::Assistant {
+    let removed = if session.messages[len - 1].role == MessageRole::Assistant {
         session.messages.pop();
         if session
             .messages
@@ -147,15 +147,22 @@ pub fn undo_last(session: &mut Session) -> usize {
             .is_some_and(|m| m.role == MessageRole::User)
         {
             session.messages.pop();
-            return 2;
+            2
+        } else {
+            1
         }
-        return 1;
-    }
-    if session.messages[len - 1].role == MessageRole::User {
+    } else if session.messages[len - 1].role == MessageRole::User {
         session.messages.pop();
-        return 1;
+        1
+    } else {
+        0
+    };
+    // Removing messages invalidates the calibration anchor; recompute so the
+    // context figure reflects the shortened history instead of staying stale.
+    if removed > 0 {
+        session.recompute_after_removal();
     }
-    0
+    removed
 }
 
 #[allow(clippy::too_many_arguments)]

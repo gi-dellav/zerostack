@@ -242,6 +242,17 @@ impl Session {
         self.calibrated_msg_count = 0;
     }
 
+    /// Call after removing messages (e.g. `/undo` or rolling back a failed
+    /// send). Drops the now-mismatched calibration anchor and recomputes the
+    /// per-message estimate total, so the context figure reflects the shortened
+    /// history instead of the stale pre-removal value. The figure falls back to
+    /// the estimate path (overhead + remaining messages, marked `~`) until the
+    /// next provider response recalibrates it.
+    pub fn recompute_after_removal(&mut self) {
+        self.reset_calibration();
+        self.total_estimated_tokens = self.messages.iter().map(|m| m.estimated_tokens).sum();
+    }
+
     /// True while the context figure is still an estimate — no provider usage
     /// has been reported yet (or it was reset by `/clear`). The status bar marks
     /// the estimated value so the snap to the real number on the first response
