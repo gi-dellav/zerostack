@@ -132,6 +132,10 @@ pub struct Config {
     pub permission_modes: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub show_tool_details: Option<ShowToolDetails>,
+    /// Configurable status-bar (up to 3 lines). When absent, a built-in
+    /// default layout is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub statusline: Option<types::StatusLineConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_prompt: Option<CompactString>,
     #[cfg(feature = "git-worktree")]

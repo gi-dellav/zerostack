@@ -6,7 +6,7 @@ mod permission_handler;
 pub(crate) mod pickers;
 pub(crate) mod renderer;
 pub(crate) mod slash;
-pub(crate) mod status;
+pub(crate) mod statusline;
 mod terminal;
 pub(crate) mod utils;
 
@@ -41,7 +41,6 @@ use crate::ui::input::InputEditor;
 use crate::ui::permission_handler::handle_permission_request;
 use crate::ui::renderer::{Renderer, copy_to_clipboard};
 use crate::ui::slash::{handle_compress, handle_slash};
-use crate::ui::status::StatusLine;
 use crate::ui::terminal::TerminalGuard;
 
 use self::utils::parse_color;
@@ -92,10 +91,7 @@ fn refresh_display(
     btw_out: u64,
 ) -> io::Result<()> {
     renderer.render_viewport()?;
-    let (status, chain_badge) = StatusLine::render(
-        session,
-        is_running,
-        0,
+    let statusline_ctx = crate::ui::statusline::StatusContext {
         loop_label,
         prompt_name,
         perm_mode,
@@ -103,14 +99,9 @@ fn refresh_display(
         btw_cost,
         btw_in,
         btw_out,
-    );
-    renderer.draw_bottom(
-        &input.buffer,
-        input.cursor,
-        &status,
-        chain_badge.as_deref(),
-        is_running,
-    )?;
+    };
+    let statusline = crate::ui::statusline::build(session, &statusline_ctx);
+    renderer.draw_bottom(&input.buffer, input.cursor, &statusline, is_running)?;
     if let Some(ref mut picker) = input.picker {
         picker.draw()?;
     }
@@ -723,15 +714,22 @@ pub async fn run_interactive(
 
     // Display preference: whether the status bar shows the cost even at $0.0000.
     session.show_cost_always = cfg.resolve_show_cost_always();
-    // Status-bar git branch: seed now, then refresh on a throttle in the loop
+    // Statusline layout: parse the spec once, size the renderer's statusline rows.
+    crate::ui::statusline::init(cfg);
+
+    // Status-bar git data: seed now, then refresh on a throttle in the loop
     // (covers worktree switches and external `git checkout` without per-render IO).
     session.refresh_git_branch();
+    if crate::ui::statusline::needs_git_status() {
+        session.refresh_git_status();
+    }
     let mut last_branch_check = std::time::Instant::now();
 
     #[cfg(feature = "mcp")]
     let mut mcp_manager: Option<McpClientManager> = None;
 
     let mut renderer = Renderer::new()?;
+    renderer.set_statusline_height(crate::ui::statusline::line_count());
     renderer.set_monochrome(cli.no_color);
     if let Some(ref theme_name) = context.current_theme_name {
         if let Some(content) = context.themes.get(theme_name.as_str()) {
@@ -1034,6 +1032,9 @@ pub async fn run_interactive(
     loop {
         if last_branch_check.elapsed() >= std::time::Duration::from_secs(1) {
             session.refresh_git_branch();
+            if crate::ui::statusline::needs_git_status() {
+                session.refresh_git_status();
+            }
             last_branch_check = std::time::Instant::now();
         }
         tokio::select! {
@@ -1984,11 +1985,7 @@ pub async fn run_interactive(
                         } else if is_running {
                             refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         } else {
-                            let (status, chain_badge) = StatusLine::render(session, is_running, 0, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out);
-                            renderer.draw_bottom(&input.buffer, input.cursor, &status, chain_badge.as_deref(), is_running)?;
-                            if let Some(ref mut picker) = input.picker {
-                                picker.draw()?;
-                            }
+                            refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         }
                     }
                 }

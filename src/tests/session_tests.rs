@@ -317,3 +317,25 @@ fn detect_git_branch_outside_repo_is_none() {
     let p = std::env::temp_dir().join("zerostack-definitely-not-a-repo-xyz123");
     assert!(Session::detect_git_branch(p.to_str().unwrap()).is_none());
 }
+
+#[test]
+fn parse_porcelain_counts_changes_and_sync() {
+    let out = "\
+# branch.oid abc123
+# branch.head main
+# branch.upstream origin/main
+# branch.ab +2 -1
+1 M. N... 100644 100644 100644 aaa bbb staged.rs
+1 .M N... 100644 100644 100644 aaa bbb modified.rs
+1 .D N... 100644 100644 000000 aaa bbb deleted.rs
+? untracked.rs
+";
+    let g = crate::session::Session::parse_porcelain(out);
+    assert_eq!(g.staged, 1);
+    assert_eq!(g.modified, 1);
+    assert_eq!(g.deleted, 1);
+    assert_eq!(g.untracked, 1);
+    assert_eq!(g.ahead, 2);
+    assert_eq!(g.behind, 1);
+    assert!(g.is_dirty());
+}

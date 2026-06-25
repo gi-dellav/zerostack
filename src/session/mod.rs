@@ -74,6 +74,27 @@ pub struct Session {
     /// runtime, not persisted.
     #[serde(skip)]
     pub git_branch: Option<CompactString>,
+    /// Working-tree change counts and upstream sync, for the status bar.
+    /// Computed only when the statusline uses a git change/status item. Not persisted.
+    #[serde(skip)]
+    pub git_status: Option<GitStatus>,
+}
+
+/// Working-tree summary parsed from `git status --porcelain=v2 --branch`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct GitStatus {
+    pub staged: u32,
+    pub modified: u32,
+    pub deleted: u32,
+    pub untracked: u32,
+    pub ahead: u32,
+    pub behind: u32,
+}
+
+impl GitStatus {
+    pub fn is_dirty(&self) -> bool {
+        self.staged + self.modified + self.deleted + self.untracked > 0
+    }
 }
 
 impl Session {
@@ -131,6 +152,7 @@ impl Session {
             pending_media: Vec::new(),
             show_cost_always: false,
             git_branch: None,
+            git_status: None,
         }
     }
 
@@ -170,6 +192,64 @@ impl Session {
     /// Refresh [`git_branch`](Self::git_branch) from the current `working_dir`.
     pub fn refresh_git_branch(&mut self) {
         self.git_branch = Self::detect_git_branch(&self.working_dir);
+    }
+
+    /// Refresh [`git_status`](Self::git_status) by running `git status` in
+    /// `working_dir`. Only call this when the statusline actually shows a git
+    /// change/status item: it spawns a subprocess (throttled by the caller).
+    pub fn refresh_git_status(&mut self) {
+        self.git_status = Self::detect_git_status(&self.working_dir);
+    }
+
+    fn detect_git_status(dir: &str) -> Option<GitStatus> {
+        let out = std::process::Command::new("git")
+            .args(["status", "--porcelain=v2", "--branch"])
+            .current_dir(dir)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        Some(Self::parse_porcelain(&String::from_utf8_lossy(&out.stdout)))
+    }
+
+    /// Parse `git status --porcelain=v2 --branch` output into a [`GitStatus`].
+    pub fn parse_porcelain(text: &str) -> GitStatus {
+        let mut s = GitStatus::default();
+        for line in text.lines() {
+            if let Some(ab) = line.strip_prefix("# branch.ab ") {
+                // Format: "+<ahead> -<behind>"
+                for tok in ab.split_whitespace() {
+                    if let Some(n) = tok.strip_prefix('+') {
+                        s.ahead = n.parse().unwrap_or(0);
+                    } else if let Some(n) = tok.strip_prefix('-') {
+                        s.behind = n.parse().unwrap_or(0);
+                    }
+                }
+            } else if let Some(rest) = line.strip_prefix("1 ").or_else(|| line.strip_prefix("2 ")) {
+                // Changed/renamed entry. The XY field is the first token: index
+                // status (staged) then worktree status.
+                if let Some(xy) = rest.split_whitespace().next() {
+                    let mut chars = xy.chars();
+                    let x = chars.next().unwrap_or('.');
+                    let y = chars.next().unwrap_or('.');
+                    if x != '.' {
+                        s.staged += 1;
+                    }
+                    match y {
+                        'M' => s.modified += 1,
+                        'D' => s.deleted += 1,
+                        _ => {}
+                    }
+                }
+            } else if line.starts_with("u ") {
+                // Unmerged paths count as a working-tree modification.
+                s.modified += 1;
+            } else if line.starts_with("? ") {
+                s.untracked += 1;
+            }
+        }
+        s
     }
 
     pub fn add_message(&mut self, role: MessageRole, content: &str) {

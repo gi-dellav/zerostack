@@ -10,6 +10,7 @@ use crossterm::terminal::{Clear, ClearType, ScrollUp};
 use smallvec::{SmallVec, smallvec};
 
 use super::markdown::word_wrap;
+use super::statusline::StatusSpan;
 use super::utils::{char_display_width, display_width, resolve_color};
 
 #[derive(Clone)]
@@ -44,6 +45,8 @@ pub struct Renderer {
     pub selection_start: Option<usize>,
     pub selection_end: Option<usize>,
     prev_input_height: usize,
+    /// Number of statusline rows (1-3), fixed by the statusline config at startup.
+    statusline_height: usize,
     pub permission_prompt: Option<PermissionPrompt>,
     pub chain_prompt: Option<ChainPrompt>,
     pub chain_but_mode: bool,
@@ -68,10 +71,21 @@ impl Renderer {
             selection_start: None,
             selection_end: None,
             prev_input_height: 0,
+            statusline_height: 1,
             permission_prompt: None,
             chain_prompt: None,
             chain_but_mode: false,
         })
+    }
+
+    /// Set the number of statusline rows (1-3). Call once at startup.
+    pub fn set_statusline_height(&mut self, h: usize) {
+        self.statusline_height = h.clamp(1, 3);
+    }
+
+    /// Rows reserved at the bottom: statusline lines + separator + input baseline.
+    fn statusline_reserve(&self) -> u16 {
+        self.statusline_height as u16 + 2
     }
 
     pub fn set_monochrome(&mut self, monochrome: bool) {
@@ -127,7 +141,7 @@ impl Renderer {
     pub fn visible_lines(&self) -> usize {
         let (_, rows) = self.terminal_size();
         let input_height = self.prev_input_height.max(1);
-        rows.saturating_sub(input_height as u16 + 3) as usize
+        rows.saturating_sub(input_height as u16 + self.statusline_reserve()) as usize
     }
 
     pub fn buffer_line_at_row(&self, row: u16) -> Option<usize> {
@@ -600,8 +614,9 @@ impl Renderer {
             return Ok(());
         }
         let (_, rows) = self.terminal_size();
-        let old_start = rows.saturating_sub(3) - old_height as u16 + 1;
-        let new_start = rows.saturating_sub(3) - new_height as u16 + 1;
+        let reserve = self.statusline_reserve();
+        let old_start = rows.saturating_sub(reserve) - old_height as u16 + 1;
+        let new_start = rows.saturating_sub(reserve) - new_height as u16 + 1;
         let mut stdout = io::stdout();
         for row in old_start..new_start {
             stdout.execute(MoveTo(0, row))?;
@@ -631,41 +646,119 @@ impl Renderer {
         Ok(())
     }
 
-    fn draw_status_line(
+    /// Draw the statusline (1-3 lines) at the bottom rows. Each line's `Flex` spans
+    /// expand to fill remaining width. Fewer lines than `statusline_height` leaves
+    /// the upper statusline rows blank.
+    fn draw_statusline(
         &self,
-        status: &str,
-        chain_badge: Option<&str>,
+        statusline: &[Vec<StatusSpan>],
         cols: u16,
         is_scrolling: bool,
     ) -> io::Result<()> {
         let (_, rows) = self.terminal_size();
-        let status_row = rows.saturating_sub(1);
+        let h = self.statusline_height as u16;
+        for row_idx in 0..h {
+            let screen_row = rows.saturating_sub(h - row_idx);
+            let empty: Vec<StatusSpan> = Vec::new();
+            let spans = statusline.get(row_idx as usize).unwrap_or(&empty);
+            // Scroll indicator on the top statusline row only.
+            let prefix = if is_scrolling && row_idx == 0 {
+                "-- SCROLL -- "
+            } else {
+                ""
+            };
+            self.draw_statusline_row(screen_row, spans, prefix, cols)?;
+        }
+        Ok(())
+    }
+
+    fn draw_statusline_row(
+        &self,
+        screen_row: u16,
+        spans: &[StatusSpan],
+        prefix: &str,
+        cols: u16,
+    ) -> io::Result<()> {
         let mut stdout = io::stdout();
-        stdout.execute(MoveTo(0, status_row))?;
+        stdout.execute(MoveTo(0, screen_row))?;
         if let Some(bg) = self.status_bg {
             write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
         }
         write!(stdout, "{}", Clear(ClearType::CurrentLine))?;
-        stdout.execute(MoveTo(0, status_row))?;
+        stdout.execute(MoveTo(0, screen_row))?;
         if let Some(bg) = self.status_bg {
             write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
         }
-        write!(
-            stdout,
-            "{}",
-            SetForegroundColor(self.color(Color::DarkGrey))
-        )?;
-        let status_display = if is_scrolling {
-            format!("-- SCROLL -- {}", status)
-        } else {
-            status.to_string()
-        };
-        let truncated: String = status_display.chars().take(cols as usize).collect();
-        write!(stdout, "{}", truncated)?;
-        if let Some(cb) = chain_badge {
-            write!(stdout, "{}", SetForegroundColor(self.color(Color::Cyan)))?;
-            write!(stdout, "{}", cb)?;
+
+        let total = cols as usize;
+        let mut budget = total;
+
+        if !prefix.is_empty() {
+            write!(
+                stdout,
+                "{}",
+                SetForegroundColor(self.color(Color::DarkYellow))
+            )?;
+            let take = prefix.chars().take(budget).collect::<String>();
+            budget -= display_width(&take);
+            write!(stdout, "{}", take)?;
         }
+
+        // Fixed width of all text spans; flex shares what is left.
+        let fixed: usize = spans
+            .iter()
+            .map(|s| match s {
+                StatusSpan::Text { text, .. } => display_width(text),
+                StatusSpan::Flex => 0,
+            })
+            .sum();
+        let flex_count = spans
+            .iter()
+            .filter(|s| matches!(s, StatusSpan::Flex))
+            .count();
+        let mut flex_left = budget.saturating_sub(fixed);
+        let mut flex_seen = 0usize;
+
+        for span in spans {
+            if budget == 0 {
+                break;
+            }
+            match span {
+                StatusSpan::Text { text, fg, bg } => {
+                    let bgc = bg.or(self.status_bg);
+                    if let Some(c) = bgc {
+                        write!(stdout, "{}", SetBackgroundColor(self.color(c)))?;
+                    }
+                    let fgc = fg.unwrap_or(Color::DarkGrey);
+                    write!(stdout, "{}", SetForegroundColor(self.color(fgc)))?;
+                    let piece: String = text.chars().take(budget).collect();
+                    budget = budget.saturating_sub(display_width(&piece));
+                    write!(stdout, "{}", piece)?;
+                    write!(stdout, "{}", ResetColor)?;
+                    if let Some(bg) = self.status_bg {
+                        write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                    }
+                }
+                StatusSpan::Flex => {
+                    flex_seen += 1;
+                    if flex_count == 0 {
+                        continue;
+                    }
+                    // Distribute leftover evenly; earliest flex absorbs the remainder.
+                    let base = flex_left / flex_count;
+                    let extra = if flex_seen <= flex_left % flex_count {
+                        1
+                    } else {
+                        0
+                    };
+                    let width = (base + extra).min(budget);
+                    flex_left = flex_left.saturating_sub(width);
+                    budget = budget.saturating_sub(width);
+                    write!(stdout, "{}", " ".repeat(width))?;
+                }
+            }
+        }
+
         write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
         write!(stdout, "{}", ResetColor)?;
         Ok(())
@@ -675,18 +768,18 @@ impl Renderer {
         &mut self,
         input_line: &str,
         cursor_pos: usize,
-        status: &str,
-        chain_badge: Option<&str>,
+        statusline: &[Vec<StatusSpan>],
         is_running: bool,
     ) -> io::Result<()> {
         let (cols, rows) = crossterm::terminal::size()?;
+        let reserve = self.statusline_reserve();
         let mut stdout = io::stdout();
 
         if let Some(ref pp) = self.permission_prompt {
             let perm_lines = [pp.tool.as_str(), pp.options.as_str()];
             let line_count = 2usize;
             let input_top = rows
-                .saturating_sub(3)
+                .saturating_sub(reserve)
                 .saturating_sub(line_count as u16)
                 .saturating_add(1);
             let sep_above = input_top.saturating_sub(1);
@@ -711,12 +804,12 @@ impl Renderer {
                 write!(stdout, "{}", ResetColor)?;
             }
 
-            let sep_below = rows.saturating_sub(2);
+            let sep_below = rows.saturating_sub(reserve - 1);
             if sep_below < rows.saturating_sub(1) {
                 self.draw_separator(sep_below, cols)?;
             }
 
-            self.draw_status_line(status, chain_badge, cols, false)?;
+            self.draw_statusline(statusline, cols, false)?;
             write!(stdout, "{}", Hide)?;
             stdout.flush()?;
             return Ok(());
@@ -731,7 +824,7 @@ impl Renderer {
             };
             let line_count = 2usize;
             let input_top = rows
-                .saturating_sub(3)
+                .saturating_sub(reserve)
                 .saturating_sub(line_count as u16)
                 .saturating_add(1);
             let sep_above = input_top.saturating_sub(1);
@@ -757,12 +850,12 @@ impl Renderer {
                 write!(stdout, "{}", ResetColor)?;
             }
 
-            let sep_below = rows.saturating_sub(2);
+            let sep_below = rows.saturating_sub(reserve - 1);
             if sep_below < rows.saturating_sub(1) {
                 self.draw_separator(sep_below, cols)?;
             }
 
-            self.draw_status_line(status, chain_badge, cols, false)?;
+            self.draw_statusline(statusline, cols, false)?;
             write!(stdout, "{}", Hide)?;
             stdout.flush()?;
             return Ok(());
@@ -771,8 +864,7 @@ impl Renderer {
         let lines: SmallVec<[&str; 4]> = input_line.split('\n').collect();
         let line_count = lines.len();
 
-        let last_line = rows.saturating_sub(3) as usize - 1;
-        let available_rows = last_line + 1;
+        let available_rows = (rows.saturating_sub(reserve) as usize).max(1);
         let need_scroll = line_count > available_rows;
         let first_visible = if need_scroll {
             line_count - available_rows
@@ -830,7 +922,7 @@ impl Renderer {
 
         // Thin separator line above input
         let input_top = rows
-            .saturating_sub(3)
+            .saturating_sub(reserve)
             .saturating_sub(visible_line_count as u16)
             .saturating_add(1);
         let sep_above = input_top.saturating_sub(1);
@@ -844,7 +936,7 @@ impl Renderer {
             .take(line_count)
             .skip(first_visible)
         {
-            let render_row = (rows.saturating_sub(3) - visible_line_count as u16 + 1)
+            let render_row = (rows.saturating_sub(reserve) - visible_line_count as u16 + 1)
                 + (i - first_visible) as u16;
             stdout.execute(MoveTo(0, render_row))?;
 
@@ -892,18 +984,18 @@ impl Renderer {
         }
 
         // Thin separator line below input
-        let sep_below = rows.saturating_sub(2);
+        let sep_below = rows.saturating_sub(reserve - 1);
         if sep_below < rows.saturating_sub(1) {
             self.draw_separator(sep_below, cols)?;
         }
 
         // Status line
-        self.draw_status_line(status, chain_badge, cols, self.scroll_offset > 0)?;
+        self.draw_statusline(statusline, cols, self.scroll_offset > 0)?;
 
         // Cursor
         let cursor_render_idx = cursor_line.saturating_sub(first_visible);
-        let cursor_row =
-            (rows.saturating_sub(3) - visible_line_count as u16 + 1) + cursor_render_idx as u16;
+        let cursor_row = (rows.saturating_sub(reserve) - visible_line_count as u16 + 1)
+            + cursor_render_idx as u16;
         let cursor_x = (prompt_width + cursor_display_col.saturating_sub(h_scroll)) as u16;
         stdout.execute(MoveTo(cursor_x, cursor_row))?;
         write!(stdout, "{}", Show)?;

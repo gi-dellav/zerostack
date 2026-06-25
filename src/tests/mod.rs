@@ -63,7 +63,7 @@ mod slash_init_tests;
 #[cfg(all(test, unix))]
 mod status_signals_tests;
 #[cfg(test)]
-mod status_tests;
+mod statusline_tests;
 #[cfg(all(test, feature = "subagents"))]
 mod subagents_tests;
 #[cfg(test)]

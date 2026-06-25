@@ -24,6 +24,33 @@ pub struct QuickModelConfig {
     pub extra_body: Option<serde_json::Value>,
 }
 
+/// Status-bar statusline layout. Up to 3 lines, each an ordered list of segments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusLineConfig {
+    #[serde(default)]
+    pub lines: Vec<StatusLineLine>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StatusLineLine {
+    #[serde(default)]
+    pub segments: Vec<StatusLineSegment>,
+}
+
+/// One statusline piece. `item` names the element (see `docs/CONFIG.md`).
+/// `color`/`bg` are named colors or `#rrggbb`. `text` is the literal for the
+/// `separator` item.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusLineSegment {
+    pub item: CompactString,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg: Option<CompactString>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<CompactString>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiStyle {
