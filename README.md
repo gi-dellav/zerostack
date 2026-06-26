@@ -60,12 +60,30 @@ Or pick a tarball manually from [GitHub Releases](https://github.com/gi-dellav/z
 
 ### Nix
 
-```bash
-# Run directly
-nix run github:gi-dellav/zerostack
+Run directly with [`nix-run`](https://tangled.org/weethet.eurosky.social/nix-run/):
 
-# Install into your profile
-nix profile install github:gi-dellav/zerostack
+```console
+$ nix-run https://github.com/gi-dellav/zerostack/archive/refs/heads/main.tar.gz
+```
+
+Add to profile:
+
+```console
+$ nix profile add --file https://github.com/gi-dellav/zerostack/archive/refs/heads/main.tar.gz
+```
+
+Add as an overlay to your system/project:
+
+```nix
+let
+  pkgs = import nixpkgs {
+    overlays = [
+      # src thru input pinning mechanism, or use builtins.fetchTarball
+      (import "${zerostack-src}/nix/overlay")
+    ];
+  };
+in
+pkgs.zerostack
 ```
 
 ### Cargo

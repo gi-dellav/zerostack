@@ -14,8 +14,6 @@ fi
 
 echo "Syncing version ${VERSION} across packaging files..."
 
-# flake.nix reads version from Cargo.toml via importTOML (no change needed)
-
 # PKGBUILD
 sed -i "s/^pkgver=.*/pkgver=${VERSION}/" "${ROOT_DIR}/packaging/aur/PKGBUILD"
 
