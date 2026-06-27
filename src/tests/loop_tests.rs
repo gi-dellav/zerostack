@@ -3,6 +3,13 @@ use crate::extras::r#loop::{
 };
 use std::path::PathBuf;
 
+fn loop_test_data_dir() -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("zerostack-loop-tests-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    unsafe { std::env::set_var("ZS_DATA_DIR", &dir) };
+    dir
+}
+
 // --- LoopState tests ---
 
 #[test]
@@ -183,11 +190,7 @@ fn test_transcript_dir_contains_session_id() {
 #[test]
 fn test_save_iteration_creates_file() {
     let session_id = "test-save-iteration";
-    let dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from(".zerostack"))
-        .join("zerostack")
-        .join("loops")
-        .join(session_id);
+    let dir = loop_test_data_dir().join("loops").join(session_id);
 
     // Clean up before test
     let _ = std::fs::remove_dir_all(&dir);
@@ -219,11 +222,7 @@ fn test_save_iteration_creates_file() {
 #[test]
 fn test_save_iteration_without_validation_output() {
     let session_id = "test-save-no-validation";
-    let dir = dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from(".zerostack"))
-        .join("zerostack")
-        .join("loops")
-        .join(session_id);
+    let dir = loop_test_data_dir().join("loops").join(session_id);
 
     let _ = std::fs::remove_dir_all(&dir);
 
