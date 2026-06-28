@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use compact_str::CompactString;
 
@@ -10,42 +10,41 @@ use crate::config::{Config, EditSystem, QuickModelConfig};
 use crate::extras::mcp::config::McpServerConfig;
 use crate::session::storage;
 
+/// Candidate config filenames, in priority order within each search dir.
+///
+/// * `config.toml` — preferred format, especially for permission rules.
+/// * `config.yaml` / `config.yml` — the documented non-TOML format.
+/// * `config.json` — legacy fallback. YAML is a strict superset of JSON, so
+///   existing JSON configs parse transparently through the YAML reader. This
+///   entry exists purely so upgrades do not silently drop a user's config.
+const CONFIG_CANDIDATES: [&str; 4] = ["config.toml", "config.yaml", "config.yml", "config.json"];
+
+/// Pick the first existing candidate in `dir`, falling back to the preferred
+/// `config.toml` path when none exist (so a fresh install seeds a TOML file).
+pub(crate) fn pick_existing(dir: &Path) -> PathBuf {
+    for name in CONFIG_CANDIDATES {
+        let p = dir.join(name);
+        if p.exists() {
+            return p;
+        }
+    }
+    dir.join(CONFIG_CANDIDATES[0])
+}
+
 fn resolve_config_path() -> PathBuf {
     if let Some(dir) = std::env::var_os("ZS_CONFIG_DIR") {
-        let dir = PathBuf::from(dir);
-        let toml = dir.join("config.toml");
-        let json = dir.join("config.json");
-        if toml.exists() {
-            return toml;
-        }
-        if json.exists() {
-            return json;
-        }
-        return toml;
+        return pick_existing(&PathBuf::from(dir));
     }
 
     if let Some(config_dir) = dirs::config_dir() {
         let dir = config_dir.join("zerostack");
-        let toml = dir.join("config.toml");
-        let json = dir.join("config.json");
-        if toml.exists() {
-            return toml;
-        }
-        if json.exists() {
-            return json;
+        let picked = pick_existing(&dir);
+        if picked.exists() {
+            return picked;
         }
     }
 
-    let dir = storage::data_dir();
-    let toml = dir.join("config.toml");
-    let json = dir.join("config.json");
-    if toml.exists() {
-        toml
-    } else if json.exists() {
-        json
-    } else {
-        toml
-    }
+    pick_existing(&storage::data_dir())
 }
 
 pub fn config_file_path() -> PathBuf {
@@ -97,7 +96,9 @@ pub fn save_quick_model(
         let content = std::fs::read_to_string(&path).unwrap_or_default();
         match path.extension().and_then(|e| e.to_str()) {
             Some("toml") => toml::from_str(&content).unwrap_or_default(),
-            _ => serde_json::from_str(&content).unwrap_or_default(),
+            // YAML is a superset of JSON, so this also accepts legacy
+            // `config.json` files transparently.
+            _ => serde_yaml_ng::from_str(&content).unwrap_or_default(),
         }
     } else {
         Config::default()
@@ -126,7 +127,10 @@ pub fn save_quick_model(
             let content = toml::to_string(&cfg).map_err(std::io::Error::other)?;
             std::fs::write(&path, content)?;
         }
-        _ => std::fs::write(&path, serde_json::to_string_pretty(&cfg)?)?,
+        _ => std::fs::write(
+            &path,
+            serde_yaml_ng::to_string(&cfg).map_err(std::io::Error::other)?,
+        )?,
     }
     Ok(())
 }
@@ -191,7 +195,7 @@ pub fn load() -> (Config, bool) {
                 );
                 std::process::exit(1);
             }),
-            _ => serde_json::from_str(&content).unwrap_or_else(|e| {
+            _ => serde_yaml_ng::from_str(&content).unwrap_or_else(|e| {
                 eprintln!(
                     "error: {} is not a valid config: {}\n\
                       Fix the file or remove it to use defaults.",
@@ -284,7 +288,10 @@ pub fn save_config(cfg: &Config) -> io::Result<()> {
             let content = toml::to_string(&cfg).map_err(io::Error::other)?;
             std::fs::write(&path, content)?;
         }
-        _ => std::fs::write(&path, serde_json::to_string_pretty(&cfg)?)?,
+        _ => std::fs::write(
+            &path,
+            serde_yaml_ng::to_string(&cfg).map_err(io::Error::other)?,
+        )?,
     }
     Ok(())
 }

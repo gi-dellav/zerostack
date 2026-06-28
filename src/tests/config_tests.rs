@@ -168,3 +168,209 @@ fn resolve_context_window_prefers_config_pin_over_catalog() {
         1_048_576
     );
 }
+
+// ── YAML config reader (replaces the former JSON reader) ───────────────
+//
+// The on-disk config may be TOML or YAML. YAML is a strict superset of JSON,
+// so legacy `config.json` files parse transparently through the YAML reader.
+// These tests pin that contract: YAML parsing, the JSON-superset guarantee,
+// round-tripping of `serde_json::Value` fields (extra_body / permission), and
+// the filename resolution priority.
+
+#[test]
+fn yaml_reader_parses_config() {
+    let yaml = r#"provider: openrouter
+model: deepseek/deepseek-v4-flash
+max_tokens: 16384
+temperature: 0.7
+context_window: 128000
+compact_enabled: true
+default_prompt: code
+show_tool_details: 3
+permission-modes: ["guarded", "standard", "yolo"]
+mid_turn_compact_threshold: 0.80
+quick_models:
+  fast:
+    provider: openai
+    model: gpt-4o-mini
+custom_providers:
+  local-vllm:
+    provider_type: openai
+    base_url: http://localhost:8000/v1
+    api_key_env: VLLM_API_KEY
+permission:
+  '*': ask
+  read: allow
+  bash:
+    'cargo test': allow
+    'rm **': deny
+"#;
+    let cfg: Config = serde_yaml_ng::from_str(yaml).unwrap();
+    assert_eq!(cfg.provider.as_deref(), Some("openrouter"));
+    assert_eq!(cfg.model.as_deref(), Some("deepseek/deepseek-v4-flash"));
+    assert_eq!(cfg.max_tokens, Some(16384));
+    assert_eq!(cfg.temperature, Some(0.7));
+    assert_eq!(cfg.context_window, Some(128000));
+    assert_eq!(cfg.compact_enabled, Some(true));
+    assert_eq!(cfg.default_prompt.as_deref(), Some("code"));
+    assert_eq!(cfg.mid_turn_compact_threshold, Some(0.80));
+    match cfg.show_tool_details {
+        Some(crate::config::ShowToolDetails::Lines(3)) => {}
+        other => panic!("unexpected show_tool_details: {other:?}"),
+    }
+    assert_eq!(
+        cfg.permission_modes.as_deref(),
+        Some(
+            &[
+                "guarded".to_string(),
+                "standard".to_string(),
+                "yolo".to_string()
+            ][..]
+        )
+    );
+    let qm = cfg.quick_models.expect("quick_models");
+    let fast = qm.get("fast").expect("fast model");
+    assert_eq!(fast.provider.as_str(), "openai");
+    assert_eq!(fast.model.as_str(), "gpt-4o-mini");
+    let cps = cfg.custom_providers.expect("custom_providers");
+    let vllm = cps.get("local-vllm").expect("local-vllm provider");
+    assert_eq!(vllm.base_url, "http://localhost:8000/v1");
+    assert_eq!(vllm.api_key_env.as_deref(), Some("VLLM_API_KEY"));
+    assert_eq!(
+        cfg.permission,
+        Some(serde_json::json!({
+            "*": "ask",
+            "read": "allow",
+            "bash": { "cargo test": "allow", "rm **": "deny" }
+        }))
+    );
+}
+
+#[test]
+fn yaml_reader_accepts_plain_json_superset() {
+    // YAML is a superset of JSON: a plain JSON config must parse through the
+    // YAML reader identically to the equivalent YAML.
+    let json = r#"{
+      "provider": "openrouter",
+      "model": "deepseek/deepseek-v4-flash",
+      "max_tokens": 16384,
+      "compact_enabled": true,
+      "quick_models": {
+        "fast": { "provider": "openai", "model": "gpt-4o-mini" }
+      },
+      "permission": { "*": "ask", "read": "allow" }
+    }"#;
+    let from_json: Config = serde_yaml_ng::from_str(json).unwrap();
+
+    let yaml = r#"provider: openrouter
+model: deepseek/deepseek-v4-flash
+max_tokens: 16384
+compact_enabled: true
+quick_models:
+  fast:
+    provider: openai
+    model: gpt-4o-mini
+permission:
+  '*': ask
+  read: allow
+"#;
+    let from_yaml: Config = serde_yaml_ng::from_str(yaml).unwrap();
+
+    assert_eq!(from_json.provider, from_yaml.provider);
+    assert_eq!(from_json.model, from_yaml.model);
+    assert_eq!(from_json.max_tokens, from_yaml.max_tokens);
+    assert_eq!(from_json.compact_enabled, from_yaml.compact_enabled);
+    let jf = from_json
+        .quick_models
+        .as_ref()
+        .and_then(|m| m.get("fast"))
+        .expect("json fast model");
+    let yf = from_yaml
+        .quick_models
+        .as_ref()
+        .and_then(|m| m.get("fast"))
+        .expect("yaml fast model");
+    assert_eq!(jf.provider.as_str(), yf.provider.as_str());
+    assert_eq!(jf.model.as_str(), yf.model.as_str());
+    assert_eq!(from_json.permission, from_yaml.permission);
+}
+
+#[test]
+fn yaml_round_trips_serde_json_value_fields() {
+    // `extra_body` and `permission` are typed as `serde_json::Value`; ensure
+    // they survive a YAML serialize/deserialize round trip intact.
+    let cfg = Config {
+        provider: Some(CompactString::new("openrouter")),
+        extra_body: Some(serde_json::json!({ "plugins": { "preset": "quality" } })),
+        permission: Some(serde_json::json!({ "*": "ask", "read": "allow" })),
+        ..Config::default()
+    };
+    let yaml = serde_yaml_ng::to_string(&cfg).unwrap();
+    let back: Config = serde_yaml_ng::from_str(&yaml).unwrap();
+    assert_eq!(back.provider, cfg.provider);
+    assert_eq!(back.extra_body, cfg.extra_body);
+    assert_eq!(back.permission, cfg.permission);
+}
+
+#[test]
+fn yaml_round_trips_scalar_and_nested_fields() {
+    let cfg = Config {
+        provider: Some(CompactString::new("openrouter")),
+        model: Some(CompactString::new("deepseek/deepseek-v4-flash")),
+        max_tokens: Some(16384),
+        context_window: Some(128000),
+        compact_enabled: Some(true),
+        default_prompt: Some(CompactString::new("code")),
+        ..Config::default()
+    };
+    let yaml = serde_yaml_ng::to_string(&cfg).unwrap();
+    // The emitter produces block-style YAML, not JSON flow braces.
+    assert!(!yaml.trim_start().starts_with('{'));
+    let back: Config = serde_yaml_ng::from_str(&yaml).unwrap();
+    assert_eq!(back.provider, cfg.provider);
+    assert_eq!(back.model, cfg.model);
+    assert_eq!(back.max_tokens, cfg.max_tokens);
+    assert_eq!(back.context_window, cfg.context_window);
+    assert_eq!(back.compact_enabled, cfg.compact_enabled);
+    assert_eq!(back.default_prompt, cfg.default_prompt);
+}
+
+// `pick_existing` is pure (no env/global state), so this priority test is
+// hermetic and safe to run in parallel with everything else.
+#[test]
+fn config_candidate_priority_toml_yaml_yml_legacy_json() {
+    use crate::config::load::pick_existing;
+
+    let dir = std::env::temp_dir().join(format!("zs_cfgtest_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let name = |p: std::path::PathBuf| p.file_name().unwrap().to_str().unwrap().to_string();
+
+    // Nothing exists yet -> defaults to the preferred config.toml path.
+    assert_eq!(name(pick_existing(&dir)), "config.toml");
+
+    // Legacy config.json is still discovered (parsed via the YAML reader, since
+    // YAML is a superset of JSON).
+    std::fs::write(dir.join("config.json"), "{}").unwrap();
+    assert_eq!(name(pick_existing(&dir)), "config.json");
+
+    // .yml outranks legacy .json.
+    std::fs::write(dir.join("config.yml"), "").unwrap();
+    assert_eq!(name(pick_existing(&dir)), "config.yml");
+    let _ = std::fs::remove_file(dir.join("config.yml"));
+
+    // .yaml outranks legacy .json.
+    std::fs::write(dir.join("config.yaml"), "").unwrap();
+    assert_eq!(name(pick_existing(&dir)), "config.yaml");
+
+    // .yaml also outranks .yml when both exist.
+    std::fs::write(dir.join("config.yml"), "").unwrap();
+    assert_eq!(name(pick_existing(&dir)), "config.yaml");
+
+    // .toml outranks every other candidate.
+    std::fs::write(dir.join("config.toml"), "").unwrap();
+    assert_eq!(name(pick_existing(&dir)), "config.toml");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -17,7 +17,7 @@ Single crate, no workspace. All source under `src/`.
 | `src/permission/` | Security: `checker.rs` (glob+regex rules, doom-loop detection), `ask.rs` (user prompt UI), `pattern.rs` |
 | `src/ui/` | Custom TUI on crossterm (no ratatui): `mod.rs` (event loop), `terminal.rs` (raw mode guard), `renderer.rs` (line buffer + viewport), `input/` (text editor + pickers), `status.rs`, `markdown.rs`, `event_handler.rs`, `cmd_picker.rs` |
 | `src/context/` | Context gathering: embedded prompt themes (`prompts.rs`, `themes.rs`), AGENTS.md/ARCHITECTURE.md loading |
-| `src/config/` | Configuration: `load.rs` (TOML/JSON from disk+env), `types.rs` (QuickModel, CustomProvider, Colors, EditSystem) |
+| `src/config/` | Configuration: `load.rs` (TOML/YAML/JSON from disk+env), `types.rs` (QuickModel, CustomProvider, Colors, EditSystem) |
 | `src/extras/` | Feature-gated extensions: `loop/` (headless), `mcp/` (MCP client), `acp/` (ACP server), `memory/` (persistent memory), `subagents/` (parallel task delegation), `git_worktree/`, `archmd/` |
 | `src/sandbox.rs` | `bwrap`/`zerobox` command wrapping |
 | `src/fs.rs` | Filesystem utilities |
@@ -97,7 +97,7 @@ Session is serialized to JSON files in `$XDG_DATA_HOME/zerostack/sessions/`. Cha
 | `clap 4` | Derive-based CLI argument parsing (`src/cli.rs:9`) |
 | `crossterm 0.29` | Terminal raw mode, color, cursor, mouse, paste events — TUI foundation |
 | `tokio 1` | Async runtime (current_thread default), channels (`mpsc`), process, fs |
-| `serde + serde_json + toml` | Config (TOML/JSON), session serialization (JSON) |
+| `serde + serde_json + serde_yaml_ng + toml` | Config (TOML/YAML/JSON), session serialization (JSON) |
 | `chrono`, `uuid` | Session timestamps and IDs |
 | `pulldown-cmark 0.13` | Markdown → styled lines for TUI rendering |
 | `ignore 0.4` | `.gitignore`-aware file traversal (`find_files` tool) |

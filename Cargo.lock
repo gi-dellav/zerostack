@@ -8781,6 +8781,7 @@ dependencies = [
  "rmcp",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
  "smallvec",
  "thiserror 2.0.18",
  "tokio",

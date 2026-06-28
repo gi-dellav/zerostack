@@ -1,13 +1,13 @@
 # Configuration
 
-zerostack reads an optional config file. It supports both JSON and TOML
+zerostack reads an optional config file. It supports TOML, YAML and JSON
 formats. The file is resolved by priority:
 
-- If `ZS_CONFIG_DIR` is set: `$ZS_CONFIG_DIR/config.toml` or `$ZS_CONFIG_DIR/config.json`
-- Otherwise: `~/.config/zerostack/config.toml` or `~/.config/zerostack/config.json`
-- Otherwise: `~/.local/share/zerostack/config.toml` or `~/.local/share/zerostack/config.json`
+- If `ZS_CONFIG_DIR` is set: `$ZS_CONFIG_DIR/config.toml` (preferred), `config.yaml`/`config.yml`, or `config.json`
+- Otherwise: `~/.config/zerostack/config.toml` (preferred), `config.yaml`/`.yml`, or `config.json`
+- Otherwise: `~/.local/share/zerostack/config.toml` (preferred), `config.yaml`/`.yml`, or `config.json`
 
-If a `config.toml` exists at a higher priority, it is used. If neither exists
+If a `config.toml` exists at a higher priority, it is used. If none exists
 at any priority, a default `config.toml` is created in the lowest-priority
 directory (`~/.local/share/zerostack/`). On macOS the XDG config path above
 resolves to `~/Library/Application Support/zerostack/`.
@@ -34,69 +34,58 @@ data files.
 All config keys are optional. CLI flags and their environment-backed values
 (such as `ZS_PROVIDER` and `ZS_MODEL`) take precedence where both exist.
 
-Example (JSON):
+Example (YAML):
 
-```json
-{
-  "provider": "openrouter",
-  "model": "deepseek/deepseek-v4-flash",
-  "max_tokens": 16384,
-  "temperature": 0.7,
-  "context_window": 128000,
-  "reserve_tokens": 8192,
-  "keep_recent_tokens": 10000,
-  "compact_enabled": true,
-  "mid_turn_compact_threshold": 0.80,
-  "deny_repeated_reads": false,
-  "default_prompt": "code",
-  "default_permission_mode": "standard",
-  "permission-modes": ["guarded", "standard", "yolo"],
-  "show_tool_details": 3,
-  "sandbox": false,
-  "quick_models": {
-    "fast": {
-      "provider": "openai",
-      "model": "gpt-4o-mini"
-    }
-  },
-  "custom_providers": {
-    "local-vllm": {
-      "provider_type": "openai",
-      "base_url": "http://localhost:8000/v1",
-      "api_key_env": "VLLM_API_KEY",
-      "model": "gemma4"
-    },
-    "company-gateway": {
-      "provider_type": "openai",
-      "base_url": "https://gateway.example.com/v1",
-      "api_key_env": "GATEWAY_API_KEY",
-      "api_style": "completions",
-      "headers": {
-        "cf-access-client-id": "${CF_ACCESS_CLIENT_ID}",
-        "cf-access-client-secret": "${CF_ACCESS_CLIENT_SECRET}"
-      },
-      "danger_accept_invalid_certs": false,
-      "timeout_secs": 60
-    }
-  },
-  "permission": {
-    "*": "ask",
-    "read": "allow",
-    "write": {
-      "**/*.rs": "allow",
-      "**": "ask"
-    },
-    "bash": {
-      "cargo test": "allow",
-      "rm **": "deny"
-    },
-    "external_directory": {
-      "/tmp/**": "allow",
-      "/**": "ask"
-    },
-    "doom_loop": "ask"
-  }
-}
+```yaml
+provider: openrouter
+model: deepseek/deepseek-v4-flash
+max_tokens: 16384
+temperature: 0.7
+context_window: 128000
+reserve_tokens: 8192
+keep_recent_tokens: 10000
+compact_enabled: true
+mid_turn_compact_threshold: 0.80
+deny_repeated_reads: false
+default_prompt: code
+default_permission_mode: standard
+permission-modes: ["guarded", "standard", "yolo"]
+show_tool_details: 3
+sandbox: false
+
+quick_models:
+  fast:
+    provider: openai
+    model: gpt-4o-mini
+custom_providers:
+  local-vllm:
+    provider_type: openai
+    base_url: http://localhost:8000/v1
+    api_key_env: VLLM_API_KEY
+    model: gemma4
+  company-gateway:
+    provider_type: openai
+    base_url: https://gateway.example.com/v1
+    api_key_env: GATEWAY_API_KEY
+    api_style: completions
+    headers:
+      cf-access-client-id: "${CF_ACCESS_CLIENT_ID}"
+      cf-access-client-secret: "${CF_ACCESS_CLIENT_SECRET}"
+    danger_accept_invalid_certs: false
+    timeout_secs: 60
+permission:
+  "*": ask
+  read: allow
+  write:
+    "**/*.rs": allow
+    "**": ask
+  bash:
+    "cargo test": allow
+    "rm **": deny
+  external_directory:
+    "/tmp/**": allow
+    "/**": ask
+  doom_loop: ask
 ```
 
 The same config in TOML:
@@ -310,19 +299,19 @@ model = "openrouter/fusion"
 extra_body = { plugins = { preset = "quality" } }
 ```
 
-In JSON:
+In YAML:
 
-```json
-{
-  "extra_body": { "plugins": { "preset": "general-budget" } },
-  "quick_models": {
-    "quality": {
-      "provider": "openrouter",
-      "model": "openrouter/fusion",
-      "extra_body": { "plugins": { "preset": "quality" } }
-    }
-  }
-}
+```yaml
+extra_body:
+  plugins:
+    preset: general-budget
+quick_models:
+  quality:
+    provider: openrouter
+    model: openrouter/fusion
+    extra_body:
+      plugins:
+        preset: quality
 ```
 
 Note that body parameters are **provider-specific**: a key one provider
@@ -510,37 +499,27 @@ permission-ask = { bash = ["rm **"] }
 permission-deny = { write = ["/etc/**", "/usr/**"] }
 ```
 
-In JSON:
-```json
-{
-  "permission-allow": {
-    "read": ["src/**", "tests/**"]
-  },
-  "permission-ask": {
-    "bash": ["rm **"]
-  },
-  "permission-deny": {
-    "write": ["/etc/**", "/usr/**"]
-  }
-}
+In YAML:
+```yaml
+permission-allow:
+  read: ["src/**", "tests/**"]
+permission-ask:
+  bash: ["rm **"]
+permission-deny:
+  write: ["/etc/**", "/usr/**"]
 ```
 
-A `permission-regex` example in JSON:
+A `permission-regex` example in YAML:
 
-```json
-{
-  "permission-regex": {
-    "*": "ask",
-    "read": {
-      "\\.md$": "allow",
-      "\\.rs$": "ask"
-    },
-    "bash": {
-      "^cargo (test|check|build)$": "allow",
-      "^rm ": "deny"
-    }
-  }
-}
+```yaml
+permission-regex:
+  "*": ask
+  read:
+    "\\.md$": allow
+    "\\.rs$": ask
+  bash:
+    "^cargo (test|check|build)$": allow
+    "^rm ": deny
 ```
 
 When compiled with MCP support, `mcp_servers` accepts command-based and URL-based
@@ -653,8 +632,11 @@ When `--acp` is passed without `--acp-host`, zerostack runs in stdio mode
 
 ## TOML configuration
 
-zerostack prefers `config.toml` over `config.json` when both exist. If neither
-file exists, a default `config.toml` is created automatically.
+Within each search directory, zerostack picks the first existing file in
+this priority order: `config.toml`, `config.yaml`, `config.yml`, then
+`config.json`. `config.json` is kept for backwards compatibility — since YAML
+is a superset of JSON, legacy JSON configs parse transparently through the
+YAML reader. If none exists, a default `config.toml` is created automatically.
 
 TOML is especially well suited for zerostack's permission rules and structured
 settings. Hyphenated keys such as `permission-regex`, `permission-allow`,
@@ -686,7 +668,7 @@ For more complex configurations, explicit TOML tables provide clear structure:
 
 All top-level keys use kebab-case when they contain hyphens (e.g.
 `permission-allow`, `allow-all-mcp-calls`). Simple keys use the same name as
-their JSON counterpart. Quoted keys (`"*"`, `"**"`) are required when the key
+their YAML counterpart. Quoted keys (`"*"`, `"**"`) are required when the key
 contains special characters like `*` or `/`.
 
 ## Edit System Modes
@@ -797,16 +779,13 @@ plan-to-code = true
 code-to-review = false
 ```
 
-### JSON
+### YAML
 
-```json
-{
-  "chain": {
-    "brainstorm-to-plan": true,
-    "plan-to-code": true,
-    "code-to-review": false
-  }
-}
+```yaml
+chain:
+  brainstorm-to-plan: true
+  plan-to-code: true
+  code-to-review: false
 ```
 
 ## Advisor
@@ -829,18 +808,15 @@ model = "deepseek/deepseek-v4-pro"
 # advisor_kilobytes_limit = 256   # max KB of conversation context (split half head / half tail)
 ```
 
-### JSON
+### YAML
 
-```json
-{
-  "advisor": {
-    "enabled": true,
-    "model": "deepseek/deepseek-v4-pro",
-    "max_uses": 3,
-    "human_handoff": false,
-    "advisor_kilobytes_limit": 256
-  }
-}
+```yaml
+advisor:
+  enabled: true
+  model: deepseek/deepseek-v4-pro
+  max_uses: 3
+  human_handoff: false
+  advisor_kilobytes_limit: 256
 ```
 
 ### CLI flags

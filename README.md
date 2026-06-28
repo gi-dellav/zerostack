@@ -389,17 +389,13 @@ zerostack --acp --acp-host 0.0.0.0 --acp-port 7243
 
 ### ACP config
 
-In `~/.local/share/zerostack/config.json`:
+In `~/.local/share/zerostack/config.yaml`:
 
-```json
-{
-  "acp_servers": {
-    "my-editor": {
-      "host": "127.0.0.1",
-      "port": 7243
-    }
-  }
-}
+```yaml
+acp_servers:
+  my-editor:
+    host: 127.0.0.1
+    port: 7243
 ```
 
 ACP mode requires setting up an LLM provider (the standard `--provider`, `--model`,
@@ -414,7 +410,7 @@ and API key env vars apply). Without it, zerostack cannot process prompts.
 - Ollama
 
 Custom providers can be configured with any base URL and API key environment
-variable in `~/.local/share/zerostack/config.json`.
+variable in `~/.local/share/zerostack/config.yaml`.
 
 ## License
 
