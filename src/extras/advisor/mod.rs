@@ -9,6 +9,7 @@ use tokio::sync::oneshot;
 
 use crate::agent::tools::ToolError;
 use crate::provider::{AnyClient, AnyModel, OpenAiModel};
+use crate::retry::{self, RetryConfig};
 use crate::session::{MessageRole, SessionMessage};
 
 const ADVISOR_SYSTEM_PROMPT: &str = "\
@@ -320,7 +321,14 @@ where
 
     use futures::StreamExt;
     let history: Vec<rig::completion::Message> = vec![];
-    let mut stream = agent.stream_chat(prompt, history).multi_turn(1).await;
+    let agent_ref = &agent;
+    let mut stream = retry::retry_stream_chat(&RetryConfig::default(), move || {
+        let p = prompt.clone();
+        let h: Vec<rig::completion::Message> = vec![];
+        async move { agent_ref.stream_chat(p, h).multi_turn(1).await }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Advisor call failed: {e}"))?;
 
     let mut response = String::new();
     while let Some(item) = stream.next().await {

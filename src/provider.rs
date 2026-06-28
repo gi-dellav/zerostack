@@ -22,6 +22,7 @@ use crate::event::AgentEvent;
 use crate::extras::mcp::McpClientManager;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
+use crate::retry::{self, RetryConfig};
 use crate::sandbox::Sandbox;
 use crate::session::SessionMessage;
 
@@ -405,10 +406,18 @@ where
         .preamble(&preamble)
         .build();
 
-    let mut stream = agent
-        .stream_chat(prompt, Vec::<Message>::new())
-        .multi_turn(1)
-        .await;
+    let agent_ref = &agent;
+    let mut stream = retry::retry_stream_chat(&RetryConfig::default(), move || {
+        let p = prompt.clone();
+        async move {
+            agent_ref
+                .stream_chat(p, Vec::<Message>::new())
+                .multi_turn(1)
+                .await
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Compression failed: {}", e))?;
 
     let mut response = String::new();
     use futures::StreamExt;
@@ -480,20 +489,29 @@ impl AnyAgent {
         prompt: &str,
         max_turns: usize,
         pure_stdout: bool,
+        retry_config: &RetryConfig,
     ) -> anyhow::Result<String> {
         match self {
-            AnyAgent::OpenRouter(a) => runner::run_print(a, prompt, max_turns, pure_stdout).await,
+            AnyAgent::OpenRouter(a) => {
+                runner::run_print(a, prompt, max_turns, pure_stdout, retry_config).await
+            }
             AnyAgent::OpenAI(a) => match a {
                 OpenAiAgent::Responses(a) => {
-                    runner::run_print(a, prompt, max_turns, pure_stdout).await
+                    runner::run_print(a, prompt, max_turns, pure_stdout, retry_config).await
                 }
                 OpenAiAgent::Completions(a) => {
-                    runner::run_print(a, prompt, max_turns, pure_stdout).await
+                    runner::run_print(a, prompt, max_turns, pure_stdout, retry_config).await
                 }
             },
-            AnyAgent::Anthropic(a) => runner::run_print(a, prompt, max_turns, pure_stdout).await,
-            AnyAgent::Gemini(a) => runner::run_print(a, prompt, max_turns, pure_stdout).await,
-            AnyAgent::Ollama(a) => runner::run_print(a, prompt, max_turns, pure_stdout).await,
+            AnyAgent::Anthropic(a) => {
+                runner::run_print(a, prompt, max_turns, pure_stdout, retry_config).await
+            }
+            AnyAgent::Gemini(a) => {
+                runner::run_print(a, prompt, max_turns, pure_stdout, retry_config).await
+            }
+            AnyAgent::Ollama(a) => {
+                runner::run_print(a, prompt, max_turns, pure_stdout, retry_config).await
+            }
         }
     }
 
@@ -503,33 +521,49 @@ impl AnyAgent {
         prompt: &str,
         max_turns: usize,
         event_tx: Option<&mpsc::Sender<AgentEvent>>,
+        retry_config: &RetryConfig,
     ) -> anyhow::Result<String> {
         match self {
-            AnyAgent::OpenRouter(a) => runner::run_subagent(a, prompt, max_turns, event_tx).await,
+            AnyAgent::OpenRouter(a) => {
+                runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
+            }
             AnyAgent::OpenAI(a) => match a {
                 OpenAiAgent::Responses(a) => {
-                    runner::run_subagent(a, prompt, max_turns, event_tx).await
+                    runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
                 }
                 OpenAiAgent::Completions(a) => {
-                    runner::run_subagent(a, prompt, max_turns, event_tx).await
+                    runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
                 }
             },
-            AnyAgent::Anthropic(a) => runner::run_subagent(a, prompt, max_turns, event_tx).await,
-            AnyAgent::Gemini(a) => runner::run_subagent(a, prompt, max_turns, event_tx).await,
-            AnyAgent::Ollama(a) => runner::run_subagent(a, prompt, max_turns, event_tx).await,
+            AnyAgent::Anthropic(a) => {
+                runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
+            }
+            AnyAgent::Gemini(a) => {
+                runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
+            }
+            AnyAgent::Ollama(a) => {
+                runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
+            }
         }
     }
 
-    pub fn spawn_runner(self, prompt: String, history: Vec<Message>) -> AgentRunner {
+    pub fn spawn_runner(
+        self,
+        prompt: String,
+        history: Vec<Message>,
+        retry_config: RetryConfig,
+    ) -> AgentRunner {
         match self {
-            AnyAgent::OpenRouter(a) => runner::spawn_agent(a, prompt, history),
+            AnyAgent::OpenRouter(a) => runner::spawn_agent(a, prompt, history, retry_config),
             AnyAgent::OpenAI(a) => match a {
-                OpenAiAgent::Responses(a) => runner::spawn_agent(a, prompt, history),
-                OpenAiAgent::Completions(a) => runner::spawn_agent(a, prompt, history),
+                OpenAiAgent::Responses(a) => runner::spawn_agent(a, prompt, history, retry_config),
+                OpenAiAgent::Completions(a) => {
+                    runner::spawn_agent(a, prompt, history, retry_config)
+                }
             },
-            AnyAgent::Anthropic(a) => runner::spawn_agent(a, prompt, history),
-            AnyAgent::Gemini(a) => runner::spawn_agent(a, prompt, history),
-            AnyAgent::Ollama(a) => runner::spawn_agent(a, prompt, history),
+            AnyAgent::Anthropic(a) => runner::spawn_agent(a, prompt, history, retry_config),
+            AnyAgent::Gemini(a) => runner::spawn_agent(a, prompt, history, retry_config),
+            AnyAgent::Ollama(a) => runner::spawn_agent(a, prompt, history, retry_config),
         }
     }
 
@@ -539,16 +573,29 @@ impl AnyAgent {
         history: Vec<Message>,
         event_tx: mpsc::Sender<crate::event::BtwEvent>,
         id: u32,
+        retry_config: RetryConfig,
     ) -> crate::agent::runner::BtwRunner {
         match self {
-            AnyAgent::OpenRouter(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+            AnyAgent::OpenRouter(a) => {
+                runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
+            }
             AnyAgent::OpenAI(a) => match a {
-                OpenAiAgent::Responses(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
-                OpenAiAgent::Completions(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+                OpenAiAgent::Responses(a) => {
+                    runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
+                }
+                OpenAiAgent::Completions(a) => {
+                    runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
+                }
             },
-            AnyAgent::Anthropic(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
-            AnyAgent::Gemini(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
-            AnyAgent::Ollama(a) => runner::spawn_btw(a, prompt, history, event_tx, id),
+            AnyAgent::Anthropic(a) => {
+                runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
+            }
+            AnyAgent::Gemini(a) => {
+                runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
+            }
+            AnyAgent::Ollama(a) => {
+                runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
+            }
         }
     }
 }

@@ -9,6 +9,7 @@ use rig::streaming::{StreamedAssistantContent, StreamedUserContent, StreamingCha
 use tokio::sync::mpsc;
 
 use crate::event::{AgentEvent, BtwEvent};
+use crate::retry::{self, RetryConfig};
 use crate::session::{MessageRole, Session};
 
 pub struct AgentRunner {
@@ -51,6 +52,7 @@ pub fn spawn_btw<M, P>(
     history: Vec<Message>,
     event_tx: mpsc::Sender<BtwEvent>,
     id: u32,
+    retry_config: RetryConfig,
 ) -> BtwRunner
 where
     M: CompletionModel + 'static,
@@ -58,7 +60,28 @@ where
     P: rig::agent::PromptHook<M> + 'static,
 {
     let join = tokio::spawn(async move {
-        let mut stream = agent.stream_chat(prompt, history).await;
+        let stream_result = {
+            let agent_ref = &agent;
+            retry::retry_stream_chat(&retry_config, move || {
+                let p = prompt.clone();
+                let h = history.clone();
+                async move { agent_ref.stream_chat(p, h).await }
+            })
+            .await
+        };
+        let mut stream = match stream_result {
+            Ok(s) => s,
+            Err(e) => {
+                let _ = event_tx
+                    .send(BtwEvent::Error {
+                        id,
+                        message: CompactString::new(e.to_string()),
+                    })
+                    .await;
+                return;
+            }
+        };
+
         let mut acc = String::new();
 
         while let Some(item) = stream.next().await {
@@ -230,6 +253,7 @@ async fn continue_prompt_injector<M, P>(
     retry_prompt: &str,
     retry_history: &[Message],
     tool_interactions: &[Message],
+    retry_config: &RetryConfig,
 ) -> StreamingResult<M::StreamingResponse>
 where
     M: CompletionModel + 'static,
@@ -240,7 +264,15 @@ where
     new_history.extend_from_slice(tool_interactions);
     new_history.push(Message::user(retry_prompt.to_string()));
     new_history.push(Message::assistant(String::new()));
-    agent.stream_chat("Please continue.", new_history).await
+    match retry::retry_stream_chat(retry_config, || {
+        let h = new_history.clone();
+        async move { agent.stream_chat("Please continue.", h).await }
+    })
+    .await
+    {
+        Ok(stream) => stream,
+        Err(e) => Box::pin(futures::stream::once(async move { Err(e) })),
+    }
 }
 
 /// Builds the forked context for a `/btw` side question: the committed
@@ -265,7 +297,12 @@ only if the user's question is about what the main assistant is doing.)",
     snapshot
 }
 
-pub fn spawn_agent<M, P>(agent: Agent<M, P>, prompt: String, history: Vec<Message>) -> AgentRunner
+pub fn spawn_agent<M, P>(
+    agent: Agent<M, P>,
+    prompt: String,
+    history: Vec<Message>,
+    retry_config: RetryConfig,
+) -> AgentRunner
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
@@ -282,7 +319,43 @@ where
         let mut tool_interactions: Vec<Message> = Vec::new();
         let mut last_tool_name: Option<String> = None;
 
-        let mut stream = agent.stream_chat(prompt, history).await;
+        let mut stream: StreamingResult<M::StreamingResponse> = {
+            let mut attempt: usize = 0;
+            let mut backoff = std::time::Duration::from_millis(retry_config.initial_backoff_ms);
+            let max_backoff = std::time::Duration::from_millis(retry_config.max_backoff_ms);
+            loop {
+                attempt += 1;
+                let mut s = agent.stream_chat(prompt.clone(), history.clone()).await;
+                let first = s.next().await;
+                match first {
+                    Some(Ok(item)) => {
+                        break futures::stream::once(std::future::ready(Ok(item)))
+                            .chain(s)
+                            .boxed();
+                    }
+                    Some(Err(e))
+                        if attempt < retry_config.max_attempts && retry::is_retryable(&e) =>
+                    {
+                        let _ = event_tx
+                            .send(AgentEvent::Retrying {
+                                attempt,
+                                max: retry_config.max_attempts,
+                            })
+                            .await;
+                        let jitter = retry::simple_jitter(backoff.as_millis() as u64);
+                        tokio::time::sleep(backoff + jitter).await;
+                        backoff = (backoff * 2).min(max_backoff);
+                    }
+                    Some(Err(e)) => {
+                        let _ = event_tx
+                            .send(AgentEvent::Error(CompactString::new(e.to_string())))
+                            .await;
+                        return;
+                    }
+                    None => break s.boxed(),
+                }
+            }
+        };
 
         loop {
             while let Some(item) = stream.next().await {
@@ -372,9 +445,14 @@ where
                 }
             }
 
-            stream =
-                continue_prompt_injector(&agent, &retry_prompt, &retry_history, &tool_interactions)
-                    .await;
+            stream = continue_prompt_injector(
+                &agent,
+                &retry_prompt,
+                &retry_history,
+                &tool_interactions,
+                &retry_config,
+            )
+            .await;
         }
     });
 
@@ -389,16 +467,24 @@ pub async fn run_print<M, P>(
     prompt: &str,
     max_turns: usize,
     pure_stdout: bool,
+    retry_config: &RetryConfig,
 ) -> anyhow::Result<String>
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
     P: rig::agent::PromptHook<M> + 'static,
 {
-    let mut stream = agent
-        .stream_chat(prompt.to_string(), Vec::<Message>::new())
-        .multi_turn(max_turns)
-        .await;
+    let mut stream = retry::retry_stream_chat(retry_config, || {
+        let p = prompt.to_string();
+        async move {
+            agent
+                .stream_chat(p, Vec::<Message>::new())
+                .multi_turn(max_turns)
+                .await
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let mut full_response = String::new();
     let mut last_tool_name: Option<String> = None;
@@ -508,16 +594,24 @@ pub async fn run_subagent<M, P>(
     prompt: &str,
     max_turns: usize,
     event_tx: Option<&mpsc::Sender<AgentEvent>>,
+    retry_config: &RetryConfig,
 ) -> anyhow::Result<String>
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
     P: rig::agent::PromptHook<M> + 'static,
 {
-    let mut stream = agent
-        .stream_chat(prompt.to_string(), Vec::<Message>::new())
-        .multi_turn(max_turns)
-        .await;
+    let mut stream = retry::retry_stream_chat(retry_config, || {
+        let p = prompt.to_string();
+        async move {
+            agent
+                .stream_chat(p, Vec::<Message>::new())
+                .multi_turn(max_turns)
+                .await
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("subagent error: {e}"))?;
 
     let mut full_response = String::new();
 

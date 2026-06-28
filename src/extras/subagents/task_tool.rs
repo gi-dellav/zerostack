@@ -119,7 +119,7 @@ editing in a known location, grepping for a literal you will act on immediately.
                     let agent =
                         builder::build_explore_agent(model, max_turns, &config, architecture).await;
                     agent
-                        .run_subagent(&prompt_text, max_turns, event_tx.as_ref())
+                        .run_subagent(&prompt_text, max_turns, event_tx.as_ref(), &config.retry)
                         .await
                 };
                 match tokio::time::timeout(SUBAGENT_TIMEOUT, work).await {

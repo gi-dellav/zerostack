@@ -338,6 +338,16 @@ pub async fn handle_agent_event(
                 session.total_estimated_tokens = real;
             }
         }
+        AgentEvent::Retrying { attempt, max } => {
+            *was_reasoning = false;
+            if *agent_line_started {
+                renderer.write_line("", Color::White)?;
+                *agent_line_started = false;
+            }
+            response_buf.clear();
+            *response_start_line = None;
+            renderer.write_line(&format!("retrying... ({}/{})", attempt, max), Color::Yellow)?;
+        }
         AgentEvent::Error(e) => {
             *was_reasoning = false;
             let safe = sanitize_output(&e);
@@ -579,11 +589,12 @@ async fn handle_agent_done(
                 )
                 .await
             });
-            let runner = agent
-                .as_ref()
-                .unwrap()
-                .clone()
-                .spawn_runner(prompt, Vec::new());
+            let runner =
+                agent
+                    .as_ref()
+                    .unwrap()
+                    .clone()
+                    .spawn_runner(prompt, Vec::new(), cfg.retry.clone());
             *agent_rx = Some(runner.event_rx);
             *is_running = true;
             if let Some(ss) = status_signals.as_ref() {

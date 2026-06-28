@@ -17,6 +17,10 @@ pub enum AgentEvent {
         args: serde_json::Value,
     },
     Error(CompactString),
+    Retrying {
+        attempt: usize,
+        max: usize,
+    },
     /// Provider call finished mid-stream. Carries the real provider-reported
     /// token usage for that call (when available). Used to update the
     /// status-bar estimate and to drive mid-turn compaction decisions

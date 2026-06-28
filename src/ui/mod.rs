@@ -326,7 +326,7 @@ async fn spawn_merge_agent(
         .as_ref()
         .unwrap()
         .clone()
-        .spawn_runner(prompt, history);
+        .spawn_runner(prompt, history, cfg.retry.clone());
     *agent_rx = Some(runner.event_rx);
     *main_abort = Some(runner.abort_handle);
     *is_running = true;
@@ -443,11 +443,12 @@ async fn start_main_run(
             h
         }
     };
-    let runner = agent
-        .as_ref()
-        .unwrap()
-        .clone()
-        .spawn_runner(text.to_string(), history);
+    let runner =
+        agent
+            .as_ref()
+            .unwrap()
+            .clone()
+            .spawn_runner(text.to_string(), history, cfg.retry.clone());
     *agent_rx = Some(runner.event_rx);
     *main_abort = Some(runner.abort_handle);
     *is_running = true;
@@ -610,11 +611,11 @@ async fn mid_turn_compact_and_respawn(
     )
     .await;
     let history = crate::agent::runner::convert_history(session);
-    let runner = agent
-        .as_ref()
-        .unwrap()
-        .clone()
-        .spawn_runner(MID_TURN_CONTINUE_PROMPT.to_string(), history);
+    let runner = agent.as_ref().unwrap().clone().spawn_runner(
+        MID_TURN_CONTINUE_PROMPT.to_string(),
+        history,
+        cfg.retry.clone(),
+    );
     *agent_rx = Some(runner.event_rx);
     *main_abort = Some(runner.abort_handle);
     *is_running = true;
@@ -998,11 +999,11 @@ pub async fn run_interactive(
         )
         .await;
         let history = crate::agent::runner::convert_history(session);
-        let runner = agent
-            .as_ref()
-            .unwrap()
-            .clone()
-            .spawn_runner(trigger_msg.to_string(), history);
+        let runner = agent.as_ref().unwrap().clone().spawn_runner(
+            trigger_msg.to_string(),
+            history,
+            cfg.retry.clone(),
+        );
         agent_rx = Some(runner.event_rx);
         main_abort = Some(runner.abort_handle);
         is_running = true;
@@ -1644,7 +1645,7 @@ pub async fn run_interactive(
                                             model, cli, cfg, context, &permission, &ask_tx, reasoning_enabled, temperature, extra_body,
                                         );
                                         let runner = btw_agent.spawn_btw(
-                                            btw_text.to_string(), snapshot, btw_tx.clone(), id,
+                                            btw_text.to_string(), snapshot, btw_tx.clone(), id, cfg.retry.clone(),
                                         );
                                         btw_abort.push((id, runner.abort_handle));
                                         btw_inflight += 1;
@@ -1895,7 +1896,7 @@ pub async fn run_interactive(
                                             #[cfg(feature = "mcp")] mcp_ref,
                                         ).await;
                                         let history = crate::agent::runner::convert_history(session);
-                                        let runner = agent.as_ref().unwrap().clone().spawn_runner(prompt, history);
+                                        let runner = agent.as_ref().unwrap().clone().spawn_runner(prompt, history, cfg.retry.clone());
                                         agent_rx = Some(runner.event_rx);
                                         main_abort = Some(runner.abort_handle);
                                         is_running = true;
@@ -1915,7 +1916,7 @@ pub async fn run_interactive(
                                             #[cfg(feature = "mcp")] mcp_ref,
                                         ).await;
                                         let history = crate::agent::runner::convert_history(session);
-                                        let runner = agent.as_ref().unwrap().clone().spawn_runner(msg, history);
+                                        let runner = agent.as_ref().unwrap().clone().spawn_runner(msg, history, cfg.retry.clone());
                                         agent_rx = Some(runner.event_rx);
                                         main_abort = Some(runner.abort_handle);
                                         is_running = true;
@@ -1974,7 +1975,7 @@ pub async fn run_interactive(
                                                 &permission, &ask_tx, &sandbox, reasoning_enabled,
                                                 #[cfg(feature = "mcp")] mcp_ref,
                                             ).await;
-                                            let runner = agent.as_ref().unwrap().clone().spawn_runner(prompt, Vec::new());
+                                            let runner = agent.as_ref().unwrap().clone().spawn_runner(prompt, Vec::new(), cfg.retry.clone());
                                             agent_rx = Some(runner.event_rx);
                                             main_abort = Some(runner.abort_handle);
                                             is_running = true;

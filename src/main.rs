@@ -13,6 +13,7 @@ mod models_catalog;
 mod permission;
 mod pricing;
 mod provider;
+mod retry;
 mod sandbox;
 mod session;
 mod ui;
@@ -658,7 +659,12 @@ async fn main() -> anyhow::Result<()> {
                 ss.send_start();
             }
             let response_result = agent
-                .run_print(&msg, cli.resolve_max_agent_turns(&cfg), cli.pure_stdout)
+                .run_print(
+                    &msg,
+                    cli.resolve_max_agent_turns(&cfg),
+                    cli.pure_stdout,
+                    &cfg.retry,
+                )
                 .await;
             if let Some(ss) = status_signals.as_ref() {
                 ss.send_stop();
@@ -988,7 +994,12 @@ async fn run_headless_loop(
             ss.send_start();
         }
         let response = match agent
-            .run_print(&iteration_prompt, cli.resolve_max_agent_turns(cfg), false)
+            .run_print(
+                &iteration_prompt,
+                cli.resolve_max_agent_turns(cfg),
+                false,
+                &cfg.retry,
+            )
             .await
         {
             Ok(r) => {

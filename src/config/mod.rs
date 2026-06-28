@@ -10,6 +10,7 @@ pub use load::*;
 pub use types::*;
 
 use crate::permission::{PermissionConfig, PermissionConfigs};
+use crate::retry::RetryConfig;
 
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::config::McpServerConfig;
@@ -35,6 +36,8 @@ pub struct Config {
     /// doubt.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_body: Option<serde_json::Value>,
+    #[serde(default)]
+    pub retry: RetryConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_tools: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
