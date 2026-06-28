@@ -33,6 +33,7 @@ const BASE_COMMANDS: &[&str] = &[
     "/regen-themes",
     "/retry",
     "/review",
+    "/rewind",
     "/sessions",
     "/theme",
     "/thinking",

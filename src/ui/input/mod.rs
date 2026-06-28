@@ -14,6 +14,7 @@ use std::io::Write;
 use crate::ui::pickers::file::FilePicker;
 use crate::ui::pickers::list::ListPicker;
 use crate::ui::pickers::models::ModelsPicker;
+use crate::ui::pickers::rewind::{RewindOutcome, RewindPicker};
 
 const MAX_KILL_RING: usize = 30;
 
@@ -73,6 +74,19 @@ impl InputEditor {
     pub fn clear_buffer(&mut self) {
         self.buffer.clear();
         self.cursor = 0;
+        self.history_pos = None;
+        self.draft = None;
+        self.yank_pos = None;
+    }
+
+    /// Replace the input buffer with `text`, cursor at the end. Used by the
+    /// rewind flow to drop the chosen user turn back into the box for editing.
+    pub fn load_text(&mut self, text: &str) {
+        self.buffer = CompactString::new(text);
+        // `cursor` is a byte offset into `buffer` (sliced as `buffer[..cursor]`
+        // and advanced by `len_utf8()` elsewhere), so end-of-buffer is the byte
+        // length, not the char count — they differ for multi-byte (e.g. CJK) text.
+        self.cursor = self.buffer.len();
         self.history_pos = None;
         self.draft = None;
         self.yank_pos = None;
@@ -152,6 +166,31 @@ impl InputEditor {
         }
         picker.activate();
         self.picker = Some(Picker::Prefixed(picker, "/provider "));
+    }
+
+    /// Open the double-Esc rewind picker over the given `(message_index,
+    /// preview)` user turns. No-op when there is nothing to rewind to.
+    pub fn start_rewind_picker(&mut self, targets: Vec<(usize, String)>) {
+        if targets.is_empty() {
+            return;
+        }
+        let mut picker = RewindPicker::new(targets);
+        picker.set_monochrome(self.monochrome);
+        picker.activate();
+        self.picker = Some(Picker::Rewind(picker));
+    }
+
+    /// Take the rewind picker's resolved outcome, if it has one. Also clears the
+    /// finished picker so the input box returns to normal.
+    pub fn take_rewind_outcome(&mut self) -> Option<RewindOutcome> {
+        let outcome = match self.picker.as_mut() {
+            Some(Picker::Rewind(p)) => p.take_outcome(),
+            _ => None,
+        };
+        if outcome.is_some() {
+            self.picker = None;
+        }
+        outcome
     }
 
     pub fn start_prompt_picker(&mut self) {
