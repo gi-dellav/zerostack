@@ -162,6 +162,7 @@ pub fn undo_last(session: &mut Session) -> usize {
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_compress(
     instructions: Option<&str>,
+    auto: bool,
     agent: &mut Option<AnyAgent>,
     client: &mut AnyClient,
     renderer: &mut Renderer,
@@ -175,25 +176,47 @@ pub async fn handle_compress(
     sandbox: &Sandbox,
     #[cfg(feature = "mcp")] mcp_manager: Option<&crate::extras::mcp::McpClientManager>,
 ) -> anyhow::Result<()> {
-    renderer.write_line("compressing...", C_AGENT)?;
-    renderer.write_line("", crossterm::style::Color::White)?;
-
+    // Mirror the auto-compaction trigger's reserve exactly (including memory's
+    // effective_reserve) so the budget gate here can never disagree with the
+    // gate that decided to call us.
     let qm = crate::config::quick_models_map(cfg);
+    #[cfg(feature = "memory")]
+    let reserve = crate::extras::memory::effective_reserve(
+        cfg.resolve_reserve_tokens(&session.model, &qm),
+        context.memory.as_deref(),
+    );
+    #[cfg(not(feature = "memory"))]
     let reserve = cfg.resolve_reserve_tokens(&session.model, &qm);
     let keep_recent = cfg.resolve_keep_recent_tokens();
     let max_tokens = session.context_window.saturating_sub(reserve);
 
-    if session.effective_context_tokens() <= max_tokens {
-        renderer.write_line("context within limits, no compression needed", C_AGENT)?;
+    // Auto-compaction only makes sense when actually over budget; manual
+    // /compress is the user's explicit intent, so it skips the budget gate and
+    // proceeds regardless of how full the context is.
+    if auto && session.effective_context_tokens() <= max_tokens {
         return Ok(());
     }
 
     let cut_idx = crate::session::Session::select_compaction_cut(&session.messages, keep_recent);
 
+    // Nothing old enough to summarize (everything is within keep_recent). This
+    // is a real physical limit even when forced, so report it for manual runs;
+    // stay silent under auto so an over-budget-but-unsummarizable turn does not
+    // announce a no-op on every completion.
     if cut_idx == 0 {
-        renderer.write_line("nothing to compress (entire context is recent)", C_AGENT)?;
+        if !auto {
+            renderer.write_line("not enough conversation history to compact yet", C_AGENT)?;
+        }
         return Ok(());
     }
+
+    // Announce only once we know compression will actually run.
+    if auto {
+        renderer.write_line("auto-compacting...", crossterm::style::Color::DarkGrey)?;
+    } else {
+        renderer.write_line("compressing...", C_AGENT)?;
+    }
+    renderer.write_line("", crossterm::style::Color::White)?;
 
     let messages_to_summarize = &session.messages[..cut_idx];
     let previous_summary = session.compactions.last().map(|c| c.summary.as_str());
@@ -240,7 +263,6 @@ pub async fn handle_compress(
         )
         .await,
     );
-    renderer.write_line("prompt cleared (back to default behavior)", C_AGENT)?;
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
