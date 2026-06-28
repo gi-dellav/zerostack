@@ -370,6 +370,20 @@ async fn run_prompt(
                     tracing::warn!("ACP failed to send tool result notification: {}", e);
                 }
             }
+            AgentEvent::Retrying { attempt, max } => {
+                // ACP has no status bar, so surface the retry as an agent
+                // thought. This keeps the client from going silent during the
+                // backoff delay and mirrors how `Reasoning` is forwarded.
+                let text = format!("retrying... ({}/{})", attempt, max);
+                let chunk = ContentChunk::new(ContentBlock::Text(TextContent::new(text)));
+                let notif = SessionNotification::new(
+                    session_id.clone(),
+                    SessionUpdate::AgentThoughtChunk(chunk),
+                );
+                if let Err(e) = cx.send_notification(notif) {
+                    tracing::warn!("ACP failed to send retry notification: {}", e);
+                }
+            }
             AgentEvent::CompletionCall { .. } => {
                 // Mid-stream provider usage; ACP has no status bar to update, so
                 // there is nothing to surface for this event.
