@@ -159,3 +159,21 @@ fn provider_kind_from_name_case_insensitive() {
 fn provider_kind_from_name_returns_none_for_unknown() {
     assert_eq!(ProviderKind::from_name("unknown"), None);
 }
+
+#[test]
+fn deepseek_uses_deepseek_api_key_env() {
+    use crate::auth::{AuthResolver, ProviderKind};
+    use std::env::VarError;
+
+    let resolver = AuthResolver::new(ProviderKind::DeepSeek);
+    let key = resolver
+        .resolve_with_env(|name| {
+            if name == "DEEPSEEK_API_KEY" {
+                Ok("deepseek-key".to_string())
+            } else {
+                Err(VarError::NotPresent)
+            }
+        })
+        .unwrap();
+    assert_eq!(key, "deepseek-key");
+}

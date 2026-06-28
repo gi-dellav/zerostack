@@ -81,6 +81,18 @@
       "context": 1000000
     }
   ],
+  "deepseek": [
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "context": 1000000
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro",
+      "context": 1000000
+    }
+  ],
   "openai": [
     {
       "id": "gpt-3.5-turbo",

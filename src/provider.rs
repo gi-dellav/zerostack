@@ -25,6 +25,8 @@ use crate::permission::checker::PermCheck;
 use crate::sandbox::Sandbox;
 use crate::session::SessionMessage;
 
+const DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
+
 pub struct ProviderConfig {
     pub kind: ProviderKind,
     pub base_url: Option<String>,
@@ -48,7 +50,7 @@ pub fn resolve_provider_config(
     }
     let kind = ProviderKind::from_name(name).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: '{}'. Supported: openrouter, openai, anthropic, gemini, ollama",
+            "Unknown provider: '{}'. Supported: openrouter, openai, deepseek, anthropic, gemini, ollama",
             name
         )
     })?;
@@ -98,6 +100,7 @@ pub(crate) fn default_model_for_provider(
     let m = match provider {
         "anthropic" => "claude-sonnet-4-6",
         "openai" => "gpt-5.1",
+        "deepseek" => "deepseek-v4-pro",
         "gemini" | "google" => "gemini-2.5-pro",
         "openrouter" => "openrouter/auto", // OpenRouter's always-valid auto-router
         "ollama" => "llama3.1",
@@ -124,13 +127,16 @@ fn resolve_base_url(config: &ProviderConfig) -> Option<String> {
 pub enum OpenAiClient {
     Responses(openai::Client),
     Completions(openai::CompletionsClient),
+    DeepSeek(openai::CompletionsClient),
 }
 
 impl OpenAiClient {
     fn completion_model(&self, name: String) -> OpenAiModel {
         match self {
             OpenAiClient::Responses(c) => OpenAiModel::Responses(c.completion_model(name)),
-            OpenAiClient::Completions(c) => OpenAiModel::Completions(c.completion_model(name)),
+            OpenAiClient::Completions(c) | OpenAiClient::DeepSeek(c) => {
+                OpenAiModel::Completions(c.completion_model(name))
+            }
         }
     }
 }
@@ -202,6 +208,7 @@ impl AnyClient {
     pub fn provider_name(&self) -> &'static str {
         match self {
             AnyClient::OpenRouter(_) => "openrouter",
+            AnyClient::OpenAI(OpenAiClient::DeepSeek(_)) => "deepseek",
             AnyClient::OpenAI(_) => "openai",
             AnyClient::Anthropic(_) => "anthropic",
             AnyClient::Gemini(_) => "gemini",
@@ -311,6 +318,12 @@ pub fn is_agent_model(m: &ModelEntry) -> bool {
     !DENY.iter().any(|d| id.contains(d))
 }
 
+fn catalog_model_entries(provider: &str) -> Vec<ModelEntry> {
+    crate::models_catalog::catalog_entries(provider)
+        .unwrap_or(&[])
+        .to_vec()
+}
+
 impl AnyClient {
     /// Built-in providers: rig's ModelListingClient.
     pub async fn list_models(&self) -> anyhow::Result<Vec<ModelEntry>> {
@@ -322,6 +335,9 @@ impl AnyClient {
             AnyClient::Ollama(c) => c.list_models().await?,
             // If any arm above does NOT impl ModelListingClient it won't compile —
             // move it down here to the manual fallback.
+            AnyClient::OpenAI(OpenAiClient::DeepSeek(_)) => {
+                return Ok(catalog_model_entries("deepseek"));
+            }
             AnyClient::OpenAI(OpenAiClient::Completions(_)) => {
                 anyhow::bail!("rig model listing unavailable for this client")
             }
@@ -707,6 +723,7 @@ pub fn create_client(
                 http_client,
             )?))
         }
+        ProviderKind::DeepSeek => build_deepseek_client(&key),
         ProviderKind::Anthropic => build_anthropic_client(&key, base_url.as_deref()),
         ProviderKind::Gemini => build_gemini_client(&key, base_url.as_deref()),
         ProviderKind::Ollama => build_ollama_client(&key, base_url.as_deref()),
@@ -723,6 +740,14 @@ macro_rules! build_provider_client {
         };
         Ok(AnyClient::$variant(builder.build()?))
     }};
+}
+
+fn build_deepseek_client(key: &str) -> anyhow::Result<AnyClient> {
+    let client = openai::CompletionsClient::builder()
+        .api_key(key)
+        .base_url(DEEPSEEK_BASE_URL)
+        .build()?;
+    Ok(AnyClient::OpenAI(OpenAiClient::DeepSeek(client)))
 }
 
 fn build_anthropic_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {

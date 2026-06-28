@@ -6,6 +6,7 @@ use std::env::VarError;
 pub enum ProviderKind {
     OpenRouter,
     OpenAI,
+    DeepSeek,
     Anthropic,
     Gemini,
     Ollama,
@@ -16,6 +17,7 @@ impl ProviderKind {
         match name.to_lowercase().as_str() {
             "openrouter" => Some(Self::OpenRouter),
             "openai" | "custom" => Some(Self::OpenAI), // "custom" is an alias for OpenAI client
+            "deepseek" => Some(Self::DeepSeek),
             "anthropic" => Some(Self::Anthropic),
             "gemini" | "google" => Some(Self::Gemini),
             "ollama" => Some(Self::Ollama),
@@ -128,6 +130,7 @@ impl AuthResolver {
     fn env_var_name(&self) -> &'static str {
         match self.provider_kind {
             ProviderKind::OpenAI => "OPENAI_API_KEY",
+            ProviderKind::DeepSeek => "DEEPSEEK_API_KEY",
             ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
             ProviderKind::Gemini => "GEMINI_API_KEY",
             ProviderKind::Ollama => "OLLAMA_API_KEY",
@@ -139,6 +142,7 @@ impl AuthResolver {
         match self.provider_kind {
             ProviderKind::OpenRouter => "openrouter",
             ProviderKind::OpenAI => "openai",
+            ProviderKind::DeepSeek => "deepseek",
             ProviderKind::Anthropic => "anthropic",
             ProviderKind::Gemini => "gemini",
             ProviderKind::Ollama => "ollama",

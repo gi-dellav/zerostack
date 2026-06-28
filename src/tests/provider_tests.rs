@@ -306,3 +306,38 @@ fn leaves_non_anthropic_openrouter_models_untouched() {
         );
     }
 }
+
+#[test]
+fn resolve_builtin_deepseek() {
+    use crate::auth::ProviderKind;
+    use crate::provider::resolve_provider_config;
+    use std::collections::HashMap;
+
+    let cfg = resolve_provider_config("deepseek", &HashMap::new()).unwrap();
+    assert_eq!(cfg.kind, ProviderKind::DeepSeek);
+    assert!(cfg.base_url.is_none());
+}
+
+#[test]
+fn deepseek_client_builds_as_openai_compatible() {
+    use crate::provider::{AnyClient, OpenAiClient, create_client};
+    use std::collections::HashMap;
+
+    let client = create_client("deepseek", Some("sk-test"), &HashMap::new(), None).unwrap();
+    assert_eq!(client.provider_name(), "deepseek");
+    assert!(matches!(
+        client,
+        AnyClient::OpenAI(OpenAiClient::DeepSeek(_))
+    ));
+}
+
+#[tokio::test]
+async fn deepseek_lists_static_zerostack_defaults() {
+    use crate::provider::create_client;
+    use std::collections::HashMap;
+
+    let client = create_client("deepseek", Some("sk-test"), &HashMap::new(), None).unwrap();
+    let models = client.list_models().await.unwrap();
+    let ids: Vec<_> = models.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids, vec!["deepseek-v4-flash", "deepseek-v4-pro"]);
+}
