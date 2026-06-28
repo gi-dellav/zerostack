@@ -281,56 +281,6 @@ impl Session {
         self.updated_at = CompactString::new(chrono::Utc::now().to_rfc3339());
     }
 
-    pub fn title(&self) -> String {
-        if !self.name.is_empty() {
-            return self.name.to_string();
-        }
-        self.messages
-            .iter()
-            .rev()
-            .find(|msg| msg.role == MessageRole::User)
-            .map(|msg| msg.content.chars().take(80).collect())
-            .unwrap_or_else(|| "untitled".to_string())
-    }
-
-    pub fn fork_title(&self, message_index: usize) -> String {
-        let target = self
-            .messages
-            .get(message_index)
-            .filter(|msg| msg.role == MessageRole::User)
-            .map(|msg| msg.content.chars().take(48).collect::<String>())
-            .unwrap_or_else(|| self.title());
-        format!("Fork before: {target}")
-    }
-
-    pub fn fork_before_message(&self, message_index: usize) -> Self {
-        let mut fork = self.clone();
-        let now = CompactString::new(chrono::Utc::now().to_rfc3339());
-        fork.id = CompactString::new(Uuid::new_v4().to_string());
-        fork.name = CompactString::new(self.fork_title(message_index));
-        fork.created_at = now.clone();
-        fork.updated_at = now;
-        fork.messages
-            .truncate(message_index.min(fork.messages.len()));
-        fork.total_estimated_tokens = fork.messages.iter().map(|m| m.estimated_tokens).sum();
-        fork.total_input_tokens = 0;
-        fork.total_output_tokens = 0;
-        fork.total_cost = 0.0;
-        fork.input_token_cost = 0.0;
-        fork.output_token_cost = 0.0;
-        fork.reset_calibration();
-        if fork.messages.is_empty()
-            || fork
-                .compactions
-                .last()
-                .is_some_and(|c| c.first_kept_index > fork.messages.len())
-        {
-            fork.compactions.clear();
-        }
-        fork
->>>>>>> 99a78dd (Add conversation forking)
-    }
-=======
     pub fn add_tool_call(&mut self, name: &str, args: &serde_json::Value) {
         self.add_message(
             MessageRole::ToolCall,
@@ -396,56 +346,6 @@ impl Session {
             fork.compactions.clear();
         }
         fork
-    }
-=======
-    pub fn title(&self) -> String {
-        if !self.name.is_empty() {
-            return self.name.to_string();
-        }
-        self.messages
-            .iter()
-            .rev()
-            .find(|msg| msg.role == MessageRole::User)
-            .map(|msg| msg.content.chars().take(80).collect())
-            .unwrap_or_else(|| "untitled".to_string())
-    }
-
-    pub fn fork_title(&self, message_index: usize) -> String {
-        let target = self
-            .messages
-            .get(message_index)
-            .filter(|msg| msg.role == MessageRole::User)
-            .map(|msg| msg.content.chars().take(48).collect::<String>())
-            .unwrap_or_else(|| self.title());
-        format!("Fork before: {target}")
-    }
-
-    pub fn fork_before_message(&self, message_index: usize) -> Self {
-        let mut fork = self.clone();
-        let now = CompactString::new(chrono::Utc::now().to_rfc3339());
-        fork.id = CompactString::new(Uuid::new_v4().to_string());
-        fork.name = CompactString::new(self.fork_title(message_index));
-        fork.created_at = now.clone();
-        fork.updated_at = now;
-        fork.messages
-            .truncate(message_index.min(fork.messages.len()));
-        fork.total_estimated_tokens = fork.messages.iter().map(|m| m.estimated_tokens).sum();
-        fork.total_input_tokens = 0;
-        fork.total_output_tokens = 0;
-        fork.total_cost = 0.0;
-        fork.input_token_cost = 0.0;
-        fork.output_token_cost = 0.0;
-        fork.reset_calibration();
-        if fork.messages.is_empty()
-            || fork
-                .compactions
-                .last()
-                .is_some_and(|c| c.first_kept_index > fork.messages.len())
-        {
-            fork.compactions.clear();
-        }
-        fork
->>>>>>> 99a78dd (Add conversation forking)
     }
 
     #[cfg(feature = "multimodal")]

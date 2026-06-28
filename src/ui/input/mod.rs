@@ -30,6 +30,7 @@ pub struct InputEditor {
     quick_model_names: Vec<String>,
     live_model_names: Vec<String>,
     provider_names: Vec<String>,
+    fork_targets: Vec<String>,
     editor: Option<String>,
     kill_ring: Vec<CompactString>,
     yank_pos: Option<usize>,
@@ -51,6 +52,7 @@ impl InputEditor {
             quick_model_names: Vec::new(),
             live_model_names: Vec::new(),
             provider_names: Vec::new(),
+            fork_targets: Vec::new(),
             editor: None,
             kill_ring: Vec::with_capacity(MAX_KILL_RING),
             yank_pos: None,
@@ -88,6 +90,10 @@ impl InputEditor {
 
     pub fn set_provider_names(&mut self, names: Vec<String>) {
         self.provider_names = names;
+    }
+
+    pub fn set_fork_targets(&mut self, targets: Vec<String>) {
+        self.fork_targets = targets;
     }
 
     pub fn set_editor(&mut self, editor: String) {
@@ -152,6 +158,16 @@ impl InputEditor {
         }
         picker.activate();
         self.picker = Some(Picker::Prefixed(picker, "/provider "));
+    }
+
+    pub fn start_fork_picker(&mut self) {
+        let mut picker = ListPicker::new();
+        picker.set_monochrome(self.monochrome);
+        if !self.fork_targets.is_empty() {
+            picker.set_items(self.fork_targets.clone());
+        }
+        picker.activate();
+        self.picker = Some(Picker::Prefixed(picker, "/fork "));
     }
 
     pub fn start_prompt_picker(&mut self) {
@@ -518,6 +534,20 @@ impl InputEditor {
                             self.start_provider_picker();
                             if let Some(Picker::Prefixed(ref mut pp, _)) = self.picker {
                                 pp.char_input(c);
+                            }
+                        }
+                    }
+                }
+                if (self.picker.is_none() || !self.picker.as_ref().is_some_and(|p| p.active()))
+                    && self.buffer.starts_with("/fork ")
+                {
+                    let after_prefix: String = self.buffer.chars().skip("/fork ".len()).collect();
+                    if !after_prefix.is_empty() && c != ' ' {
+                        let query_len = after_prefix.len();
+                        if query_len == 1 {
+                            self.start_fork_picker();
+                            if let Some(Picker::Prefixed(ref mut fp, _)) = self.picker {
+                                fp.char_input(c);
                             }
                         }
                     }

@@ -114,6 +114,7 @@ pub struct CommandPickerCtx<'a> {
     pub quick_model_names: &'a [String],
     pub live_model_names: &'a [String],
     pub provider_names: &'a [String],
+    pub fork_targets: &'a [String],
 }
 
 pub fn handle_command_key(
@@ -260,6 +261,13 @@ pub fn handle_command_key(
                     pp.set_items(ctx.provider_names.to_vec());
                     pp.activate();
                     return (true, Some(Picker::Prefixed(pp, "/provider ")));
+                }
+                if selected == "/fork" && !ctx.fork_targets.is_empty() {
+                    picker.deactivate();
+                    let mut fp = ListPicker::new();
+                    fp.set_items(ctx.fork_targets.to_vec());
+                    fp.activate();
+                    return (true, Some(Picker::Prefixed(fp, "/fork ")));
                 }
                 if selected == "/queue" {
                     picker.deactivate();

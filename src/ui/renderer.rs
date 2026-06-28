@@ -27,16 +27,6 @@ pub struct LineEntry {
     pub source: Option<LineSource>,
 }
 
-impl LineEntry {
-    pub fn new(text: impl Into<CompactString>, color: Color) -> Self {
-        Self {
-            text: text.into(),
-            color,
-            source: None,
-        }
-    }
-}
-
 pub struct PermissionPrompt {
     pub tool: CompactString,
     pub options: CompactString,

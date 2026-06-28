@@ -1437,6 +1437,7 @@ pub async fn run_interactive(
                             continue;
                         }
 
+                        input.set_fork_targets(crate::ui::slash::session::fork_target_items(session));
                         if let Some(mut text) = input.handle_key(key) {
                             #[cfg(feature = "loop")]
                             if loop_state.as_ref().is_some_and(|ls| ls.active) && !text.starts_with('/') {

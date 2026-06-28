@@ -134,6 +134,20 @@ async fn handle_sessions(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Resu
     Ok(())
 }
 
+pub fn fork_target_items(session: &crate::session::Session) -> Vec<String> {
+    session
+        .messages
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, msg)| {
+            (msg.role == crate::session::MessageRole::User).then(|| {
+                let preview: String = msg.content.chars().take(80).collect();
+                format!("{}  {}", idx, preview.replace('\n', " "))
+            })
+        })
+        .collect()
+}
+
 async fn handle_fork(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let target = if parts.len() >= 2 {
         match parts[1].parse::<usize>() {
@@ -164,11 +178,8 @@ async fn handle_fork(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<(
             ctx.renderer,
             "usage: select a prior user message, then /fork; or /fork <index>",
         );
-        for (idx, msg) in ctx.session.messages.iter().enumerate() {
-            if msg.role == crate::session::MessageRole::User {
-                let preview: String = msg.content.chars().take(60).collect();
-                write_result(ctx.renderer, format!("  {}  {}", idx, preview));
-            }
+        for item in fork_target_items(ctx.session) {
+            write_result(ctx.renderer, format!("  {item}"));
         }
         return Ok(());
     };
@@ -285,4 +296,24 @@ async fn handle_history(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fork_target_items;
+    use crate::session::{MessageRole, Session};
+
+    #[test]
+    fn fork_target_items_include_only_user_messages() {
+        let mut session = Session::new("openai", "gpt-4", 128_000);
+        session.add_message(MessageRole::System, "system");
+        session.add_message(MessageRole::User, "first\nline");
+        session.add_message(MessageRole::Assistant, "answer");
+        session.add_message(MessageRole::User, "second");
+
+        assert_eq!(
+            fork_target_items(&session),
+            vec!["1  first line".to_string(), "3  second".to_string()]
+        );
+    }
 }
