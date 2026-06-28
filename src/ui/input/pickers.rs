@@ -4,12 +4,14 @@ use crate::ui::pickers::file::FilePicker;
 use crate::ui::pickers::handlers;
 use crate::ui::pickers::list::ListPicker;
 use crate::ui::pickers::models::ModelsPicker;
+use crate::ui::pickers::rewind::RewindPicker;
 
 pub enum Picker {
     File(FilePicker),
     Command(ListPicker),
     Prefixed(ListPicker, &'static str),
     Models(ModelsPicker),
+    Rewind(RewindPicker),
 }
 
 impl Picker {
@@ -19,6 +21,7 @@ impl Picker {
             Picker::Command(p) => p.active,
             Picker::Prefixed(p, _) => p.active,
             Picker::Models(p) => p.active,
+            Picker::Rewind(p) => p.active(),
         }
     }
 
@@ -28,6 +31,7 @@ impl Picker {
             Picker::Command(p) => p.set_monochrome(monochrome),
             Picker::Prefixed(p, _) => p.set_monochrome(monochrome),
             Picker::Models(p) => p.set_monochrome(monochrome),
+            Picker::Rewind(p) => p.set_monochrome(monochrome),
         }
     }
 
@@ -44,6 +48,7 @@ impl Picker {
                 p.draw(msg)
             }
             Picker::Models(p) => p.draw(),
+            Picker::Rewind(p) => p.draw(),
         }
     }
 }
@@ -77,6 +82,7 @@ impl InputEditor {
             Some(Picker::Models(p)) => {
                 handlers::handle_models_key(&mut self.buffer, &mut self.cursor, p, key)
             }
+            Some(Picker::Rewind(p)) => p.handle(key),
             None => false,
         };
         if handled {

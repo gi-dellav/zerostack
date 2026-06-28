@@ -2,6 +2,7 @@ pub(crate) mod file;
 pub(crate) mod handlers;
 pub(crate) mod list;
 pub(crate) mod models;
+pub(crate) mod rewind;
 
 use std::io::Write;
 

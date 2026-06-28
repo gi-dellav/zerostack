@@ -339,3 +339,70 @@ fn parse_porcelain_counts_changes_and_sync() {
     assert_eq!(g.behind, 1);
     assert!(g.is_dirty());
 }
+
+#[test]
+fn rewind_to_truncates_and_records_restore_point() {
+    let mut s = Session::new("openai", "gpt-4", 128000);
+    s.add_message(MessageRole::User, "first");
+    s.add_message(MessageRole::Assistant, "reply");
+    s.add_message(MessageRole::User, "second");
+    s.add_message(MessageRole::Assistant, "reply2");
+
+    let removed = s.rewind_to(2);
+
+    assert_eq!(removed, 2);
+    assert_eq!(s.messages.len(), 2);
+    assert_eq!(s.messages[0].content, "first");
+    assert_eq!(s.messages[1].content, "reply");
+    assert!(s.rewind_undo.is_some());
+    assert_eq!(
+        s.total_estimated_tokens,
+        s.messages.iter().map(|m| m.estimated_tokens).sum::<u64>()
+    );
+}
+
+#[test]
+fn rewind_to_at_or_past_end_is_a_noop() {
+    let mut s = Session::new("openai", "gpt-4", 128000);
+    s.add_message(MessageRole::User, "only");
+
+    assert_eq!(s.rewind_to(1), 0);
+    assert_eq!(s.rewind_to(5), 0);
+    assert_eq!(s.messages.len(), 1);
+    assert!(s.rewind_undo.is_none());
+}
+
+#[test]
+fn redo_restores_the_messages_a_rewind_removed() {
+    let mut s = Session::new("openai", "gpt-4", 128000);
+    s.add_message(MessageRole::User, "first");
+    s.add_message(MessageRole::Assistant, "reply");
+    s.add_message(MessageRole::User, "second");
+    let before: Vec<_> = s.messages.iter().map(|m| m.content.clone()).collect();
+    let est_before = s.total_estimated_tokens;
+
+    s.rewind_to(1);
+    assert_eq!(s.messages.len(), 1);
+
+    assert!(s.redo());
+    let after: Vec<_> = s.messages.iter().map(|m| m.content.clone()).collect();
+    assert_eq!(before, after);
+    assert_eq!(s.total_estimated_tokens, est_before);
+    // The restore point is consumed, so a second redo finds nothing.
+    assert!(!s.redo());
+}
+
+#[test]
+fn adding_a_message_invalidates_the_redo_point() {
+    let mut s = Session::new("openai", "gpt-4", 128000);
+    s.add_message(MessageRole::User, "first");
+    s.add_message(MessageRole::Assistant, "reply");
+    s.add_message(MessageRole::User, "second");
+
+    s.rewind_to(1);
+    assert!(s.rewind_undo.is_some());
+    // Moving the conversation forward must drop the stale restore point.
+    s.add_message(MessageRole::User, "a fresh direction");
+    assert!(s.rewind_undo.is_none());
+    assert!(!s.redo());
+}

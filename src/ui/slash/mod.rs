@@ -150,11 +150,12 @@ pub fn undo_last(session: &mut Session) -> usize {
     } else {
         0
     };
-    // Truncate via the session helper so the context figure tracks the
-    // shortened history (subtracts the removed turn from the calibration anchor
-    // rather than going stale or resetting to a cold estimate).
+    // Rewind via the session helper so the context figure tracks the shortened
+    // history (subtracts the removed turn from the calibration anchor rather than
+    // going stale or resetting to a cold estimate) and the cut is reversible with
+    // /redo.
     if removed > 0 {
-        session.truncate_to(len - removed);
+        session.rewind_to(len - removed);
     }
     removed
 }
@@ -329,9 +330,8 @@ pub async fn handle_slash(
         "/reasoning" | "/thinking" | "/mode" | "/toggle" | "/mcp" | "/editsys" | "/advisor" => {
             settings::handle(&parts, &mut ctx).await
         }
-        "/sessions" | "/clear" | "/new" | "/undo" | "/retry" | "/quit" | "/exit" | "/history" => {
-            session::handle(&parts, &mut ctx).await
-        }
+        "/sessions" | "/clear" | "/new" | "/undo" | "/redo" | "/rewind" | "/retry" | "/quit"
+        | "/exit" | "/history" => session::handle(&parts, &mut ctx).await,
         "/help" => {
             help::handle(&parts, &mut ctx);
             Ok(())

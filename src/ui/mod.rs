@@ -39,6 +39,7 @@ use crate::ui::event_handler::{ensure_agent, handle_agent_event};
 use crate::ui::events::{render_session, sanitize_output};
 use crate::ui::input::InputEditor;
 use crate::ui::permission_handler::handle_permission_request;
+use crate::ui::pickers::rewind::RewindOutcome;
 use crate::ui::renderer::{Renderer, copy_to_clipboard};
 use crate::ui::slash::{handle_compress, handle_slash};
 use crate::ui::terminal::TerminalGuard;
@@ -208,6 +209,22 @@ pub(crate) enum SubmitAction {
 pub(crate) fn allowed_while_running(text: &str) -> bool {
     let t = text.trim_start();
     t == "/queue" || t.starts_with("/queue ") || t == "/btw" || t.starts_with("/btw ")
+}
+
+/// Build the rewind picker's list of `(message_index, preview)` for every user
+/// turn in the conversation, oldest first. Only user turns are offered: a rewind
+/// lands just before a message you sent, dropping everything after it.
+pub(crate) fn rewind_targets(session: &Session) -> Vec<(usize, String)> {
+    session
+        .messages
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| m.role == MessageRole::User)
+        .map(|(idx, m)| {
+            let preview: String = m.content.chars().take(80).collect();
+            (idx, preview.replace('\n', " "))
+        })
+        .collect()
 }
 
 pub(crate) fn classify_submission(is_running: bool, text: &str) -> SubmitAction {
@@ -1242,7 +1259,6 @@ pub async fn run_interactive(
                             refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                             continue;
                         }
-
                         let ctrl_r = key.code == KeyCode::Char('r')
                             && key.modifiers.contains(KeyModifiers::CONTROL);
                         if ctrl_r {
@@ -1281,6 +1297,28 @@ pub async fn run_interactive(
 
                         if input.picker.as_ref().is_some_and(|p| p.active())
                             && input.handle_picker_key(key) {
+                                // The rewind picker resolves through here: once it
+                                // confirms, perform the rewind on the live session
+                                // and drop the chosen turn back into the input box.
+                                if let Some(RewindOutcome::Confirmed(idx)) =
+                                    input.take_rewind_outcome()
+                                {
+                                    let text =
+                                        session.messages.get(idx).map(|m| m.content.to_string());
+                                    if session.rewind_to(idx) > 0 {
+                                        if let Some(text) = text {
+                                            input.load_text(&text);
+                                        }
+                                        if !cli.no_session {
+                                            let _ = crate::session::storage::save_session(session);
+                                        }
+                                        render_session(&mut renderer, session, cli, cfg, context)?;
+                                        renderer.write_line(
+                                            "rewound; /redo to restore",
+                                            Color::Green,
+                                        )?;
+                                    }
+                                }
                                 refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                                 continue;
                             }

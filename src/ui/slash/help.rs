@@ -83,6 +83,14 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
     }
     write_result(ctx.renderer, "  /clear [/new]          clear screen");
     write_result(ctx.renderer, "  /undo                  undo last exchange");
+    write_result(
+        ctx.renderer,
+        "  /redo                  restore the last /undo or rewind",
+    );
+    write_result(
+        ctx.renderer,
+        "  /rewind                rewind to an earlier turn (picker)",
+    );
     write_result(ctx.renderer, "  /retry                 retry last prompt");
     write_result(
         ctx.renderer,

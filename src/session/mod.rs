@@ -29,6 +29,19 @@ pub struct SessionMessage {
     pub estimated_tokens: u64,
 }
 
+/// A single-step restore point captured before a conversation rewind, so the
+/// destructive truncation can be undone with `/unrewind`. Holds the full
+/// message list and the calibration/estimate fields that `truncate_to` mutates,
+/// which is everything needed to put the session back exactly as it was. Not
+/// persisted: a rewind is only undoable within the session that made it.
+#[derive(Debug, Clone)]
+pub struct RewindUndo {
+    messages: Vec<SessionMessage>,
+    total_estimated_tokens: u64,
+    calibrated_tokens: u64,
+    calibrated_msg_count: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Compaction {
     pub summary: CompactString,
@@ -100,6 +113,10 @@ pub struct Session {
     /// persisted.
     #[serde(skip)]
     pub overhead_tokens: u64,
+    /// Restore point for the most recent `/unrewind`-able rewind, captured by
+    /// [`rewind_to`](Self::rewind_to). Runtime only, not persisted.
+    #[serde(skip)]
+    pub rewind_undo: Option<RewindUndo>,
 }
 
 /// Working-tree summary parsed from `git status --porcelain=v2 --branch`.
@@ -177,6 +194,7 @@ impl Session {
             git_status: None,
             reasoning_enabled: false,
             overhead_tokens: 0,
+            rewind_undo: None,
         }
     }
 
@@ -285,6 +303,9 @@ impl Session {
         });
         self.total_estimated_tokens = self.total_estimated_tokens.saturating_add(tokens);
         self.updated_at = CompactString::new(chrono::Utc::now().to_rfc3339());
+        // The conversation has moved forward, so the last rewind's restore point
+        // no longer lines up — drop it so /redo can't splice in a stale tail.
+        self.rewind_undo = None;
     }
 
     pub fn add_tool_call(&mut self, name: &str, args: &serde_json::Value) {
@@ -395,6 +416,47 @@ impl Session {
         }
         self.messages.truncate(new_len);
         self.total_estimated_tokens = self.messages.iter().map(|m| m.estimated_tokens).sum();
+    }
+
+    /// Rewind the conversation to `new_len` messages, capturing a single-step
+    /// restore point first so the cut can be undone with [`redo`](Self::redo).
+    ///
+    /// This is the shared primitive behind both `/undo` (rewind by one turn) and
+    /// the double-Esc rewind picker (rewind to a chosen earlier point): the only
+    /// difference between them is which `new_len` they pass. Returns the number
+    /// of messages removed (0 if `new_len` is already at or past the end, in
+    /// which case no restore point is recorded).
+    pub fn rewind_to(&mut self, new_len: usize) -> usize {
+        if new_len >= self.messages.len() {
+            return 0;
+        }
+        let removed = self.messages.len() - new_len;
+        self.rewind_undo = Some(RewindUndo {
+            messages: self.messages.clone(),
+            total_estimated_tokens: self.total_estimated_tokens,
+            calibrated_tokens: self.calibrated_tokens,
+            calibrated_msg_count: self.calibrated_msg_count,
+        });
+        self.truncate_to(new_len);
+        removed
+    }
+
+    /// Restore the messages removed by the most recent [`rewind_to`](Self::rewind_to)
+    /// (i.e. the last `/undo` or rewind). Returns false when there is nothing to
+    /// restore. The restore point is consumed, and is also invalidated as soon
+    /// as the conversation moves forward again (see [`add_message`](Self::add_message)),
+    /// so `/redo` only ever reaches back to the cut it directly reverses.
+    pub fn redo(&mut self) -> bool {
+        match self.rewind_undo.take() {
+            Some(u) => {
+                self.messages = u.messages;
+                self.total_estimated_tokens = u.total_estimated_tokens;
+                self.calibrated_tokens = u.calibrated_tokens;
+                self.calibrated_msg_count = u.calibrated_msg_count;
+                true
+            }
+            None => false,
+        }
     }
 
     /// True while the context figure is still an estimate — no provider usage
