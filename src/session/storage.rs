@@ -1,9 +1,17 @@
 use std::path::PathBuf;
 
+use uuid::Uuid;
+
 use crate::session::Session;
 
 fn session_dir() -> PathBuf {
     dirs_path().join("sessions")
+}
+
+pub fn tool_output_dir(session_id: &str) -> PathBuf {
+    dirs_path()
+        .join("tool-outputs")
+        .join(safe_path_component(session_id))
 }
 
 fn home_fallback() -> PathBuf {
@@ -38,6 +46,42 @@ pub fn save_session(session: &Session) -> anyhow::Result<()> {
     let json = serde_json::to_string(session)?;
     std::fs::write(path, json)?;
     Ok(())
+}
+
+pub fn save_tool_output(
+    session_id: &str,
+    tool_name: &str,
+    output: &str,
+) -> anyhow::Result<PathBuf> {
+    let dir = tool_output_dir(session_id);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!(
+        "{}-{}.txt",
+        Uuid::new_v4(),
+        safe_path_component(tool_name)
+    ));
+    std::fs::write(&path, output)?;
+    Ok(path)
+}
+
+fn safe_path_component(value: &str) -> String {
+    let safe: String = value
+        .chars()
+        .take(64)
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    if safe.is_empty() {
+        "tool".to_string()
+    } else {
+        safe
+    }
 }
 
 pub fn delete_session(id: &str) -> anyhow::Result<()> {

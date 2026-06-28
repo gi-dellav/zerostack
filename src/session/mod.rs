@@ -1,9 +1,15 @@
 pub mod chat_history;
 pub mod storage;
 
+use std::path::Path;
+
 use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+pub const TOOL_RESULT_SAVE_THRESHOLD: usize = 12_000;
+pub const TOOL_RESULT_HEAD_CHARS: usize = 2_000;
+pub const TOOL_RESULT_TAIL_CHARS: usize = 8_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -288,8 +294,24 @@ impl Session {
         );
     }
 
-    pub fn add_tool_result(&mut self, name: &str, output: &str) {
-        self.add_message(MessageRole::ToolResult, &format!("{name}:\n{output}"));
+    pub fn add_tool_result(&mut self, name: &str, output: &str) -> String {
+        let content = self.tool_result_content(name, output);
+        self.add_message(MessageRole::ToolResult, &content);
+        content
+    }
+
+    fn tool_result_content(&self, name: &str, output: &str) -> String {
+        let output_chars = output.chars().count();
+        if output_chars <= TOOL_RESULT_SAVE_THRESHOLD {
+            return format!("{name}:\n{output}");
+        }
+
+        match storage::save_tool_output(&self.id, name, output) {
+            Ok(path) => format_truncated_tool_result(name, output, output_chars, &path),
+            Err(err) => format!(
+                "{name}:\n{output}\n\n[failed to save long tool output separately; kept full output in session to avoid data loss: {err}]"
+            ),
+        }
     }
 
     pub fn add_subagent_tool_call(&mut self, name: &str, args: &serde_json::Value) {
@@ -489,4 +511,21 @@ impl Session {
         self.reset_calibration();
         self.updated_at = CompactString::new(chrono::Utc::now().to_rfc3339());
     }
+}
+
+fn format_truncated_tool_result(
+    name: &str,
+    output: &str,
+    output_chars: usize,
+    path: &Path,
+) -> String {
+    let head: String = output.chars().take(TOOL_RESULT_HEAD_CHARS).collect();
+    let tail_start = output_chars.saturating_sub(TOOL_RESULT_TAIL_CHARS);
+    let tail: String = output.chars().skip(tail_start).collect();
+    let omitted = output_chars.saturating_sub(TOOL_RESULT_HEAD_CHARS + TOOL_RESULT_TAIL_CHARS);
+
+    format!(
+        "{name}:\n{head}\n\n[tool output truncated: {output_chars} characters; {omitted} omitted]\n[full output saved to: {}; use the read tool on this path to inspect the complete output]\n\n{tail}",
+        path.display()
+    )
 }
