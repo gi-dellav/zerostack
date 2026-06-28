@@ -263,7 +263,6 @@ pub async fn handle_compress(
         )
         .await,
     );
-    renderer.write_line("prompt cleared (back to default behavior)", C_AGENT)?;
 
     render_session(renderer, session, cli, cfg, context)?;
     renderer.write_line(
