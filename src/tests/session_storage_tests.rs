@@ -3,7 +3,9 @@ use crate::session::Session;
 use crate::session::storage::{
     delete_session, find_sessions_by_prefix, load_suffix, save_session, suffix_path,
 };
+use crate::session::{TOOL_RESULT_HEAD_CHARS, TOOL_RESULT_SAVE_THRESHOLD, TOOL_RESULT_TAIL_CHARS};
 use std::env;
+use std::path::Path;
 use std::sync::Mutex;
 
 static STORAGE_LOCK: Mutex<()> = Mutex::new(());
@@ -105,6 +107,59 @@ fn save_session_preserves_tool_messages() {
     assert_eq!(found[0].messages[2].content, "read:\nfile contents");
     assert_eq!(found[0].messages[3].role, MessageRole::SubagentToolCall);
     drop(env);
+}
+
+#[test]
+fn long_tool_result_is_saved_and_truncated_in_session() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude", 200000);
+    let head = "H".repeat(TOOL_RESULT_HEAD_CHARS);
+    let omitted = "M"
+        .repeat(TOOL_RESULT_SAVE_THRESHOLD - TOOL_RESULT_HEAD_CHARS - TOOL_RESULT_TAIL_CHARS + 1);
+    let tail = "T".repeat(TOOL_RESULT_TAIL_CHARS);
+    let output = format!("{head}{omitted}{tail}");
+
+    let returned = s.add_tool_result("bash/unsafe", &output);
+
+    let content = s.messages[0].content.as_str();
+    assert_eq!(returned, content);
+    assert!(content.starts_with(&format!("bash/unsafe:\n{head}")));
+    assert!(content.ends_with(&tail));
+    assert!(content.contains("[tool output truncated: 12001 characters; 2001 omitted]"));
+    assert!(!content.contains(&"M".repeat(80)));
+
+    let path_line = content
+        .lines()
+        .find(|line| line.starts_with("[full output saved to: "))
+        .unwrap();
+    assert!(path_line.contains("use the read tool on this path"));
+    let path = path_line
+        .trim_start_matches("[full output saved to: ")
+        .split(';')
+        .next()
+        .unwrap();
+    assert!(Path::new(path).starts_with(&env.dir));
+    assert_eq!(std::fs::read_to_string(path).unwrap(), output);
+    drop(env);
+}
+
+#[test]
+fn long_tool_result_save_failure_keeps_full_output() {
+    let lock = STORAGE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let path = std::env::temp_dir().join(format!("zs_data_file_{}", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    std::fs::write(&path, b"not a directory").unwrap();
+    unsafe { env::set_var("ZS_DATA_DIR", path.to_str().unwrap()) };
+
+    let mut s = Session::new("anthropic", "claude", 200000);
+    let output = "x".repeat(TOOL_RESULT_SAVE_THRESHOLD + 1);
+    s.add_tool_result("bash", &output);
+
+    let content = s.messages[0].content.as_str();
+    assert!(content.contains(&output));
+    assert!(content.contains("failed to save long tool output separately"));
+    let _ = std::fs::remove_file(path);
+    drop(lock);
 }
 
 #[test]
