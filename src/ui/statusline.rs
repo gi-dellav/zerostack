@@ -511,40 +511,40 @@ pub fn default_spec() -> StatusLineConfig {
         }
     }
     let segments = vec![
-        seg("cwd", Some("grey")),
+        seg("cwd", Some("dark_grey")),
         sep("  "),
         StatusLineSegment {
             item: "git_branch".into(),
-            color: Some("grey".into()),
+            color: Some("dark_grey".into()),
             left: Some("(".into()),
             right: Some(")".into()),
             ..Default::default()
         },
         sep(" | "),
-        seg("model", Some("grey")),
+        seg("model", Some("dark_grey")),
         sep("  |  "),
-        seg("context_used", Some("grey")),
+        seg("context_used", Some("dark_grey")),
         sep("/"),
-        seg("context_max", Some("grey")),
+        seg("context_max", Some("dark_grey")),
         sep(" "),
-        seg("context_percentage", Some("grey")),
+        seg("context_percentage", Some("dark_grey")),
         sep("  \u{21d1}"),
-        seg("tokens_input", Some("grey")),
+        seg("tokens_input", Some("dark_grey")),
         sep(" \u{21d3}"),
-        seg("tokens_output", Some("grey")),
+        seg("tokens_output", Some("dark_grey")),
         StatusLineSegment {
             item: "flex_separator".into(),
             ..Default::default()
         },
-        seg("loop", Some("grey")),
+        seg("loop", Some("dark_grey")),
         sep(" "),
-        seg("mode", Some("grey")),
+        seg("mode", Some("dark_grey")),
         sep(" "),
-        seg("cost", Some("grey")),
+        seg("cost", Some("dark_grey")),
         sep(" "),
-        seg("btw", Some("grey")),
+        seg("btw", Some("dark_grey")),
         sep(" "),
-        seg("prompt", Some("grey")),
+        seg("prompt", Some("dark_grey")),
     ];
     StatusLineConfig {
         lines: vec![StatusLineLine { segments }],
