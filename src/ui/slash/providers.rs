@@ -67,6 +67,29 @@ pub(crate) async fn fetch_models_cached(
         client.list_models().await?
     };
     models.retain(crate::provider::is_agent_model);
+
+    if provider == "openrouter" {
+        match crate::provider::fetch_openrouter_pricing(
+            cli.api_key.as_deref(),
+            &cfg.custom_providers_map(),
+            cfg.api_keys.as_ref(),
+        )
+        .await
+        {
+            Ok(prices) => {
+                for m in &mut models {
+                    if let Some((input, output)) = prices.get(&m.id) {
+                        m.input_price = Some(*input);
+                        m.output_price = Some(*output);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("failed to fetch OpenRouter pricing: {e}");
+            }
+        }
+    }
+
     let arc: Arc<[ModelEntry]> = Arc::from(models.into_boxed_slice());
     MODEL_CACHE
         .lock()
@@ -97,6 +120,32 @@ pub(crate) async fn warm_model_cache(
     cached_model_ids(provider)
 }
 
+fn lookup_pricing_from_cache(provider: &str, model_id: &str) -> Option<(f64, f64)> {
+    MODEL_CACHE
+        .lock()
+        .unwrap()
+        .get(provider)
+        .and_then(|models| {
+            models.iter().find_map(|m| {
+                if m.id == model_id {
+                    m.input_price.zip(m.output_price).or_else(|| {
+                        crate::models_catalog::catalog_entries(provider).and_then(|entries| {
+                            entries.iter().find_map(|e| {
+                                if e.id == model_id {
+                                    e.input_price.zip(e.output_price)
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                    })
+                } else {
+                    None
+                }
+            })
+        })
+}
+
 async fn apply_model(ctx: &mut SlashCtx<'_>, model_id: &str) {
     let new_model = compact_str::CompactString::new(model_id);
     let model = ctx.client.completion_model(new_model.to_string());
@@ -124,6 +173,23 @@ async fn apply_model(ctx: &mut SlashCtx<'_>, model_id: &str) {
         ctx.cfg
             .resolve_context_window(&ctx.session.provider, &new_model),
     );
+    if let Some((input, output)) = lookup_pricing_from_cache(&ctx.session.provider, model_id) {
+        ctx.session.input_token_cost = input;
+        ctx.session.output_token_cost = output;
+    } else if ctx.session.provider == "openrouter" {
+        if let Ok(prices) = crate::provider::fetch_openrouter_pricing(
+            ctx.cli.api_key.as_deref(),
+            &ctx.cfg.custom_providers_map(),
+            ctx.cfg.api_keys.as_ref(),
+        )
+        .await
+        {
+            if let Some((input, output)) = prices.get(model_id) {
+                ctx.session.input_token_cost = *input;
+                ctx.session.output_token_cost = *output;
+            }
+        }
+    }
     write_ok(ctx.renderer, format!("switched to model: {}", new_model));
 }
 
@@ -208,6 +274,23 @@ async fn handle_model(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
         ctx.cfg
             .resolve_context_window(&ctx.session.provider, &new_model),
     );
+    if let Some((input, output)) = lookup_pricing_from_cache(&ctx.session.provider, &new_model) {
+        ctx.session.input_token_cost = input;
+        ctx.session.output_token_cost = output;
+    } else if ctx.session.provider == "openrouter" {
+        if let Ok(prices) = crate::provider::fetch_openrouter_pricing(
+            ctx.cli.api_key.as_deref(),
+            &ctx.cfg.custom_providers_map(),
+            ctx.cfg.api_keys.as_ref(),
+        )
+        .await
+        {
+            if let Some((input, output)) = prices.get(&*new_model) {
+                ctx.session.input_token_cost = *input;
+                ctx.session.output_token_cost = *output;
+            }
+        }
+    }
     write_ok(ctx.renderer, format!("switched to model: {}", new_model));
     Ok(())
 }

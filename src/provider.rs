@@ -250,7 +250,9 @@ pub struct ModelEntry {
     pub id: String,
     pub display: String,
     pub context_length: Option<u32>,
-    pub kind: Option<String>, // rig Model.r#type (often None)
+    pub kind: Option<String>,
+    pub input_price: Option<f64>,
+    pub output_price: Option<f64>,
 }
 
 impl ModelEntry {
@@ -260,6 +262,8 @@ impl ModelEntry {
             display: m.display_name().to_string(),
             context_length: m.context_length,
             kind: m.r#type.clone(),
+            input_price: None,
+            output_price: None,
         }
     }
 }
@@ -373,8 +377,58 @@ pub async fn list_models_manual(
             id: i.id,
             context_length: None,
             kind: None,
+            input_price: None,
+            output_price: None,
         })
         .collect())
+}
+
+pub async fn fetch_openrouter_pricing(
+    api_key: Option<&str>,
+    custom_providers: &HashMap<String, CustomProviderConfig>,
+    config_api_keys: Option<&HashMap<String, String>>,
+) -> anyhow::Result<HashMap<String, (f64, f64)>> {
+    let config = resolve_provider_config("openrouter", custom_providers)?;
+    let key = AuthResolver::new(config.kind)
+        .with_cli_key(api_key)
+        .with_env_override(config.api_key_env.as_deref())
+        .with_config_keys(config_api_keys)
+        .with_custom_provider_name(Some("openrouter"))
+        .resolve()
+        .ok();
+    let custom = custom_providers.get("openrouter");
+    let http = build_http_client("openrouter", config.danger_accept_invalid_certs, custom)?;
+    let url = "https://openrouter.ai/api/v1/models";
+    let mut req = http.get(url);
+    if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
+        req = req.bearer_auth(k);
+    }
+    #[derive(serde::Deserialize)]
+    struct PricingResp {
+        prompt: String,
+        completion: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct PricingEntry {
+        id: String,
+        pricing: Option<PricingResp>,
+    }
+    #[derive(serde::Deserialize)]
+    struct PricingList {
+        data: Vec<PricingEntry>,
+    }
+    let resp: PricingList = req.send().await?.error_for_status()?.json().await?;
+    let mut map = HashMap::new();
+    for entry in resp.data {
+        if let Some(p) = entry.pricing {
+            let input: f64 = p.prompt.parse().unwrap_or(0.0);
+            let output: f64 = p.completion.parse().unwrap_or(0.0);
+            if input > 0.0 || output > 0.0 {
+                map.insert(entry.id, (input * 1_000_000.0, output * 1_000_000.0));
+            }
+        }
+    }
+    Ok(map)
 }
 
 async fn summarize_with_model(model: AnyModel, prompt: String) -> anyhow::Result<String> {

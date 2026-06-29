@@ -279,6 +279,25 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
+    // Fetch OpenRouter pricing at startup so cost tracking works from the first turn
+    if provider == "openrouter"
+        && session.input_token_cost == 0.0
+        && session.output_token_cost == 0.0
+    {
+        if let Ok(prices) = provider::fetch_openrouter_pricing(
+            cli.api_key.as_deref(),
+            &cfg.custom_providers_map(),
+            cfg.api_keys.as_ref(),
+        )
+        .await
+        {
+            if let Some((input, output)) = prices.get(model.as_str()) {
+                session.input_token_cost = *input;
+                session.output_token_cost = *output;
+            }
+        }
+    }
+
     #[cfg(feature = "acp")]
     if cli.acp_enabled {
         return extras::acp::serve(cli, cfg, context).await;

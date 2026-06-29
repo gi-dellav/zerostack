@@ -75,6 +75,8 @@ fn model(id: &str, kind: Option<&str>) -> ModelEntry {
         display: id.to_string(),
         context_length: None,
         kind: kind.map(|s| s.to_string()),
+        input_price: None,
+        output_price: None,
     }
 }
 
