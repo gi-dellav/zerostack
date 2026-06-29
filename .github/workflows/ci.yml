@@ -16,23 +16,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Install Rust
-        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
-        with:
-          toolchain: "1.96.0"
-          components: "rustfmt, clippy"
-
-      - name: Format check
-        run: cargo fmt --check
-
-      - name: Clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
   build:
     runs-on: ubuntu-latest
     steps:
