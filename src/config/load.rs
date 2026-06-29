@@ -5,7 +5,9 @@ use compact_str::CompactString;
 
 use std::io;
 
-use crate::config::{Config, EditSystem, QuickModelConfig};
+use crate::config::{
+    Config, EditSystem, QuickModelConfig, StatusLineConfig, StatusLineLine, StatusLineSegment,
+};
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::config::McpServerConfig;
 use crate::session::storage;
@@ -156,6 +158,138 @@ fn rich_default_config() -> Config {
         subagent_max_find_results: Some(200),
         #[cfg(feature = "advisor")]
         advisor: Some(crate::config::types::AdvisorConfig::default()),
+        statusline: Some(StatusLineConfig {
+            lines: vec![StatusLineLine {
+                segments: vec![
+                    StatusLineSegment {
+                        item: "cwd".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some("  ".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "git_branch".into(),
+                        color: Some("grey".into()),
+                        left: Some("(".into()),
+                        right: Some(")".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some(" | ".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "model".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some("  |  ".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "context_used".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some("/".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "context_max".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some(" ".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "context_percentage".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some("  \u{21d1}".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "tokens_input".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some(" \u{21d3}".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "tokens_output".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "flex_separator".into(),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "loop".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some(" ".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "mode".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some(" ".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "cost".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some(" ".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "btw".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "separator".into(),
+                        text: Some(" ".into()),
+                        ..Default::default()
+                    },
+                    StatusLineSegment {
+                        item: "prompt".into(),
+                        color: Some("grey".into()),
+                        ..Default::default()
+                    },
+                ],
+            }],
+        }),
         ..Default::default()
     }
 }
