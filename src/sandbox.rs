@@ -146,16 +146,16 @@ impl Sandbox {
             }
         }
         // must bind /etc/resolv.conf before /.
-        // Bind ~/.cache (or $XDG_CACHE_HOME) as writable
+        cmd.args(["--ro-bind", "/", "/", "--bind"]);
+        cmd.arg(cwd.as_os_str());
+        cmd.arg(cwd.as_os_str());
+        // Bind ~/.cache (or $XDG_CACHE_HOME) as writable after "/" bind
         if let Some(cache_dir) = dirs::cache_dir() {
             let _ = std::fs::create_dir_all(&cache_dir);
             cmd.arg("--bind");
             cmd.arg(cache_dir.as_os_str());
             cmd.arg(cache_dir.as_os_str());
         }
-        cmd.args(["--ro-bind", "/", "/", "--bind"]);
-        cmd.arg(cwd.as_os_str());
-        cmd.arg(cwd.as_os_str());
         cmd.args([
             "--ro-bind",
             "/sys",
