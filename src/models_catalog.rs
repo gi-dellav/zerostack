@@ -24,6 +24,10 @@ struct RawModel {
     id: String,
     name: String,
     context: Option<u32>,
+    #[serde(default)]
+    input_price: Option<f64>,
+    #[serde(default)]
+    output_price: Option<f64>,
 }
 
 static CATALOG: LazyLock<HashMap<String, Vec<ModelEntry>>> = LazyLock::new(|| {
@@ -38,6 +42,8 @@ static CATALOG: LazyLock<HashMap<String, Vec<ModelEntry>>> = LazyLock::new(|| {
                     display: m.name,
                     context_length: m.context,
                     kind: None,
+                    input_price: m.input_price,
+                    output_price: m.output_price,
                 })
                 .collect();
             (provider, entries)
