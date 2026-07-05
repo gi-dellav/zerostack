@@ -963,7 +963,7 @@ impl Renderer {
             let options = if self.chain_but_mode {
                 "[Enter] send  [Esc] cancel"
             } else {
-                "[Y] Yes  [N] No  [B] But (add instruction)"
+                "[Y] Yes  [N] No  [B] yes, But (add instruction)"
             };
             let line_count = 2usize;
             let input_top = rows
