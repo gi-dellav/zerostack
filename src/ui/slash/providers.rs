@@ -78,9 +78,9 @@ pub(crate) async fn fetch_models_cached(
         {
             Ok(prices) => {
                 for m in &mut models {
-                    if let Some((input, output)) = prices.get(&m.id) {
-                        m.input_price = Some(*input);
-                        m.output_price = Some(*output);
+                    if let Some(info) = prices.get(&m.id) {
+                        m.input_price = Some(info.input_cost);
+                        m.output_price = Some(info.output_cost);
                     }
                 }
             }
@@ -186,9 +186,16 @@ async fn apply_model(ctx: &mut SlashCtx<'_>, model_id: &str) {
         )
         .await
         {
-            if let Some((input, output)) = prices.get(model_id) {
-                ctx.session.input_token_cost = *input;
-                ctx.session.output_token_cost = *output;
+            if let Some(info) = prices.get(model_id) {
+                ctx.session.input_token_cost = info.input_cost;
+                ctx.session.output_token_cost = info.output_cost;
+                if ctx.cfg.context_window.is_none()
+                    && crate::config::Config::catalog_context_window("openrouter", model_id)
+                        .is_none()
+                    && let Some(cw) = info.context_length
+                {
+                    ctx.session.update_context_window(cw);
+                }
             }
         }
     }
@@ -291,9 +298,16 @@ async fn handle_model(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
         )
         .await
         {
-            if let Some((input, output)) = prices.get(&*new_model) {
-                ctx.session.input_token_cost = *input;
-                ctx.session.output_token_cost = *output;
+            if let Some(info) = prices.get(&*new_model) {
+                ctx.session.input_token_cost = info.input_cost;
+                ctx.session.output_token_cost = info.output_cost;
+                if ctx.cfg.context_window.is_none()
+                    && crate::config::Config::catalog_context_window("openrouter", &new_model)
+                        .is_none()
+                    && let Some(cw) = info.context_length
+                {
+                    ctx.session.update_context_window(cw);
+                }
             }
         }
     }

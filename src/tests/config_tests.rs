@@ -192,8 +192,7 @@ fn resolve_context_window_from_quick_model() {
         64_000
     );
     // Global config pin still wins over quick model.
-    let cfg: Config =
-        serde_json::from_str(r#"{ "context_window": 32000 }"#).unwrap();
+    let cfg: Config = serde_json::from_str(r#"{ "context_window": 32000 }"#).unwrap();
     assert_eq!(
         cfg.resolve_context_window("openrouter", "deepseek/deepseek-chat", &qm),
         32_000
