@@ -305,21 +305,31 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Fetch OpenRouter pricing at startup so cost tracking works from the first turn
-    if provider == "openrouter"
-        && session.input_token_cost == 0.0
-        && session.output_token_cost == 0.0
-    {
-        if let Ok(prices) = provider::fetch_openrouter_pricing(
-            cli.api_key.as_deref(),
-            &cfg.custom_providers_map(),
-            cfg.api_keys.as_ref(),
-        )
-        .await
-        {
-            if let Some((input, output)) = prices.get(model.as_str()) {
-                session.input_token_cost = *input;
-                session.output_token_cost = *output;
+    // Fetch OpenRouter pricing and context window at startup so cost tracking
+    // and the context meter work from the first turn. The static catalog only
+    // covers a handful of models; models like z-ai/glm-5.2 fall through to the
+    // 128k default, which silently breaks compaction and the context meter.
+    if provider == "openrouter" {
+        let need_pricing = session.input_token_cost == 0.0 && session.output_token_cost == 0.0;
+        let need_ctx = cfg.context_window.is_none()
+            && config::Config::catalog_context_window("openrouter", model.as_str()).is_none();
+        if need_pricing || need_ctx {
+            if let Ok(infos) = provider::fetch_openrouter_pricing(
+                cli.api_key.as_deref(),
+                &cfg.custom_providers_map(),
+                cfg.api_keys.as_ref(),
+            )
+            .await
+            {
+                if let Some(info) = infos.get(model.as_str()) {
+                    if need_pricing {
+                        session.input_token_cost = info.input_cost;
+                        session.output_token_cost = info.output_cost;
+                    }
+                    if need_ctx && let Some(cw) = info.context_length {
+                        session.update_context_window(cw);
+                    }
+                }
             }
         }
     }

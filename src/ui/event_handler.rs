@@ -337,6 +337,17 @@ pub async fn handle_agent_event(
             if real > session.total_estimated_tokens {
                 session.total_estimated_tokens = real;
             }
+            // Accumulate cost for intermediate calls (tool-use turns). The Done
+            // event only carries the final call's usage, so without this every
+            // tool-call round-trip would go uncosted.
+            session.total_input_tokens = session.total_input_tokens.saturating_add(input_tokens);
+            session.total_output_tokens = session.total_output_tokens.saturating_add(output_tokens);
+            session.total_cost += crate::pricing::estimate_cost(
+                input_tokens,
+                output_tokens,
+                session.input_token_cost,
+                session.output_token_cost,
+            );
         }
         AgentEvent::Retrying { attempt, max } => {
             *was_reasoning = false;
