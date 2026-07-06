@@ -758,8 +758,9 @@ impl Renderer {
         }
         let (_, rows) = self.terminal_size();
         let reserve = self.statusline_reserve();
-        let old_start = rows.saturating_sub(reserve) - old_height as u16 + 1;
-        let new_start = rows.saturating_sub(reserve) - new_height as u16 + 1;
+        let avail = rows.saturating_sub(reserve);
+        let old_start = avail.saturating_sub(old_height as u16).saturating_add(1);
+        let new_start = avail.saturating_sub(new_height as u16).saturating_add(1);
         let mut stdout = io::stdout();
         for row in old_start..new_start {
             stdout.execute(MoveTo(0, row))?;

@@ -19,13 +19,23 @@ pub fn append_entry(entry: &ChatHistoryEntry) -> anyhow::Result<()> {
     let path = chat_history_path();
     let mut entries: Vec<ChatHistoryEntry> = if path.exists() {
         let content = std::fs::read_to_string(&path)?;
-        serde_json::from_str(&content).unwrap_or_default()
+        match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(_) => {
+                // File is corrupt — back it up rather than silently discarding
+                // all prior history.
+                let bak = path.with_extension("json.bak");
+                let _ = std::fs::rename(&path, &bak);
+                tracing::warn!("chat history was corrupt, backed up to {:?}", bak);
+                Vec::new()
+            }
+        }
     } else {
         Vec::new()
     };
     entries.push(entry.clone());
     let json = serde_json::to_string_pretty(&entries)?;
-    std::fs::write(&path, json)?;
+    storage::atomic_write(&path, &json)?;
     Ok(())
 }
 

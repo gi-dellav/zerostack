@@ -1,6 +1,33 @@
+// ponytail: all git invocations use synchronous std::process::Command, which
+// blocks the tokio event loop. Under the default current_thread runtime this
+// freezes the TUI during worktree merges. Migrate to tokio::process::Command
+// and async functions if merge latency becomes noticeable.
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+/// RAII guard that restores the original working directory on drop. Ensures
+/// the process CWD is restored even on panic. The `set_current_dir` approach
+/// is process-global — under the `multithread` feature, other threads' CWD
+/// reads are affected. // ponytail: use `git -C` everywhere if multithread matters.
+struct ChdirGuard {
+    orig_dir: PathBuf,
+}
+
+impl ChdirGuard {
+    fn new(target: &Path) -> Result<Self, String> {
+        let orig_dir = std::env::current_dir().map_err(|e| format!("current_dir: {}", e))?;
+        std::env::set_current_dir(target)
+            .map_err(|e| format!("cd to {}: {}", target.display(), e))?;
+        Ok(ChdirGuard { orig_dir })
+    }
+}
+
+impl Drop for ChdirGuard {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.orig_dir);
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum DeferredWorktreeAction {
@@ -367,8 +394,14 @@ fn complete_merge_with_force(state: &MergeState, force: bool) -> Result<(), Stri
 /// Best-effort cleanup of a worktree after a merge. Safe to call even if the
 /// worktree or branch has already been removed (idempotent).
 pub fn cleanup_worktree(wt_path: &str, branch: &str, main_repo_path: &str, force: bool) {
-    let _ = std::env::set_current_dir(Path::new(main_repo_path));
-
+    // ChdirGuard ensures the original CWD is restored on drop, even on panic.
+    let _guard = match ChdirGuard::new(Path::new(main_repo_path)) {
+        Ok(g) => g,
+        Err(e) => {
+            tracing::error!("cleanup_worktree: {}", e);
+            return;
+        }
+    };
     let remove_output = if force {
         Command::new("git")
             .args(["worktree", "remove", "--force", wt_path])
@@ -410,7 +443,10 @@ pub fn cleanup_worktree(wt_path: &str, branch: &str, main_repo_path: &str, force
 
 /// Cancel an in-progress merge: abort, restore original branch, pop stash, restore dir.
 pub fn cancel_merge(state: &MergeState) -> Result<(), String> {
-    let _ = std::env::set_current_dir(&state.info.main_repo_path);
+    // ChdirGuard restores CWD on drop; override orig_dir to state.orig_dir
+    // so it restores to the pre-merge directory, not the current one.
+    let mut guard = ChdirGuard::new(&state.info.main_repo_path)?;
+    guard.orig_dir = state.orig_dir.clone();
 
     if has_merge_conflict() {
         run_git_quiet_logged(["merge", "--abort"], "cancel_merge: merge --abort")?
@@ -430,7 +466,6 @@ pub fn cancel_merge(state: &MergeState) -> Result<(), String> {
             "cancel_merge: failed to pop stash; try `git stash pop` manually"
         );
     }
-    let _ = std::env::set_current_dir(&state.orig_dir);
 
     Ok(())
 }
@@ -541,15 +576,17 @@ pub fn worktree_has_uncommitted(wt_path: &Path) -> bool {
 }
 
 pub fn worktree_auto_commit_all(wt_path: &Path) -> Result<(), String> {
+    // Use `-u` (update tracked files only) instead of `-A` (all including
+    // untracked) to avoid auto-committing new files that may contain secrets.
     let output = Command::new("git")
         .arg("-C")
         .arg(wt_path)
-        .args(["add", "-A"])
+        .args(["add", "-u"])
         .output()
         .map_err(|e| format!("git add failed: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!("git add -A failed: {}", stderr.trim()));
+        return Err(format!("git add -u failed: {}", stderr.trim()));
     }
     let output = Command::new("git")
         .arg("-C")

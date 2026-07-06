@@ -220,7 +220,10 @@ fn doom_loop_resets_for_different_inputs() {
 }
 
 #[test]
-fn doom_loop_requires_consecutive_calls() {
+fn doom_loop_detects_repeated_within_window() {
+    // Security fix: doom-loop detection now uses a sliding window instead of
+    // only exact consecutive repeats. Alternating calls (A, A, B, A, A) that
+    // repeat the same operation within the window should trigger.
     let mut checker = make_checker(SecurityMode::Standard);
     checker.check("bash", "ls");
     checker.check("bash", "ls");
@@ -228,8 +231,8 @@ fn doom_loop_requires_consecutive_calls() {
     checker.check("bash", "ls");
     let result = checker.check("bash", "ls");
     assert!(
-        matches!(result, CheckResult::Allowed),
-        "non-consecutive identical calls should not trigger doom loop, got {:?}",
+        matches!(result, CheckResult::AllowedWithCoaching(_)),
+        "repeated calls within window should trigger doom loop coaching, got {:?}",
         result,
     );
 }
@@ -242,6 +245,31 @@ fn session_allowlist_bypasses_rules() {
     checker.add_session_allowlist("bash".into(), "cargo test **");
     let result = checker.check("bash", "cargo test --all");
     assert!(matches!(result, CheckResult::Allowed));
+}
+
+#[test]
+fn session_allowlist_cannot_bypass_deny_rules() {
+    // Security fix: deny rules must be evaluated before the session allowlist
+    // so that AllowAlways cannot bypass a deny rule.
+    let config = PermissionConfig {
+        bash: Some(ToolPerm::Granular(
+            [("rm *".to_string(), Action::Deny)].into_iter().collect(),
+        )),
+        ..PermissionConfig::default()
+    };
+    let mut checker = PermissionChecker::new(
+        &configs_from(config),
+        SecurityMode::Standard,
+        None,
+        default_modes(),
+    );
+    checker.add_session_allowlist("bash".into(), "rm *");
+    let result = checker.check("bash", "rm -rf important");
+    assert!(
+        matches!(result, CheckResult::Denied(_)),
+        "deny rule must not be bypassed by session allowlist, got {:?}",
+        result,
+    );
 }
 
 #[test]
@@ -868,7 +896,9 @@ fn yolo_allows_todo_write() {
 // --- MCP allow-all via checker ---
 
 #[test]
-fn allow_all_mcp_overrides_deny_rules() {
+fn allow_all_mcp_does_not_override_deny_rules() {
+    // Security fix: deny rules are the baseline and must be evaluated before
+    // allow_all_mcp_calls so that deny rules cannot be bypassed.
     let config = PermissionConfig {
         mcp_tool: Some(ToolPerm::Simple(Action::Deny)),
         ..PermissionConfig::default()
@@ -882,8 +912,8 @@ fn allow_all_mcp_overrides_deny_rules() {
     checker.set_allow_all_mcp_calls(true);
     let result = checker.check("mcp_tool", "mcp_tool:filesystem:read_file");
     assert!(
-        matches!(result, CheckResult::Allowed),
-        "expected Allowed for MCP tool when allow_all_mcp_calls is set, got {:?}",
+        matches!(result, CheckResult::Denied(_)),
+        "expected Denied for MCP tool with deny rule even when allow_all_mcp_calls is set, got {:?}",
         result,
     );
 }

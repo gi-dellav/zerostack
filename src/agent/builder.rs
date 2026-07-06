@@ -65,14 +65,31 @@ pub fn build_preamble(context: &ContextFiles, reasoning_enabled: bool) -> String
 
     let total_len = total_len + suffix.as_ref().map_or(0, |s| s.len() + 6); // "\n\n---\n\n"
 
-    // Add extra files content to preamble budget
+    // Add extra files content to preamble budget. Cap each file to prevent a
+    // huge file from blowing up the system prompt past the context window.
+    const MAX_EXTRA_FILE_BYTES: usize = 256_000;
     let extra_files_content: Vec<String> = context
         .extra_files
         .iter()
         .filter_map(|p| {
-            std::fs::read_to_string(p)
-                .ok()
-                .map(|content| format!("Content of {}:\n{}", p.display(), content))
+            let content = std::fs::read_to_string(p).ok()?;
+            let truncated = if content.len() > MAX_EXTRA_FILE_BYTES {
+                tracing::warn!(
+                    "extra file {} exceeds {} bytes, truncated for preamble",
+                    p.display(),
+                    MAX_EXTRA_FILE_BYTES
+                );
+                let mut end = MAX_EXTRA_FILE_BYTES;
+                while !content.is_char_boundary(end) && end > 0 {
+                    end -= 1;
+                }
+                let mut t = content[..end].to_string();
+                t.push_str("\n\n[truncated — file exceeded preamble size limit]");
+                t
+            } else {
+                content
+            };
+            Some(format!("Content of {}:\n{}", p.display(), truncated))
         })
         .collect();
     let extra_files_len: usize = extra_files_content.iter().map(|s| s.len() + 2).sum();

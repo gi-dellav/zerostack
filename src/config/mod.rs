@@ -435,7 +435,7 @@ impl Config {
 
     #[cfg(feature = "mcp")]
     pub fn resolve_enable_exa_mcp(&self) -> bool {
-        self.enable_exa_mcp.unwrap_or(true)
+        self.enable_exa_mcp.unwrap_or(false)
     }
 
     #[cfg(feature = "mcp")]

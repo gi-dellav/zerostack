@@ -2405,6 +2405,7 @@ pub async fn run_interactive(
             else => {
                 // Poll the background prebuild; if it just completed, stash it.
                 if let Some(rx) = prebuild_rx.as_mut()
+                    && agent.is_none()
                     && let Ok(payload) = rx.try_recv() {
                         #[cfg(feature = "mcp")]
                         {

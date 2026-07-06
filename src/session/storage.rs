@@ -39,13 +39,26 @@ pub(crate) fn config_path() -> PathBuf {
     data_dir()
 }
 
+/// Write `content` to `path` atomically: write to a temp file in the same
+/// directory, then rename. On POSIX this is atomic; a crash mid-write leaves
+/// the previous version intact.
+pub fn atomic_write(path: &std::path::Path, content: &str) -> anyhow::Result<()> {
+    let tmp = path.with_extension("json.tmp");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 pub fn save_session(session: &Session) -> anyhow::Result<()> {
     let dir = session_dir();
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{}.json", session.id));
     let json = serde_json::to_string(session)?;
     let json_len = json.len();
-    std::fs::write(path, json)?;
+    atomic_write(&path, &json)?;
     tracing::debug!(
         "session saved: id={}, msgs={}, size={}",
         session.id,

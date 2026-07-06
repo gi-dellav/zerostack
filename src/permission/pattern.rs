@@ -33,7 +33,20 @@ impl Pattern {
             } else {
                 glob_to_regex(&expanded)
             };
-            Regex::new(&regex_str).unwrap_or_else(|_| Regex::new("^$").unwrap())
+            match Regex::new(&regex_str) {
+                Ok(re) => re,
+                Err(e) => {
+                    // Fail-safe: match everything so a broken deny rule still
+                    // denies (rather than silently matching nothing). Log so
+                    // the user knows the pattern is invalid.
+                    tracing::warn!(
+                        "invalid regex pattern {:?}, falling back to match-all: {}",
+                        self.original,
+                        e
+                    );
+                    Regex::new("(?s).*").unwrap()
+                }
+            }
         });
         regex.is_match(input)
     }

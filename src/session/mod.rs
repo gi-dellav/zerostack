@@ -224,8 +224,12 @@ impl Session {
                 r.strip_prefix("refs/heads/").unwrap_or(r),
             ))
         } else if !head.is_empty() {
-            // Detached HEAD: show a short commit hash.
-            Some(CompactString::new(&head[..head.len().min(8)]))
+            // Detached HEAD: show a short commit hash (char-boundary-safe).
+            let mut end = head.len().min(8);
+            while end > 0 && !head.is_char_boundary(end) {
+                end -= 1;
+            }
+            Some(CompactString::new(&head[..end]))
         } else {
             None
         }

@@ -109,7 +109,9 @@ fn split_escaped_backslash_before_quote() {
 }
 
 #[test]
-fn split_newline_not_separator() {
+fn split_newline_is_separator() {
+    // Newlines must be treated as command separators so that newline-separated
+    // commands are individually permission-checked (security fix).
     let cmds = split_bash_commands("ls\npwd");
-    assert_eq!(cmds, vec!["ls\npwd"]);
+    assert_eq!(cmds, vec!["ls", "pwd"]);
 }

@@ -158,6 +158,15 @@ pub async fn handle_agent_event(
                 return Ok(());
             }
 
+            // Throttle markdown re-parsing: only re-parse when the buffer
+            // ends with a newline (markdown structure changes at line
+            // boundaries) or when the buffer is small. This avoids O(n²)
+            // re-parsing on every token. The final parse happens in
+            // handle_agent_done.
+            if response_buf.len() >= 200 && !response_buf.ends_with('\n') {
+                return Ok(());
+            }
+
             let max_width = renderer.line_width();
             let mut styled = crate::ui::markdown::markdown_to_styled(response_buf, max_width);
 

@@ -132,17 +132,24 @@ fn load_file(path: &PathBuf) -> Option<String> {
     }
 }
 
+/// Maximum total bytes of ancestor context files (AGENTS.md, CLAUDE.md,
+/// ARCHITECTURE.md) to load into the system prompt. Prevents a planted or
+/// oversized file from blowing up the context window.
+const MAX_ANCESTOR_CONTEXT_BYTES: usize = 64_000;
+
 /// Walks from CWD up to root once, collecting AGENTS.md, CLAUDE.md, and
 /// ARCHITECTURE.md files. This avoids the duplicate traversal that the
 /// older separate load_agents / load_architecture performed.
 fn walk_context_files() -> (Option<String>, Option<String>) {
     let mut agent_parts: SmallVec<[String; 4]> = SmallVec::new();
     let mut arch_parts: SmallVec<[String; 4]> = SmallVec::new();
+    let mut total_bytes: usize = 0;
 
     let global_agents = storage::agents_path();
     if let Some(content) = load_file(&global_agents)
         && !content.trim().is_empty()
     {
+        total_bytes += content.len();
         agent_parts.push(format!("# Global AGENTS.md\n{}", content));
     }
 
@@ -152,6 +159,7 @@ fn walk_context_files() -> (Option<String>, Option<String>) {
         if let Some(content) = load_file(&global_arch)
             && !content.trim().is_empty()
         {
+            total_bytes += content.len();
             arch_parts.push(format!("# Global ARCHITECTURE.md\n{}", content));
         }
     }
@@ -160,11 +168,19 @@ fn walk_context_files() -> (Option<String>, Option<String>) {
     if let Some(cwd) = cwd {
         let mut current = Some(cwd.as_path());
         while let Some(dir) = current {
+            if total_bytes >= MAX_ANCESTOR_CONTEXT_BYTES {
+                tracing::warn!(
+                    "ancestor context files exceed {} bytes, stopping traversal",
+                    MAX_ANCESTOR_CONTEXT_BYTES
+                );
+                break;
+            }
             for name in &["AGENTS.md", "CLAUDE.md"] {
                 let path = dir.join(name);
                 if let Some(content) = load_file(&path)
                     && !content.trim().is_empty()
                 {
+                    total_bytes += content.len();
                     agent_parts.push(format!("# {} ({})\n{}", name, dir.display(), content));
                 }
             }
@@ -174,6 +190,7 @@ fn walk_context_files() -> (Option<String>, Option<String>) {
                 if let Some(content) = load_file(&path)
                     && !content.trim().is_empty()
                 {
+                    total_bytes += content.len();
                     arch_parts.push(format!(
                         "# ARCHITECTURE.md ({})\n{}",
                         dir.display(),

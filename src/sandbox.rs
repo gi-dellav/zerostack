@@ -26,13 +26,15 @@ fn zerobox_exists() -> bool {
 }
 
 fn which_cmd(name: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(name)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    // Search PATH directly rather than shelling out to `which`, which may not
+    // exist on minimal images (Alpine, distroless).
+    let Some(path) = std::env::var_os("PATH") else {
+        return false;
+    };
+    std::env::split_paths(&path).any(|dir| {
+        let candidate = dir.join(name);
+        candidate.is_file()
+    })
 }
 
 struct ProcessGroupGuard {
@@ -80,6 +82,20 @@ impl Sandbox {
             backend: backend.to_string(),
             shell: "bash".to_string(),
             active_groups: Arc::new(Mutex::new(HashSet::new())),
+        }
+    }
+
+    /// Returns true if the sandbox is enabled and the backend binary is
+    /// actually available. When false, commands run unsandboxed — the UI
+    /// should surface this to the user.
+    pub fn is_effectively_sandboxed(&self) -> bool {
+        if !self.enabled {
+            return false;
+        }
+        if self.backend == "zerobox" {
+            zerobox_exists()
+        } else {
+            bwrap_exists()
         }
     }
 

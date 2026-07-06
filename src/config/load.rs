@@ -12,6 +12,17 @@ use crate::config::{
 use crate::extras::mcp::config::McpServerConfig;
 use crate::session::storage;
 
+/// Write `content` to `path` atomically via temp-file + rename.
+fn atomic_config_write(path: &Path, content: &str) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&tmp, content)?;
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
 /// Candidate config filenames, in priority order within each search dir.
 ///
 /// * `config.toml` — preferred format, especially for permission rules.
@@ -97,12 +108,12 @@ pub fn save_quick_model(
 ) -> std::io::Result<()> {
     let path = resolve_config_path();
     let mut cfg: Config = if path.exists() {
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
+        let content = std::fs::read_to_string(&path)?;
         match path.extension().and_then(|e| e.to_str()) {
-            Some("toml") => toml::from_str(&content).unwrap_or_default(),
+            Some("toml") => toml::from_str(&content).map_err(std::io::Error::other)?,
             // YAML is a superset of JSON, so this also accepts legacy
             // `config.json` files transparently.
-            _ => serde_yaml_ng::from_str(&content).unwrap_or_default(),
+            _ => serde_yaml_ng::from_str::<Config>(&content).map_err(std::io::Error::other)?,
         }
     } else {
         Config::default()
@@ -130,12 +141,12 @@ pub fn save_quick_model(
     match path.extension().and_then(|e| e.to_str()) {
         Some("toml") => {
             let content = toml::to_string(&cfg).map_err(std::io::Error::other)?;
-            std::fs::write(&path, content)?;
+            atomic_config_write(&path, &content)?;
         }
-        _ => std::fs::write(
-            &path,
-            serde_yaml_ng::to_string(&cfg).map_err(std::io::Error::other)?,
-        )?,
+        _ => {
+            let content = serde_yaml_ng::to_string(&cfg).map_err(std::io::Error::other)?;
+            atomic_config_write(&path, &content)?;
+        }
     }
     Ok(())
 }

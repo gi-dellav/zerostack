@@ -25,7 +25,7 @@ pub(crate) fn split_bash_commands(input: &str) -> Vec<String> {
         } else if ch == '"' && !in_single_quote {
             in_double_quote = !in_double_quote;
             current.push(ch);
-        } else if ch == ';' && !in_single_quote && !in_double_quote {
+        } else if (ch == ';' || ch == '\n') && !in_single_quote && !in_double_quote {
             let trimmed = current.trim().to_string();
             if !trimmed.is_empty() {
                 result.push(trimmed);

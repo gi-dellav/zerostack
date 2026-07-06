@@ -344,6 +344,12 @@ async fn main() -> anyhow::Result<()> {
         &cli.resolve_sandbox_backend(&cfg),
     )
     .with_shell(&cli.resolve_shell(&cfg));
+    if cli.resolve_sandbox(&cfg) && !sandbox.is_effectively_sandboxed() {
+        tracing::warn!(
+            "sandbox is enabled but backend '{}' was not found — commands will run unsandboxed",
+            cli.resolve_sandbox_backend(&cfg)
+        );
+    }
     let edit_system = cli.resolve_edit_system(&cfg);
     tools::set_edit_system(edit_system);
     tools::set_deny_repeated_reads(cfg.deny_repeated_reads.unwrap_or(true));

@@ -99,7 +99,10 @@ impl McpClientManager {
         tracing::debug!("MCP shutting down {} connections", self.handles.len());
         for handle in self.handles {
             let name = handle.server_name.clone();
-            drop(handle);
+            // Explicitly shut down the running service so child processes and
+            // HTTP connections are cleaned up properly, rather than relying on
+            // Drop which may not await teardown.
+            let _ = handle.running_service.cancel().await;
             tracing::debug!("Disconnected from MCP server '{}'", name);
         }
     }
