@@ -2135,6 +2135,9 @@ pub async fn run_interactive(
                                     renderer.write_line(&format!("> {}", safe_line), Color::Green)?;
                                 }
                                 renderer.write_line("", Color::White)?;
+                                // Flush the user message to screen immediately so
+                                // there is no visible gap while the agent is built.
+                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
 
                                 // Guaranteed not running here (the is_running gate
                                 // above returns early), so this never orphans a run.
