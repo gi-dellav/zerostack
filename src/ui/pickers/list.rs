@@ -29,6 +29,7 @@ const BASE_COMMANDS: &[&str] = &[
     "/quit",
     "/reasoning",
     "/redo",
+    "/rename",
     "/regen-prompts",
     "/regen-themes",
     "/retry",

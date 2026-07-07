@@ -11,7 +11,7 @@ use crate::agent::runner::build_btw_snapshot;
 use crate::session::{MessageRole, Session};
 
 fn sample_session() -> Session {
-    let mut s = Session::new("anthropic", "claude-test", 200_000);
+    let mut s = Session::new("anthropic", "claude-test", 200_000, "");
     s.add_message(MessageRole::User, "hello");
     s.add_message(MessageRole::Assistant, "hi there");
     s

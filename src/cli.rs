@@ -31,6 +31,9 @@ pub struct Cli {
     #[arg(long = "session", help = "Load session by ID prefix")]
     pub session: Option<String>,
 
+    #[arg(long = "name", help = "Name for the session")]
+    pub name: Option<String>,
+
     #[arg(long = "no-session", help = "Ephemeral mode, do not save")]
     pub no_session: bool,
 

@@ -520,8 +520,8 @@ pub async fn handle_slash(
         "/reasoning" | "/thinking" | "/mode" | "/toggle" | "/mcp" | "/editsys" | "/advisor" => {
             settings::handle(&parts, &mut ctx).await
         }
-        "/sessions" | "/clear" | "/new" | "/undo" | "/redo" | "/rewind" | "/retry" | "/quit"
-        | "/exit" | "/history" => session::handle(&parts, &mut ctx).await,
+        "/sessions" | "/rename" | "/clear" | "/new" | "/undo" | "/redo" | "/rewind" | "/retry"
+        | "/quit" | "/exit" | "/history" => session::handle(&parts, &mut ctx).await,
         "/help" => {
             help::handle(&parts, &mut ctx);
             Ok(())

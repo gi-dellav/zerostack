@@ -1,11 +1,37 @@
 use std::io::Read;
 
+use compact_str::CompactString;
+
 use crate::ui::events::render_session;
 use crate::ui::slash::{SlashCtx, undo_last, write_error, write_ok, write_result};
+
+fn format_session_line(s: &crate::session::Session) -> String {
+    let last = s
+        .messages
+        .last()
+        .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
+        .unwrap_or_default();
+    let time = crate::ui::events::format_time(&s.updated_at);
+    let name_part = if s.name.is_empty() {
+        String::new()
+    } else {
+        format!("  [{}]", s.name)
+    };
+    format!(
+        "  {}  {}  {}msgs  {}  {}{}",
+        &s.id[..8],
+        time,
+        s.messages.len(),
+        s.model,
+        last,
+        name_part
+    )
+}
 
 pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     match parts[0] {
         "/sessions" => handle_sessions(parts, ctx).await,
+        "/rename" => handle_rename(parts, ctx).await,
         "/clear" | "/new" => handle_clear(ctx).await,
         "/undo" => handle_undo(ctx).await,
         "/redo" => handle_redo(ctx).await,
@@ -15,6 +41,31 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
         "/history" => handle_history(ctx).await,
         _ => Ok(()),
     }
+}
+
+async fn handle_rename(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
+    if parts.len() < 2 || parts[1].is_empty() {
+        if ctx.session.name.is_empty() {
+            write_ok(
+                ctx.renderer,
+                "current session has no name. Usage: /rename <name>",
+            );
+        } else {
+            write_ok(
+                ctx.renderer,
+                format!(
+                    "current session name: \"{}\". Usage: /rename <new-name>",
+                    ctx.session.name
+                ),
+            );
+        }
+        return Ok(());
+    }
+    let new_name = parts[1..].join(" ").trim().to_string();
+    ctx.session.name = CompactString::new(&new_name);
+    crate::session::storage::save_session(ctx.session)?;
+    write_ok(ctx.renderer, format!("session renamed to \"{}\"", new_name));
+    Ok(())
 }
 
 async fn handle_sessions(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
@@ -28,23 +79,7 @@ async fn handle_sessions(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Resu
                 format!("recent sessions ({}):", sessions.len()),
             );
             for s in &sessions {
-                let last = s
-                    .messages
-                    .last()
-                    .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
-                    .unwrap_or_default();
-                let time = crate::ui::events::format_time(&s.updated_at);
-                write_result(
-                    ctx.renderer,
-                    format!(
-                        "  {}  {}  {}msgs  {}  {}",
-                        &s.id[..8],
-                        time,
-                        s.messages.len(),
-                        s.model,
-                        last
-                    ),
-                );
+                write_result(ctx.renderer, format_session_line(s));
             }
         }
     } else if parts[1] == "delete" && parts.len() >= 3 {
@@ -75,23 +110,7 @@ async fn handle_sessions(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Resu
                 format!("multiple sessions match '{}', be more specific", prefix),
             );
             for s in &sessions {
-                let last = s
-                    .messages
-                    .last()
-                    .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
-                    .unwrap_or_default();
-                let time = crate::ui::events::format_time(&s.updated_at);
-                write_result(
-                    ctx.renderer,
-                    format!(
-                        "  {}  {}  {}msgs  {}  {}",
-                        &s.id[..8],
-                        time,
-                        s.messages.len(),
-                        s.model,
-                        last
-                    ),
-                );
+                write_result(ctx.renderer, format_session_line(s));
             }
         }
     } else {
@@ -112,23 +131,7 @@ async fn handle_sessions(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Resu
                 format!("multiple sessions match '{}':", prefix),
             );
             for s in &sessions {
-                let last = s
-                    .messages
-                    .last()
-                    .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
-                    .unwrap_or_default();
-                let time = crate::ui::events::format_time(&s.updated_at);
-                write_result(
-                    ctx.renderer,
-                    format!(
-                        "  {}  {}  {}msgs  {}  {}",
-                        &s.id[..8],
-                        time,
-                        s.messages.len(),
-                        s.model,
-                        last
-                    ),
-                );
+                write_result(ctx.renderer, format_session_line(s));
             }
         }
     }
@@ -195,8 +198,6 @@ async fn handle_rewind(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
         write_ok(ctx.renderer, "nothing to rewind to");
         return Ok(());
     }
-    // Opens the two-level rewind picker; the event loop performs the rewind once
-    // the user confirms a turn.
     ctx.input.start_rewind_picker(targets);
     Ok(())
 }

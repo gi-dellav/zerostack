@@ -40,7 +40,7 @@ fn setup_test_env() -> TestEnv {
 #[test]
 fn save_and_find_session_by_prefix() {
     let env = setup_test_env();
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "hello");
     save_session(&s).unwrap();
 
@@ -62,7 +62,7 @@ fn find_sessions_by_prefix_no_match() {
 #[test]
 fn delete_session_removes_file() {
     let env = setup_test_env();
-    let s = Session::new("openai", "gpt-4", 128000);
+    let s = Session::new("openai", "gpt-4", 128000, "");
     save_session(&s).unwrap();
 
     delete_session(&s.id).unwrap();
@@ -74,7 +74,7 @@ fn delete_session_removes_file() {
 #[test]
 fn save_session_preserves_messages() {
     let env = setup_test_env();
-    let mut s = Session::new("anthropic", "claude", 200000);
+    let mut s = Session::new("anthropic", "claude", 200000, "");
     s.add_message(MessageRole::User, "question");
     s.add_message(MessageRole::Assistant, "answer");
     save_session(&s).unwrap();
@@ -90,7 +90,7 @@ fn save_session_preserves_messages() {
 #[test]
 fn save_session_preserves_tool_messages() {
     let env = setup_test_env();
-    let mut s = Session::new("anthropic", "claude", 200000);
+    let mut s = Session::new("anthropic", "claude", 200000, "");
     s.add_message(MessageRole::User, "question");
     s.add_tool_call("read", &serde_json::json!({ "path": "src/main.rs" }));
     s.add_tool_result("read", "file contents");
@@ -112,7 +112,7 @@ fn save_session_preserves_tool_messages() {
 #[test]
 fn long_tool_result_is_saved_and_truncated_in_session() {
     let env = setup_test_env();
-    let mut s = Session::new("anthropic", "claude", 200000);
+    let mut s = Session::new("anthropic", "claude", 200000, "");
     let head = "H".repeat(TOOL_RESULT_HEAD_CHARS);
     let omitted = "M"
         .repeat(TOOL_RESULT_SAVE_THRESHOLD - TOOL_RESULT_HEAD_CHARS - TOOL_RESULT_TAIL_CHARS + 1);
@@ -151,7 +151,7 @@ fn long_tool_result_save_failure_keeps_full_output() {
     std::fs::write(&path, b"not a directory").unwrap();
     unsafe { env::set_var("ZS_DATA_DIR", path.to_str().unwrap()) };
 
-    let mut s = Session::new("anthropic", "claude", 200000);
+    let mut s = Session::new("anthropic", "claude", 200000, "");
     let output = "x".repeat(TOOL_RESULT_SAVE_THRESHOLD + 1);
     s.add_tool_result("bash", &output);
 
@@ -165,13 +165,13 @@ fn long_tool_result_save_failure_keeps_full_output() {
 #[test]
 fn find_all_sessions_returns_saved_sessions_newest_first() {
     let env = setup_test_env();
-    let mut older = Session::new("openai", "gpt-4", 128000);
+    let mut older = Session::new("openai", "gpt-4", 128000, "");
     older.updated_at = "2026-01-01T00:00:00Z".into();
     older.add_message(MessageRole::User, "older");
     older.updated_at = "2026-01-01T00:00:00Z".into();
     save_session(&older).unwrap();
 
-    let mut newer = Session::new("anthropic", "claude", 200000);
+    let mut newer = Session::new("anthropic", "claude", 200000, "");
     newer.updated_at = "2026-01-02T00:00:00Z".into();
     newer.add_message(MessageRole::User, "newer");
     newer.updated_at = "2026-01-02T00:00:00Z".into();
@@ -187,7 +187,7 @@ fn find_all_sessions_returns_saved_sessions_newest_first() {
 #[test]
 fn save_session_preserves_cost_fields() {
     let env = setup_test_env();
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.total_input_tokens = 100;
     s.total_output_tokens = 50;
     s.total_cost = 0.003;
@@ -228,7 +228,7 @@ fn save_session_creates_parent_dirs() {
     // Delete sessions dir to verify save_session recreates it
     let sessions_dir = std::path::PathBuf::from(&env.data_dir).join("sessions");
     std::fs::remove_dir_all(&sessions_dir).unwrap();
-    let s = Session::new("openai", "gpt-4", 128000);
+    let s = Session::new("openai", "gpt-4", 128000, "");
     save_session(&s).unwrap();
     let found = find_sessions_by_prefix(&s.id[..8]).unwrap();
     assert_eq!(found.len(), 1);

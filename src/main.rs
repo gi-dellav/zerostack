@@ -182,11 +182,13 @@ async fn main() -> anyhow::Result<()> {
         model = qm.model.clone();
     }
 
+    let name = cli.name.as_deref().unwrap_or("");
     let qm_map = config::quick_models_map(&cfg);
     let mut session = session::Session::new(
         &provider,
         &model,
         cfg.resolve_context_window(&provider, &model, &qm_map),
+        name,
     );
 
     // Resolve input/output token costs from quick models or defaults
@@ -218,7 +220,12 @@ async fn main() -> anyhow::Result<()> {
     if let Some(session_id) = &cli.session {
         let sessions = session::storage::find_sessions_by_prefix(session_id)?;
         if sessions.is_empty() {
-            anyhow::bail!("no session matching '{}'", session_id);
+            // try exact name match as fallback
+            if let Some(s) = session::storage::find_session_by_name(session_id)? {
+                session = s;
+            } else {
+                anyhow::bail!("no session matching '{}'", session_id);
+            }
         } else if sessions.len() == 1 {
             session = sessions.into_iter().next().unwrap();
         } else {
@@ -233,13 +240,19 @@ async fn main() -> anyhow::Result<()> {
                     })
                     .unwrap_or_default();
                 let time = crate::ui::events::format_time(&s.updated_at);
+                let name_part = if s.name.is_empty() {
+                    String::new()
+                } else {
+                    format!("  [{}]", s.name)
+                };
                 eprintln!(
-                    "  {}  {}  {}msgs  {}  {}",
+                    "  {}  {}  {}msgs  {}  {}{}",
                     &s.id[..8],
                     time,
                     s.messages.len(),
                     s.model,
-                    preview
+                    preview,
+                    name_part
                 );
             }
             anyhow::bail!("be more specific with the session ID prefix");
@@ -910,17 +923,23 @@ fn print_sessions() {
                 })
                 .unwrap_or_default();
             let time = crate::ui::events::format_time(&s.updated_at);
+            let name_col = if s.name.is_empty() {
+                String::new()
+            } else {
+                format!("  [{}]", s.name)
+            };
             println!(
-                "  {}  {}  {}msgs  {}  {}",
+                "  {}  {}  {}msgs  {}  {}{}",
                 &s.id[..8],
                 time,
                 s.messages.len(),
                 s.model,
-                last
+                last,
+                name_col
             );
         }
         println!();
-        println!("Use --session <id> to load a session by its ID prefix.");
+        println!("Use --session <id-or-name> to load a session by its ID prefix or name.");
     }
 }
 

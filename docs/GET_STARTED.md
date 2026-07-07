@@ -106,6 +106,7 @@ By pressing `/` on an empty message, you can select any command to send the agen
 | `/btw` | Ask a question to the agent without changing the context |
 | `/review` | Ask the agent to review the last changes made |
 | `/sessions` | List older sessions |
+| `/rename <name>` | Rename the current session |
 | `/quit` | Exit |
 
 ## 2. Prompts
@@ -148,6 +149,8 @@ If you want to use zerostack from scripts, from other programs, or if you just w
 | ---- | ------ |
 | `-p <msg>` | Sends a message |
 | `-c` | Continues from last open session |
+| `--name <name>` | Set a name for the new session |
+| `--session <id-or-name>` | Load session by ID prefix or name |
 | `--read-only` | Only reads files |
 | `--yolo` | No limitations given to the agent |
 | `--sandbox` | Run the agent inside a sandbox (Experimental) |

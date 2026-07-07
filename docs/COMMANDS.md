@@ -11,8 +11,9 @@ All slash commands are available from the TUI input prompt.
 | `/retry` | Load the last user message into the input editor for editing. |
 | `/quit` | Exit zerostack. |
 | `/sessions` | List recent saved sessions (up to 20). |
-| `/sessions <id-prefix>` | Load a session by its ID prefix. |
-| `/sessions delete <id-prefix>` | Delete a session by its ID prefix. |
+| `/sessions <id-or-name>` | Load a session by its ID prefix or name. |
+| `/sessions delete <id-or-name>` | Delete a session by its ID prefix or name. |
+| `/rename <name>` | Rename the current session. |
 | `/history` | Show global chat history (last 10 entries across sessions). |
 
 ## Provider & Model

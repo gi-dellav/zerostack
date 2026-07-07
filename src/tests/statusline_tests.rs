@@ -33,7 +33,7 @@ fn line_text(spans: &[StatusSpan]) -> String {
 
 #[test]
 fn default_statusline_shows_core_items() {
-    let session = Session::new("openrouter", "deepseek/deepseek-v4-pro", 1_048_576);
+    let session = Session::new("openrouter", "deepseek/deepseek-v4-pro", 1_048_576, "");
     let lines = statusline::build_lines(&statusline::default_spec(), &session, &ctx());
     assert_eq!(lines.len(), 1);
     let text = line_text(&lines[0]);
@@ -48,7 +48,7 @@ fn flex_separator_is_preserved() {
             segments: vec![seg("model"), seg("flex_separator"), seg("context_max")],
         }],
     };
-    let session = Session::new("openrouter", "m", 1000);
+    let session = Session::new("openrouter", "m", 1000, "");
     let lines = statusline::build_lines(&spec, &session, &ctx());
     assert!(matches!(lines[0][1], StatusSpan::Flex));
 }
@@ -70,7 +70,7 @@ fn skipped_optional_item_drops_adjacent_separator() {
             ],
         }],
     };
-    let mut session = Session::new("openrouter", "m", 1000);
+    let mut session = Session::new("openrouter", "m", 1000, "");
     session.total_cost = 0.0;
     let lines = statusline::build_lines(&spec, &session, &ctx());
     assert_eq!(
@@ -87,7 +87,7 @@ fn cost_shown_when_always_flag_set() {
             segments: vec![seg("cost")],
         }],
     };
-    let mut session = Session::new("openrouter", "m", 1000);
+    let mut session = Session::new("openrouter", "m", 1000, "");
     session.show_cost_always = true;
     let lines = statusline::build_lines(&spec, &session, &ctx());
     assert_eq!(line_text(&lines[0]), "$0.0000");
@@ -149,7 +149,7 @@ fn left_right_caps_wrap_the_item() {
             }],
         }],
     };
-    let session = Session::new("openrouter", "m", 1000);
+    let session = Session::new("openrouter", "m", 1000, "");
     let lines = statusline::build_lines(&spec, &session, &ctx());
     assert_eq!(lines[0].len(), 3); // left cap, model, right cap
     assert_eq!(line_text(&lines[0]), "\u{e0b6}m\u{e0b4}");
@@ -168,7 +168,7 @@ fn caps_skipped_when_item_is_hidden() {
             }],
         }],
     };
-    let session = Session::new("openrouter", "m", 1000);
+    let session = Session::new("openrouter", "m", 1000, "");
     let lines = statusline::build_lines(&spec, &session, &ctx());
     assert!(lines[0].is_empty());
 }
@@ -197,7 +197,7 @@ fn auto_icon_prepends_item_glyph() {
             }],
         }],
     };
-    let mut session = Session::new("openrouter", "m", 1000);
+    let mut session = Session::new("openrouter", "m", 1000, "");
     session.git_branch = Some("main".into());
     let lines = statusline::build_lines(&spec, &session, &ctx());
     assert_eq!(line_text(&lines[0]), "\u{e0a0} main");
@@ -214,7 +214,7 @@ fn custom_icon_name_resolves() {
             }],
         }],
     };
-    let session = Session::new("openrouter", "m", 1000);
+    let session = Session::new("openrouter", "m", 1000, "");
     let text = line_text(&statusline::build_lines(&spec, &session, &ctx())[0]);
     assert!(text.starts_with("\u{f07b} "), "{text}");
 }
@@ -232,7 +232,7 @@ fn cwd_full_vs_cwd_folder() {
             segments: vec![seg("cwd"), seg("separator"), seg("cwd_full")],
         }],
     };
-    let mut session = Session::new("openrouter", "m", 1000);
+    let mut session = Session::new("openrouter", "m", 1000, "");
     session.working_dir = "/var/lib/zerostack-demo/project".into();
     let lines = statusline::build_lines(&spec, &session, &ctx());
     // cwd = folder name, cwd_full = full path (no $HOME prefix here, unchanged)
@@ -258,7 +258,7 @@ fn always_shows_zero_tokens() {
             }],
         }],
     };
-    let session = Session::new("openrouter", "m", 1000); // total_input_tokens == 0
+    let session = Session::new("openrouter", "m", 1000, ""); // total_input_tokens == 0
     assert!(line_text(&statusline::build_lines(&hidden, &session, &ctx())[0]).is_empty());
     assert_eq!(
         line_text(&statusline::build_lines(&forced, &session, &ctx())[0]),
@@ -279,7 +279,7 @@ fn provider_model_short_message_count() {
             ],
         }],
     };
-    let mut session = Session::new("openrouter", "deepseek/deepseek-v4-pro", 1000);
+    let mut session = Session::new("openrouter", "deepseek/deepseek-v4-pro", 1000, "");
     session.add_message(crate::session::MessageRole::User, "hi");
     let text = line_text(&statusline::build_lines(&spec, &session, &ctx())[0]);
     assert_eq!(text, "openrouter deepseek-v4-pro 1");
@@ -292,7 +292,7 @@ fn reasoning_shows_only_when_enabled() {
             segments: vec![seg("reasoning")],
         }],
     };
-    let mut session = Session::new("openrouter", "m", 1000);
+    let mut session = Session::new("openrouter", "m", 1000, "");
     assert!(line_text(&statusline::build_lines(&spec, &session, &ctx())[0]).is_empty());
     session.reasoning_enabled = true;
     assert_eq!(
@@ -317,7 +317,7 @@ fn context_percentage_is_not_clamped() {
             segments: vec![seg("context_percentage")],
         }],
     };
-    let mut session = Session::new("openrouter", "m", 1000);
+    let mut session = Session::new("openrouter", "m", 1000, "");
     session.set_calibration(1100, 0); // 110% of the window
     assert_eq!(
         line_text(&statusline::build_lines(&spec, &session, &ctx())[0]),
@@ -334,7 +334,7 @@ fn context_percentage_color_warns_as_it_fills() {
         }],
     };
     // Green tier keeps the configured (here: default/none) color.
-    let mut session = Session::new("openrouter", "m", 1000);
+    let mut session = Session::new("openrouter", "m", 1000, "");
     session.set_calibration(500, 0); // 50%
     assert_eq!(
         first_fg(&statusline::build_lines(&spec, &session, &ctx())[0]),
@@ -363,7 +363,7 @@ fn session_age_is_short_duration() {
             segments: vec![seg("session_age")],
         }],
     };
-    let session = Session::new("openrouter", "m", 1000); // created_at = now
+    let session = Session::new("openrouter", "m", 1000, ""); // created_at = now
     let text = line_text(&statusline::build_lines(&spec, &session, &ctx())[0]);
     assert!(text.ends_with('s') || text.ends_with('m'), "got {text:?}");
 }

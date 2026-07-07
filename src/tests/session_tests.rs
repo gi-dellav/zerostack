@@ -57,14 +57,14 @@ fn estimate_tokens_pure_ascii_matches_old_formula() {
 
 #[test]
 fn effective_context_falls_back_without_calibration() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "hello world this is a test message");
     assert_eq!(s.effective_context_tokens(), s.total_estimated_tokens);
 }
 
 #[test]
 fn effective_context_uses_calibration_anchor_plus_delta() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "first user message");
     s.add_message(MessageRole::Assistant, "assistant reply");
     s.set_calibration(5000, 200); // anchor = 5200, covers 2 messages
@@ -77,7 +77,7 @@ fn effective_context_uses_calibration_anchor_plus_delta() {
 
 #[test]
 fn calibration_ignores_zero_usage() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "msg");
     s.set_calibration(0, 0);
     assert_eq!(s.calibrated_tokens, 0);
@@ -104,7 +104,7 @@ fn real_input_tokens_non_native_uses_input_only() {
 // Helper: a session with `n` ASCII messages of `len` chars each, so every
 // message has a predictable estimated_tokens == len/4.
 fn session_with_messages(n: usize, len: usize) -> Session {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     for _ in 0..n {
         s.add_message(MessageRole::User, &"x".repeat(len));
     }
@@ -143,39 +143,39 @@ fn compaction_cut_single_message_is_kept() {
 
 #[test]
 fn new_session_has_id() {
-    let s = Session::new("openai", "gpt-4", 128000);
+    let s = Session::new("openai", "gpt-4", 128000, "");
     assert!(!s.id.is_empty());
 }
 
 #[test]
 fn new_session_sets_provider_and_model() {
-    let s = Session::new("anthropic", "claude-sonnet", 200000);
+    let s = Session::new("anthropic", "claude-sonnet", 200000, "");
     assert_eq!(s.provider.as_str(), "anthropic");
     assert_eq!(s.model.as_str(), "claude-sonnet");
 }
 
 #[test]
 fn new_session_sets_context_window() {
-    let s = Session::new("openai", "gpt-4", 128000);
+    let s = Session::new("openai", "gpt-4", 128000, "");
     assert_eq!(s.context_window, 128000);
 }
 
 #[test]
 fn new_session_sets_working_dir() {
-    let s = Session::new("openai", "gpt-4", 128000);
+    let s = Session::new("openai", "gpt-4", 128000, "");
     assert!(!s.working_dir.is_empty());
 }
 
 #[test]
 fn new_session_has_timestamps() {
-    let s = Session::new("openai", "gpt-4", 128000);
+    let s = Session::new("openai", "gpt-4", 128000, "");
     assert!(!s.created_at.is_empty());
     assert!(!s.updated_at.is_empty());
 }
 
 #[test]
 fn new_session_starts_empty() {
-    let s = Session::new("openai", "gpt-4", 128000);
+    let s = Session::new("openai", "gpt-4", 128000, "");
     assert!(s.messages.is_empty());
     assert!(s.compactions.is_empty());
     assert_eq!(s.total_estimated_tokens, 0);
@@ -186,7 +186,7 @@ fn new_session_starts_empty() {
 
 #[test]
 fn add_message_appends() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "hello");
     assert_eq!(s.messages.len(), 1);
     assert_eq!(s.messages[0].role, MessageRole::User);
@@ -195,7 +195,7 @@ fn add_message_appends() {
 
 #[test]
 fn add_message_increments_estimated_tokens() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     let before = s.total_estimated_tokens;
     s.add_message(MessageRole::Assistant, "hello world, this is a test");
     assert!(s.total_estimated_tokens > before);
@@ -203,7 +203,7 @@ fn add_message_increments_estimated_tokens() {
 
 #[test]
 fn add_message_updates_updated_at() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     let before = s.updated_at.clone();
     // Brief sleep to ensure timestamp changes
     std::thread::sleep(std::time::Duration::from_millis(1));
@@ -213,7 +213,7 @@ fn add_message_updates_updated_at() {
 
 #[test]
 fn needs_compaction_when_over_threshold() {
-    let mut s = Session::new("openai", "gpt-4", 1000);
+    let mut s = Session::new("openai", "gpt-4", 1000, "");
     s.add_message(MessageRole::User, &"x".repeat(900 * 4)); // ~900 tokens
     // With context_window=1000, reserve=200, threshold is 800
     // We have ~900 tokens, so should need compaction
@@ -222,7 +222,7 @@ fn needs_compaction_when_over_threshold() {
 
 #[test]
 fn needs_compaction_when_under_threshold() {
-    let mut s = Session::new("openai", "gpt-4", 1000);
+    let mut s = Session::new("openai", "gpt-4", 1000, "");
     s.add_message(MessageRole::User, "short");
     // Very few tokens, should not need compaction
     assert!(!s.needs_compaction(200));
@@ -230,20 +230,20 @@ fn needs_compaction_when_under_threshold() {
 
 #[test]
 fn needs_compaction_zero_context_window() {
-    let s = Session::new("openai", "gpt-4", 0);
+    let s = Session::new("openai", "gpt-4", 0, "");
     assert!(!s.needs_compaction(200));
 }
 
 #[test]
 fn update_context_window_changes_value() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.update_context_window(256000);
     assert_eq!(s.context_window, 256000);
 }
 
 #[test]
 fn compacted_context_returns_none_without_compactions() {
-    let s = Session::new("openai", "gpt-4", 128000);
+    let s = Session::new("openai", "gpt-4", 128000, "");
     let (summary, index) = s.compacted_context();
     assert!(summary.is_none());
     assert_eq!(index, 0);
@@ -251,7 +251,7 @@ fn compacted_context_returns_none_without_compactions() {
 
 #[test]
 fn compress_adds_compaction_entry() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "msg1");
     s.add_message(MessageRole::Assistant, "msg2");
     s.add_message(MessageRole::User, "msg3");
@@ -265,7 +265,7 @@ fn compress_adds_compaction_entry() {
 
 #[test]
 fn compress_inserts_summary_as_system_message() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "msg1");
     s.add_message(MessageRole::Assistant, "msg2");
     s.add_message(MessageRole::User, "msg3");
@@ -278,7 +278,7 @@ fn compress_inserts_summary_as_system_message() {
 
 #[test]
 fn compress_drains_messages_before_first_kept_index() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "msg1");
     s.add_message(MessageRole::Assistant, "msg2");
     s.add_message(MessageRole::User, "msg3");
@@ -295,7 +295,7 @@ fn compress_drains_messages_before_first_kept_index() {
 
 #[test]
 fn compacted_context_returns_summary_after_compress() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "msg1");
     s.add_message(MessageRole::Assistant, "msg2");
     s.compress("the summary".to_string(), 1, 20);
@@ -342,7 +342,7 @@ fn parse_porcelain_counts_changes_and_sync() {
 
 #[test]
 fn rewind_to_truncates_and_records_restore_point() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "first");
     s.add_message(MessageRole::Assistant, "reply");
     s.add_message(MessageRole::User, "second");
@@ -363,7 +363,7 @@ fn rewind_to_truncates_and_records_restore_point() {
 
 #[test]
 fn rewind_to_at_or_past_end_is_a_noop() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "only");
 
     assert_eq!(s.rewind_to(1), 0);
@@ -374,7 +374,7 @@ fn rewind_to_at_or_past_end_is_a_noop() {
 
 #[test]
 fn redo_restores_the_messages_a_rewind_removed() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "first");
     s.add_message(MessageRole::Assistant, "reply");
     s.add_message(MessageRole::User, "second");
@@ -394,7 +394,7 @@ fn redo_restores_the_messages_a_rewind_removed() {
 
 #[test]
 fn adding_a_message_invalidates_the_redo_point() {
-    let mut s = Session::new("openai", "gpt-4", 128000);
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
     s.add_message(MessageRole::User, "first");
     s.add_message(MessageRole::Assistant, "reply");
     s.add_message(MessageRole::User, "second");

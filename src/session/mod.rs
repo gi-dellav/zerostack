@@ -167,11 +167,11 @@ impl Session {
         )
     }
 
-    pub fn new(provider: &str, model: &str, context_window: u64) -> Self {
+    pub fn new(provider: &str, model: &str, context_window: u64, name: &str) -> Self {
         let now = CompactString::new(chrono::Utc::now().to_rfc3339());
         Session {
             id: CompactString::new(Uuid::new_v4().to_string()),
-            name: CompactString::new(""),
+            name: CompactString::new(name),
             messages: Vec::new(),
             compactions: Vec::new(),
             created_at: now.clone(),
