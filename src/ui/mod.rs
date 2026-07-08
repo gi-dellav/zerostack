@@ -1124,10 +1124,14 @@ pub async fn run_interactive(
                             refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
                         } else if row < renderer.visible_lines() as u16
                             && let Some(idx) = renderer.buffer_line_at_row(row) {
-                                renderer.selection_active = true;
-                                renderer.selection_start = Some(idx);
-                                renderer.selection_end = Some(idx);
-                                refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                                if let Some(url) = renderer.link_url_at(idx, col) {
+                                    renderer::open_url(url);
+                                } else {
+                                    renderer.selection_active = true;
+                                    renderer.selection_start = Some(idx);
+                                    renderer.selection_end = Some(idx);
+                                    refresh_display(&mut renderer, &mut input, session, is_running, loop_label.as_deref(), context.current_prompt_name.as_deref(), perm_mode().as_deref(), chain_label_msg.as_deref(), btw_total_cost, btw_total_in, btw_total_out)?;
+                                }
                             }
                         continue;
                     }
