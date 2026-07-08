@@ -232,11 +232,13 @@ impl Renderer {
         }
 
         let auto_scroll = self.scroll_offset == 0;
-        if auto_scroll && total < visible {
-            let pad = visible - total;
-            if (row as usize) < pad {
-                return None;
-            }
+        let pad = if auto_scroll && total < visible {
+            visible - total
+        } else {
+            0
+        };
+        if (row as usize) < pad {
+            return None;
         }
 
         let start = if auto_scroll {
@@ -246,7 +248,7 @@ impl Renderer {
         };
         let start = start.min(total.saturating_sub(visible));
 
-        let mut visual_row: u16 = 0;
+        let mut visual_row: u16 = pad as u16;
         let mut buf_idx = start;
 
         while buf_idx < total {
