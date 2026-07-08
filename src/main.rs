@@ -1155,7 +1155,7 @@ async fn run_headless_loop(
             .run_print(
                 &iteration_prompt,
                 cli.resolve_max_agent_turns(cfg),
-                false,
+                cli.pure_stdout,
                 &cfg.retry,
             )
             .await
