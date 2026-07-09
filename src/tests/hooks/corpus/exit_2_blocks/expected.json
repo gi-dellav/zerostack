@@ -1,0 +1,5 @@
+{
+  "kind": "pre_tool_use",
+  "verdict": "Deny",
+  "reason": "destructive rm is not allowed"
+}

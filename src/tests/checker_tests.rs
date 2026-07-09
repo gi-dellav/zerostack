@@ -232,6 +232,104 @@ fn doom_loop_detects_consecutive_repeats() {
     );
 }
 
+#[cfg(feature = "hooks")]
+#[test]
+fn record_blocked_feeds_doom_loop_detection() {
+    let mut checker = make_checker(SecurityMode::Standard);
+    checker.record_blocked("bash", "ls -la");
+    checker.record_blocked("bash", "ls -la");
+    let result = checker.check("bash", "ls -la");
+    assert!(
+        matches!(result, CheckResult::AllowedWithCoaching(_)),
+        "a hook-denied call repeated via record_blocked should still count toward \
+         doom-loop detection, got {:?}",
+        result,
+    );
+}
+
+#[cfg(feature = "hooks")]
+#[test]
+fn force_ask_once_forces_ask_for_the_next_call_regardless_of_mode() {
+    // Yolo would otherwise allow bash unconditionally.
+    let mut checker = make_checker(SecurityMode::Yolo);
+    checker.force_ask_once("bash".to_string());
+    let result = checker.check("bash", "ls -la");
+    assert!(matches!(result, CheckResult::Ask));
+}
+
+#[cfg(feature = "hooks")]
+#[test]
+fn force_ask_once_is_consumed_after_one_call() {
+    let mut checker = make_checker(SecurityMode::Yolo);
+    checker.force_ask_once("bash".to_string());
+    let _ = checker.check("bash", "ls -la");
+    let result = checker.check("bash", "ls -la");
+    assert!(matches!(result, CheckResult::Allowed));
+}
+
+#[cfg(feature = "hooks")]
+#[test]
+fn force_ask_once_never_overrides_a_deny_rule() {
+    let config = PermissionConfig {
+        bash: Some(ToolPerm::Granular({
+            let mut m = std::collections::HashMap::new();
+            m.insert("rm -rf important".to_string(), Action::Deny);
+            m
+        })),
+        ..PermissionConfig::default()
+    };
+    let mut checker = PermissionChecker::new(
+        &configs_from(config),
+        SecurityMode::Yolo,
+        Some(std::path::PathBuf::from("/home/user/project")),
+        default_modes(),
+    );
+    checker.force_ask_once("bash".to_string());
+    let result = checker.check("bash", "rm -rf important");
+    assert!(matches!(result, CheckResult::Denied(_)));
+}
+
+#[cfg(feature = "hooks")]
+#[test]
+fn allow_once_suppresses_the_prompt_for_the_next_call() {
+    let mut checker = make_checker(SecurityMode::Restrictive);
+    checker.allow_once("bash".to_string());
+    let result = checker.check("bash", "ls -la");
+    assert!(matches!(result, CheckResult::Allowed));
+}
+
+#[cfg(feature = "hooks")]
+#[test]
+fn allow_once_is_consumed_after_one_call() {
+    let mut checker = make_checker(SecurityMode::Restrictive);
+    checker.allow_once("bash".to_string());
+    let _ = checker.check("bash", "ls -la");
+    let result = checker.check("bash", "ls -la");
+    assert!(matches!(result, CheckResult::Ask));
+}
+
+#[cfg(feature = "hooks")]
+#[test]
+fn allow_once_never_overrides_a_deny_rule() {
+    let config = PermissionConfig {
+        bash: Some(ToolPerm::Granular({
+            let mut m = std::collections::HashMap::new();
+            m.insert("rm -rf important".to_string(), Action::Deny);
+            m
+        })),
+        ..PermissionConfig::default()
+    };
+    let mut checker = PermissionChecker::new(
+        &configs_from(config),
+        SecurityMode::Yolo,
+        Some(std::path::PathBuf::from("/home/user/project")),
+        default_modes(),
+    );
+    checker.allow_once("bash".to_string());
+    let result = checker.check("bash", "rm -rf important");
+    assert!(matches!(result, CheckResult::Denied(_)));
+}
+
 // --- Session allowlist ---
 
 #[test]
@@ -1013,7 +1111,7 @@ fn empty_permission_modes_skips_rules_for_all_modes() {
 fn standard_external_dir_allow_rule_overrides_default_ask() {
     let config = PermissionConfig {
         external_directory: Some([("/tmp/work/**".to_string(), Action::Allow)].into()),
-        ..Default::default()
+        ..PermissionConfig::default()
     };
     let configs = configs_from(config);
     let mut checker = PermissionChecker::new(
@@ -1035,7 +1133,7 @@ fn standard_external_dir_allow_rule_overrides_default_ask() {
 fn standard_external_dir_deny_rule_overrides_default_ask() {
     let config = PermissionConfig {
         external_directory: Some([("/etc/**".to_string(), Action::Deny)].into()),
-        ..Default::default()
+        ..PermissionConfig::default()
     };
     let configs = configs_from(config);
     let mut checker = PermissionChecker::new(
