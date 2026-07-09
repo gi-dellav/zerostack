@@ -841,7 +841,6 @@ async fn main() -> anyhow::Result<()> {
             let response_result = agent
                 .run_print(
                     &msg,
-                    cli.resolve_max_agent_turns(&cfg),
                     cli.pure_stdout,
                     &cfg.retry,
                     #[cfg(feature = "hooks")]
@@ -1210,11 +1209,13 @@ async fn run_headless_loop(
         let response = match agent
             .run_print(
                 &iteration_prompt,
-                cli.resolve_max_agent_turns(cfg),
                 cli.pure_stdout,
                 &cfg.retry,
                 #[cfg(feature = "hooks")]
-                Some((state.iteration, state.active)),
+                Some(crate::extras::hooks::LoopInfo {
+                    iteration: state.iteration,
+                    active: state.active,
+                }),
             )
             .await
         {

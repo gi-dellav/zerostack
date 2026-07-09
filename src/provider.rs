@@ -18,6 +18,8 @@ use crate::cli::Cli;
 use crate::config::{ApiStyle, Config, CustomProviderConfig};
 use crate::context::ContextFiles;
 use crate::event::AgentEvent;
+#[cfg(feature = "hooks")]
+use crate::extras::hooks::LoopInfo;
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::McpClientManager;
 use crate::permission::ask::AskSender;
@@ -583,23 +585,20 @@ fn spawn_blocked_runner(feedback: String) -> AgentRunner {
 }
 
 impl AnyAgent {
-    #[allow(clippy::too_many_arguments)]
     pub async fn run_print(
         &self,
         prompt: &str,
-        max_turns: usize,
         pure_stdout: bool,
         retry_config: &RetryConfig,
         // `--loop` iteration/active state; see `runner::run_print`. `None`
         // for plain `-p` one-shot runs.
-        #[cfg(feature = "hooks")] loop_info: Option<(u32, bool)>,
+        #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
     ) -> anyhow::Result<(String, rig::completion::Usage)> {
         match self {
             AnyAgent::OpenRouter(a) => {
                 runner::run_print(
                     a,
                     prompt,
-                    max_turns,
                     pure_stdout,
                     retry_config,
                     #[cfg(feature = "hooks")]
@@ -612,7 +611,6 @@ impl AnyAgent {
                     runner::run_print(
                         a,
                         prompt,
-                        max_turns,
                         pure_stdout,
                         retry_config,
                         #[cfg(feature = "hooks")]
@@ -624,7 +622,6 @@ impl AnyAgent {
                     runner::run_print(
                         a,
                         prompt,
-                        max_turns,
                         pure_stdout,
                         retry_config,
                         #[cfg(feature = "hooks")]
@@ -637,7 +634,6 @@ impl AnyAgent {
                 runner::run_print(
                     a,
                     prompt,
-                    max_turns,
                     pure_stdout,
                     retry_config,
                     #[cfg(feature = "hooks")]
@@ -649,7 +645,6 @@ impl AnyAgent {
                 runner::run_print(
                     a,
                     prompt,
-                    max_turns,
                     pure_stdout,
                     retry_config,
                     #[cfg(feature = "hooks")]
@@ -661,7 +656,6 @@ impl AnyAgent {
                 runner::run_print(
                     a,
                     prompt,
-                    max_turns,
                     pure_stdout,
                     retry_config,
                     #[cfg(feature = "hooks")]
@@ -711,7 +705,7 @@ impl AnyAgent {
         retry_config: RetryConfig,
         // `--loop` iteration/active state; see `runner::spawn_agent`. `None`
         // outside loop mode.
-        #[cfg(feature = "hooks")] loop_info: Option<(u32, bool)>,
+        #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
     ) -> AgentRunner {
         #[cfg(feature = "hooks")]
         let prompt = match crate::extras::hooks::dispatch_user_prompt_submit(prompt).await {

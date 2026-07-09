@@ -52,6 +52,17 @@ pub struct HookCtx {
     pub permission_mode: String,
 }
 
+/// `--loop` iteration/active state, threaded through the runner so the
+/// `Stop` hook envelope can report `loop_iteration`/`loop_active`. `None`
+/// outside loop mode (plain `-p` one-shot runs, or interactive sessions).
+#[derive(Clone, Copy, Debug)]
+pub struct LoopInfo {
+    /// 1-based `--loop` iteration count.
+    pub iteration: u32,
+    /// Whether the loop will continue after this iteration.
+    pub active: bool,
+}
+
 static PROCESS_SESSION_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Best-effort session identity for `HookCtx` until the session-lifecycle

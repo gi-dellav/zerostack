@@ -2117,7 +2117,10 @@ pub async fn run_interactive(
                                                     Vec::new(),
                                                     cfg.retry.clone(),
                                                     #[cfg(feature = "hooks")]
-                                                    Some((ls.iteration, ls.active)),
+                                                    Some(crate::extras::hooks::LoopInfo {
+                                                        iteration: ls.iteration,
+                                                        active: ls.active,
+                                                    }),
                                                 )
                                                 .await;
                                             agent_rx = Some(runner.event_rx);

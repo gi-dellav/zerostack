@@ -9,6 +9,8 @@ use rig::streaming::{StreamedAssistantContent, StreamedUserContent, StreamingCha
 use tokio::sync::mpsc;
 
 use crate::event::{AgentEvent, BtwEvent};
+#[cfg(feature = "hooks")]
+use crate::extras::hooks::LoopInfo;
 use crate::retry::{self, RetryConfig};
 use crate::session::{MessageRole, Session};
 
@@ -315,7 +317,7 @@ pub fn spawn_agent<M, P>(
     // `loop_iteration`/`loop_active` fields (per-iteration reset of
     // `stop_hook_active`/the block cap falls out for free: each iteration is
     // a fresh call to this function). `None` outside loop mode.
-    #[cfg(feature = "hooks")] loop_info: Option<(u32, bool)>,
+    #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
 ) -> AgentRunner
 where
     M: CompletionModel + 'static,
@@ -472,8 +474,8 @@ where
                             if let crate::extras::hooks::StopGate::Continue { reason } =
                                 crate::extras::hooks::dispatch_stop(
                                     stop_hook_active,
-                                    loop_info.map(|(iter, _)| u64::from(iter)),
-                                    loop_info.map(|(_, active)| active),
+                                    loop_info.map(|info| u64::from(info.iteration)),
+                                    loop_info.map(|info| info.active),
                                 )
                                 .await
                             {
@@ -575,17 +577,15 @@ where
 /// construction, see `agent::builder::build_agent_inner`) still bounds
 /// internal tool-call round trips per call, same as [`spawn_agent`], which
 /// never used `.multi_turn()` either.
-#[allow(clippy::too_many_arguments)]
 pub async fn run_print<M, P>(
     agent: &Agent<M, P>,
     prompt: &str,
-    _max_turns: usize,
     pure_stdout: bool,
     retry_config: &RetryConfig,
     // `--loop` iteration/active state, for the `Stop` hook envelope's
     // `loop_iteration`/`loop_active` fields; see `runner::spawn_agent`.
     // `None` for plain `-p` one-shot runs.
-    #[cfg(feature = "hooks")] loop_info: Option<(u32, bool)>,
+    #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
 ) -> anyhow::Result<(String, rig::completion::Usage)>
 where
     M: CompletionModel + 'static,
@@ -688,8 +688,8 @@ where
                     if let crate::extras::hooks::StopGate::Continue { reason } =
                         crate::extras::hooks::dispatch_stop(
                             stop_hook_active,
-                            loop_info.map(|(iter, _)| u64::from(iter)),
-                            loop_info.map(|(_, active)| active),
+                            loop_info.map(|info| u64::from(info.iteration)),
+                            loop_info.map(|info| info.active),
                         )
                         .await
                     {
