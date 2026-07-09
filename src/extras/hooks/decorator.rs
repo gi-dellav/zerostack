@@ -49,6 +49,10 @@ impl ToolDyn for HookedTool {
         self.inner.name()
     }
 
+    // `WasmBoxedFuture` is the return type rig's `ToolDyn` trait requires for
+    // `definition`/`call`. On native targets (this crate never builds for
+    // wasm32) it is a plain `Pin<Box<dyn Future + Send>>`; rig only drops the
+    // `Send` bound on wasm32.
     fn definition<'a>(&'a self, prompt: String) -> WasmBoxedFuture<'a, ToolDefinition> {
         self.inner.definition(prompt)
     }

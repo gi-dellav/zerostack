@@ -698,6 +698,10 @@ impl AnyAgent {
         }
     }
 
+    /// Async because, under `hooks`, the `UserPromptSubmit` gate must resolve
+    /// before spawning: its outcome decides whether the runner spawns at all
+    /// (a hook can block the prompt outright) and, if so, with what prompt
+    /// (a hook can rewrite it).
     pub async fn spawn_runner(
         self,
         prompt: String,

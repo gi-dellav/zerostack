@@ -200,8 +200,9 @@ Hooks let external commands observe or gate agent behavior at defined points
 (a tool call, a user prompt, the agent finishing a turn, a session
 starting/ending, a subagent starting/stopping), using the same
 `settings.json` shape, stdin envelope, and exit-code/stdout-JSON contract as
-Claude Code, so an existing CC hooks setup is largely compatible without
-changes to the hook scripts themselves.
+Claude Code, so an existing CC hooks setup is largely compatible (see the
+`$CLAUDE_PROJECT_DIR` caveat below for the one script-level change some
+setups need).
 
 ### Config file locations and precedence
 
@@ -222,9 +223,11 @@ error — it just contributes nothing.
 
 **Compatible with Claude Code's `.claude/settings.json`**: zerostack does not
 read that file directly, but its own `settings.json` uses the identical
-`hooks` schema, so copying or symlinking
-the `hooks` key from `.claude/settings.json` into `.zerostack/settings.json`
-works with no changes to the hook scripts.
+`hooks` schema, so copying or symlinking the `hooks` key from
+`.claude/settings.json` into `.zerostack/settings.json` works as-is. Scripts
+themselves may still need a change: zerostack sets `$ZEROSTACK_PROJECT_DIR`
+rather than `$CLAUDE_PROJECT_DIR`, so a script that reads the latter must be
+updated to read the former.
 
 ### Handler schema
 
