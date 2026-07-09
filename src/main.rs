@@ -148,6 +148,7 @@ async fn connect_headless_mcp(
 #[cfg_attr(not(feature = "multithread"), tokio::main(flavor = "current_thread"))]
 async fn main() -> anyhow::Result<()> {
     let cli = cli::Cli::parse();
+    logging::install_panic_hook();
     logging::init(&cli);
 
     let (mut cfg, is_first_startup) = config::load();

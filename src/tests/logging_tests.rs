@@ -85,3 +85,21 @@ fn test_verbose_flag_long_form() {
     let cli = parse_cli(&["--verbose"]);
     assert!(cli.verbose);
 }
+
+#[test]
+fn test_crash_log_path_format() {
+    let path = logging::resolve_crash_log_path();
+    let s = path.to_string_lossy();
+    assert!(s.contains("crashes"));
+    assert!(s.contains("zerostack-crash-"));
+    assert!(s.ends_with(".log"));
+    assert!(s.contains(&std::process::id().to_string()));
+}
+
+#[test]
+fn test_crash_log_dir_is_under_data_logs() {
+    let dir = logging::crash_log_dir();
+    let s = dir.to_string_lossy();
+    assert!(s.contains("logs"));
+    assert!(s.ends_with("crashes"));
+}
