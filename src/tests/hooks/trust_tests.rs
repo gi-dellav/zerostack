@@ -38,30 +38,58 @@ fn missing_path(name: &str) -> std::path::PathBuf {
     unique_path(&format!("missing-{name}"))
 }
 
+fn project_root() -> std::path::PathBuf {
+    std::path::PathBuf::from("/repo/test-project")
+}
+
 #[test]
 fn hash_changes_when_command_changes() {
+    let root = std::path::Path::new("/repo/a");
     let h1 = handler("echo one");
     let h2 = handler("echo two");
-    let hash1 = trust::hash_hook_binding("PreToolUse", Some("Bash"), &h1);
-    let hash2 = trust::hash_hook_binding("PreToolUse", Some("Bash"), &h2);
+    let hash1 = trust::hash_hook_binding(root, "PreToolUse", Some("Bash"), &h1);
+    let hash2 = trust::hash_hook_binding(root, "PreToolUse", Some("Bash"), &h2);
     assert_ne!(hash1, hash2);
 }
 
 #[test]
 fn hash_stable_for_identical_binding() {
+    let root = std::path::Path::new("/repo/a");
     let h1 = handler("echo one");
     let h2 = handler("echo one");
-    let hash1 = trust::hash_hook_binding("PreToolUse", Some("Bash"), &h1);
-    let hash2 = trust::hash_hook_binding("PreToolUse", Some("Bash"), &h2);
+    let hash1 = trust::hash_hook_binding(root, "PreToolUse", Some("Bash"), &h1);
+    let hash2 = trust::hash_hook_binding(root, "PreToolUse", Some("Bash"), &h2);
     assert_eq!(hash1, hash2);
 }
 
 #[test]
 fn hash_changes_when_matcher_changes() {
+    let root = std::path::Path::new("/repo/a");
     let h = handler("echo one");
-    let hash1 = trust::hash_hook_binding("PreToolUse", Some("Bash"), &h);
-    let hash2 = trust::hash_hook_binding("PreToolUse", Some("*"), &h);
+    let hash1 = trust::hash_hook_binding(root, "PreToolUse", Some("Bash"), &h);
+    let hash2 = trust::hash_hook_binding(root, "PreToolUse", Some("*"), &h);
     assert_ne!(hash1, hash2);
+}
+
+#[test]
+fn hash_changes_when_project_root_changes() {
+    let h = handler("./guard.sh");
+    let hash1 = trust::hash_hook_binding(
+        std::path::Path::new("/repo/project-a"),
+        "PreToolUse",
+        Some("Bash"),
+        &h,
+    );
+    let hash2 = trust::hash_hook_binding(
+        std::path::Path::new("/repo/project-b"),
+        "PreToolUse",
+        Some("Bash"),
+        &h,
+    );
+    assert_ne!(
+        hash1, hash2,
+        "trusting a binding in one project must not trust the identical binding in another"
+    );
 }
 
 #[test]
@@ -94,6 +122,7 @@ fn global_only_settings_load_without_consulting_confirmation() {
         &global,
         &project,
         &managed,
+        &project_root(),
         false,
         false,
         &trust_path,
@@ -114,6 +143,7 @@ fn missing_files_are_not_an_error() {
         &global,
         &project,
         &managed,
+        &project_root(),
         false,
         false,
         &trust_path,
@@ -142,6 +172,7 @@ fn disable_all_hooks_in_project_settings_disables_non_managed_but_not_managed() 
         &global,
         &project,
         &managed,
+        &project_root(),
         false,
         false,
         &trust_path,
@@ -170,6 +201,7 @@ fn headless_unconfirmed_project_hook_is_skipped_without_confirmation() {
         &global,
         &project,
         &managed,
+        &project_root(),
         false,
         true, // headless
         &trust_path,
@@ -195,6 +227,7 @@ fn interactive_confirmation_accepted_persists_trust() {
         &global,
         &project,
         &managed,
+        &project_root(),
         false,
         false,
         &trust_path,
@@ -208,12 +241,56 @@ fn interactive_confirmation_accepted_persists_trust() {
         &global,
         &project,
         &managed,
+        &project_root(),
         false,
         false,
         &trust_path,
         &|_| panic!("should already be trusted from the previous run"),
     );
     assert!(!dispatcher2.is_empty());
+}
+
+#[test]
+fn trust_from_one_project_root_does_not_carry_over_to_another() {
+    let global = missing_path("g4b");
+    let project = unique_path("project4b");
+    write_settings(
+        &project,
+        r#"{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo trust-me"}]}]}}"#,
+    );
+    let managed = missing_path("m4b");
+    let trust_path = unique_path("trust4b");
+    let _ = std::fs::remove_file(&trust_path);
+    let root_a = std::path::PathBuf::from("/repo/project-a");
+    let root_b = std::path::PathBuf::from("/repo/project-b");
+
+    // Trust the binding under project root A.
+    let dispatcher = trust::build_dispatcher_from_paths(
+        &global,
+        &project,
+        &managed,
+        &root_a,
+        false,
+        false,
+        &trust_path,
+        &|_| true,
+    );
+    assert!(!dispatcher.is_empty());
+
+    // The identical binding (same settings file, same command) under a
+    // different project root must still require confirmation: declining it
+    // must exclude the hook, proving trust did not carry over.
+    let dispatcher2 = trust::build_dispatcher_from_paths(
+        &global,
+        &project,
+        &managed,
+        &root_b,
+        false,
+        false,
+        &trust_path,
+        &|_| false,
+    );
+    assert!(dispatcher2.is_empty());
 }
 
 #[test]
@@ -232,6 +309,7 @@ fn interactive_confirmation_declined_excludes_the_hook() {
         &global,
         &project,
         &managed,
+        &project_root(),
         false,
         false,
         &trust_path,
@@ -259,6 +337,7 @@ fn no_hooks_flag_excludes_non_managed_but_not_managed() {
         &global,
         &project,
         &managed,
+        &project_root(),
         true, // --no-hooks
         false,
         &trust_path,

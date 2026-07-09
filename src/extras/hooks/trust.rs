@@ -6,15 +6,20 @@ use std::path::{Path, PathBuf};
 use super::dispatcher::HookDispatcher;
 use super::settings::{HookGroup, HookHandler, HooksConfig, parse_hooks_config};
 
-/// Deterministic hash of a project hook binding (event + matcher + handler
-/// definition). Any change to the binding changes the hash, invalidating
-/// trust automatically.
+/// Deterministic hash of a project hook binding (project root + event +
+/// matcher + handler definition). Any change to the binding, or trusting the
+/// same binding from a different project root, changes the hash, so trust
+/// never crosses project boundaries. Hook subprocesses inherit zerostack's
+/// CWD, so without the root a binding trusted in one project would silently
+/// execute a same-named script in any other project.
 pub(crate) fn hash_hook_binding(
+    project_root: &Path,
     event: &str,
     matcher: Option<&str>,
     handler: &HookHandler,
 ) -> String {
     let mut hasher = DefaultHasher::new();
+    project_root.to_string_lossy().hash(&mut hasher);
     event.hash(&mut hasher);
     matcher.unwrap_or("").hash(&mut hasher);
     handler.hash(&mut hasher);
@@ -132,6 +137,7 @@ fn merge_into(target: &mut HooksConfig, source: HooksConfig) {
 /// interactive contexts consult `confirm`, persisting an acceptance.
 fn filter_trusted_project_hooks(
     hooks: HooksConfig,
+    project_root: &Path,
     trust_store_path: &Path,
     headless: bool,
     confirm: &dyn Fn(&str) -> bool,
@@ -143,7 +149,8 @@ fn filter_trusted_project_hooks(
         for group in groups {
             let mut kept_handlers = Vec::with_capacity(group.hooks.len());
             for handler in group.hooks {
-                let hash = hash_hook_binding(&event, group.matcher.as_deref(), &handler);
+                let hash =
+                    hash_hook_binding(project_root, &event, group.matcher.as_deref(), &handler);
                 if trusted_hashes.contains(&hash) {
                     kept_handlers.push(handler);
                 } else if headless {
@@ -177,10 +184,12 @@ fn filter_trusted_project_hooks(
 /// `--no-hooks` (never affecting managed hooks) and project-hook trust
 /// filtering, and builds the resulting dispatcher. Explicit paths and a
 /// confirmation callback make this fully unit-testable without a TUI.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_dispatcher_from_paths(
     global_path: &Path,
     project_path: &Path,
     managed_path: &Path,
+    project_root: &Path,
     no_hooks_flag: bool,
     headless: bool,
     trust_store_path: &Path,
@@ -197,8 +206,13 @@ pub(crate) fn build_dispatcher_from_paths(
 
     if !disable_non_managed {
         merge_into(&mut merged, global.hooks);
-        let filtered_project =
-            filter_trusted_project_hooks(project.hooks, trust_store_path, headless, confirm);
+        let filtered_project = filter_trusted_project_hooks(
+            project.hooks,
+            project_root,
+            trust_store_path,
+            headless,
+            confirm,
+        );
         merge_into(&mut merged, filtered_project);
     }
 
@@ -210,13 +224,23 @@ pub(crate) fn build_dispatcher_from_paths(
     })
 }
 
+/// Best-effort current project root for trust hashing: the canonicalized
+/// current directory, falling back to the non-canonical current directory,
+/// then to `.` if even that is unavailable. Never panics.
+fn current_project_root() -> PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    cwd.canonicalize().unwrap_or(cwd)
+}
+
 /// Top-level entry point: builds the process dispatcher from the real
-/// global/project/managed settings locations and the real trust store.
+/// global/project/managed settings locations, the real trust store, and the
+/// current directory as the project root for trust hashing.
 pub(crate) fn load_dispatcher(no_hooks_flag: bool, headless: bool) -> HookDispatcher {
     build_dispatcher_from_paths(
         &global_settings_path(),
         &project_settings_path(),
         &managed_settings_path(),
+        &current_project_root(),
         no_hooks_flag,
         headless,
         &default_trust_store_path(),
