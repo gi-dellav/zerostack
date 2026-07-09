@@ -67,6 +67,19 @@ the first line. When a prompt with `%%mode=last_user_mode` is activated,
 the mode reverts to whatever was last set explicitly by `/mode` or
 startup config. See Prompts & Themes below.
 
+## Hooks
+
+Requires the `hooks` feature (default-off; see [CONFIG.md](CONFIG.md#hooks)).
+
+| Command | Description |
+| ------- | ----------- |
+| `/hooks` | Show whether a hook dispatcher is installed and, if so, each configured event with its handler count. |
+
+Run `zerostack --hooks-test <tool> [--hooks-test-input <json>]` from the
+shell (not a slash command) to dry-run `PreToolUse` hooks for a tool without
+starting a session or making a model call. See
+[CONFIG.md](CONFIG.md#hooks) for the full hooks configuration reference.
+
 ## Prompts & Themes
 
 | Command | Description |

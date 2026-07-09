@@ -189,6 +189,127 @@ Accepted top-level keys:
 | `acp_port`                | integer | TCP bind port for ACP server mode (equivalent to `--acp-port`, default: 7243).                                                                                               |
 | `colors`                  | object  | Background color overrides for the TUI. See the colors section below.                                                                                                       |
 
+## Hooks
+
+Requires the `hooks` Cargo feature, which is **default-off** — a prebuilt
+binary or package must have been compiled with `--features hooks` (or
+`--all-features`) for any of this to apply. When the feature isn't compiled
+in, none of the flags, files, or `/hooks`/`--hooks-test` commands below exist.
+
+Hooks let external commands observe or gate agent behavior at defined points
+(a tool call, a user prompt, the agent finishing a turn, a session
+starting/ending, a subagent starting/stopping), using the same
+`settings.json` shape, stdin envelope, and exit-code/stdout-JSON contract as
+Claude Code, so an existing CC hooks setup is largely compatible without
+changes to the hook scripts themselves.
+
+### Config file locations and precedence
+
+Hook config lives in a `settings.json` (JSON, not `config.toml`/`.yaml`) at up
+to three locations, loaded and merged in this order:
+
+| Location | Trust |
+| -------- | ----- |
+| `~/.config/zerostack/settings.json` (global; on macOS `~/Library/Application Support/zerostack/settings.json`) | Trusted by default |
+| `.zerostack/settings.json` (project, relative to CWD) | **Not** trusted by default — see Trust model below |
+| `/etc/zerostack/managed-settings.json` (Linux) / `/Library/Application Support/zerostack/managed-settings.json` (macOS) — admin-controlled | Always trusted; unaffected by `disableAllHooks` |
+
+Each file may have a top-level `hooks` object (keyed by event name) and a
+top-level `disableAllHooks: true` boolean. `disableAllHooks` (from the global
+or project file) or the `--no-hooks` CLI flag suppresses every non-managed
+hook; managed hooks still run regardless. A missing or invalid file is not an
+error — it just contributes nothing.
+
+**Compatible with Claude Code's `.claude/settings.json`**: zerostack does not
+read that file directly, but its own `settings.json` uses the identical
+`hooks` schema, so copying or symlinking
+the `hooks` key from `.claude/settings.json` into `.zerostack/settings.json`
+works with no changes to the hook scripts.
+
+### Handler schema
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write",
+        "hooks": [
+          { "type": "command", "command": "./guard.sh", "timeout": 30 }
+        ]
+      }
+    ]
+  }
+}
+```
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `type` | string | Only `"command"` is supported. |
+| `command` | string | Shell command, run via `sh -c`. Receives the stdin envelope as JSON; `$ZEROSTACK_PROJECT_DIR` is set in its environment. |
+| `args` | array of strings | When present, bypasses the shell entirely: `command` is executed directly as the program with `args` as its argv (no shell metacharacter expansion). |
+| `timeout` | integer (seconds) | Per-hook timeout; the whole process group is killed on expiry. Default: 60. |
+| `async` | boolean | When `true`, the hook runs in the background and its decision is ignored. Default: `false`. |
+| `if` | string | A shell command evaluated (with the same stdin envelope) before the handler runs; the handler only runs if it exits `0`. Fails closed: a broken/unparseable/timed-out condition still runs the handler, with a warning. |
+| `once` | boolean | Runs the handler at most once per event per session; later matches are skipped. |
+
+`matcher` (on the handler group, not the handler) follows Claude Code
+semantics: omitted, `""`, or `"*"` matches every tool; a bare name or a
+`|`/`,`-separated list is an exact case-insensitive match after tool-name
+normalization (e.g. `Bash` ↔ `bash`, `Glob` ↔ `find_files`, `Edit|Write`
+matches zerostack's `write` tool); anything else is treated as a regex.
+Invalid regexes are reported at load time.
+
+### Events
+
+`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`,
+`Stop`, `SessionStart`, `SessionEnd`, `SubagentStart`, `SubagentStop`.
+`PreCompact` and `Notification` are not currently implemented.
+
+Only `PreToolUse` is permission-blockable by default. A handler's stdout JSON
+may set `"permissionDecision"` to `"deny"`, `"ask"`, `"allow"`, or omit it
+(defer to the normal permission system). `deny` always blocks, holding even
+under `--yolo`. `ask` forces an interactive confirmation regardless of
+permission mode, and escalates to deny in non-interactive contexts (`-p`,
+`--loop`) where no confirmation is possible. `allow` suppresses the
+interactive prompt for that one call only — it can never override a deny
+from a rule, security mode, managed policy, or another hook. `PreToolUse` may
+also set `"updatedInput"` to rewrite the tool's arguments before it runs, and
+`PostToolUse` may set `"result"` to rewrite the model-visible output.
+
+`UserPromptSubmit` and `SubagentStart` can set `"additionalContext"` to
+prepend text to the prompt. `Stop` and `SubagentStop` can set
+`"decision": "block"` with a `"reason"` to force the agent (or subagent) to
+continue instead of finishing, using `reason` as the next instruction; `Stop`
+gives up after 8 consecutive blocks without progress.
+
+Any handler can also signal via **exit code** instead of JSON: exit `0` means
+no objection, exit `2` blocks (for blockable events) with stderr as the
+reason, and any other exit code is a non-blocking error. Exit `2` combined
+with stdout JSON is a mixed-channel warning — the JSON is ignored.
+
+### Trust model
+
+Project-level hook handlers (`.zerostack/settings.json` — global and managed
+hooks are trusted automatically) require interactive confirmation the first
+time they'd run, keyed by a hash of the handler's definition (event +
+matcher + command/args/timeout/etc.); changing the definition changes the
+hash and requires re-confirmation. Confirmations persist to
+`$XDG_DATA_HOME/zerostack/trusted-hooks.json` (a user-level file, so child
+processes/orchestrated subagents sharing it inherit trust automatically). In
+headless contexts (`-p`, `--loop`) an unconfirmed project hook is skipped
+with a warning rather than prompting.
+
+### Global switches
+
+| Flag | Effect |
+| ---- | ------ |
+| `--no-hooks` | Disables all non-managed hooks for this run. |
+| `disableAllHooks: true` (in global or project `settings.json`) | Same effect, via config. |
+| `--hooks-test <tool> [--hooks-test-input <json>]` | Dry-runs `PreToolUse` for `tool` against the loaded/trust-filtered dispatcher and prints the merged verdict/reason/`updatedInput`, then exits — no session, agent, or API key required. |
+
+See [COMMANDS.md](COMMANDS.md#hooks) for the `/hooks` slash command.
+
 ## Mid-turn compaction
 
 By default zerostack only compacts the conversation *between* turns, after a
