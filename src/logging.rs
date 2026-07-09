@@ -1,3 +1,4 @@
+use std::backtrace::Backtrace;
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -10,6 +11,65 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::cli::Cli;
 use crate::session::storage;
+
+pub fn crash_log_dir() -> PathBuf {
+    storage::data_dir().join("logs").join("crashes")
+}
+
+pub fn resolve_crash_log_path() -> PathBuf {
+    let dir = crash_log_dir();
+    let ts = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+    let pid = std::process::id();
+    dir.join(format!("zerostack-crash-{ts}_{pid}.log"))
+}
+
+pub fn install_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if let Some(path) = write_crash_report(info) {
+            eprintln!("crash report written to {}", path.display());
+        }
+        default_hook(info);
+    }));
+}
+
+fn write_crash_report(info: &std::panic::PanicHookInfo) -> Option<PathBuf> {
+    let path = resolve_crash_log_path();
+    if let Some(parent) = path.parent() {
+        if fs::create_dir_all(parent).is_err() {
+            return None;
+        }
+    }
+
+    let mut content = String::from("zerostack crash report\n");
+    content.push_str(&format!("time: {}\n", chrono::Local::now().to_rfc3339()));
+    if let Some(version) = option_env!("CARGO_PKG_VERSION") {
+        content.push_str(&format!("version: {version}\n"));
+    }
+    content.push('\n');
+
+    if let Some(payload) = info.payload().downcast_ref::<&str>() {
+        content.push_str(&format!("panic: {payload}\n"));
+    } else if let Some(payload) = info.payload().downcast_ref::<String>() {
+        content.push_str(&format!("panic: {payload}\n"));
+    } else {
+        content.push_str("panic: unknown\n");
+    }
+
+    if let Some(loc) = info.location() {
+        content.push_str(&format!(
+            "location: {}:{}:{}\n",
+            loc.file(),
+            loc.line(),
+            loc.column()
+        ));
+    }
+
+    content.push('\n');
+    content.push_str(&format!("{:?}", Backtrace::capture()));
+
+    fs::write(&path, content).ok().map(|_| path)
+}
 
 pub fn resolve_log_path(cli: &Cli) -> Option<PathBuf> {
     if let Some(ref path) = cli.log_file {
