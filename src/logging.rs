@@ -35,10 +35,10 @@ pub fn install_panic_hook() {
 
 fn write_crash_report(info: &std::panic::PanicHookInfo) -> Option<PathBuf> {
     let path = resolve_crash_log_path();
-    if let Some(parent) = path.parent() {
-        if fs::create_dir_all(parent).is_err() {
-            return None;
-        }
+    if let Some(parent) = path.parent()
+        && fs::create_dir_all(parent).is_err()
+    {
+        return None;
     }
 
     let mut content = String::from("zerostack crash report\n");

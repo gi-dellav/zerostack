@@ -130,10 +130,9 @@ pub fn find_sessions_by_prefix(prefix: &str) -> anyhow::Result<Vec<Session>> {
             && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
             && let Ok(json) = std::fs::read_to_string(&path)
             && let Ok(session) = serde_json::from_str::<Session>(&json)
+            && (stem.starts_with(prefix) || session.name.to_lowercase().contains(&lower))
         {
-            if stem.starts_with(prefix) || session.name.to_lowercase().contains(&lower) {
-                sessions.push(session);
-            }
+            sessions.push(session);
         }
     }
     sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -158,10 +157,9 @@ pub fn find_session_by_name(name: &str) -> anyhow::Result<Option<Session>> {
         if path.extension().is_some_and(|e| e == "json")
             && let Ok(json) = std::fs::read_to_string(&path)
             && let Ok(session) = serde_json::from_str::<Session>(&json)
+            && session.name.to_lowercase() == lower
         {
-            if session.name.to_lowercase() == lower {
-                return Ok(Some(session));
-            }
+            return Ok(Some(session));
         }
     }
     Ok(None)

@@ -391,23 +391,21 @@ async fn main() -> anyhow::Result<()> {
         let need_pricing = session.input_token_cost == 0.0 && session.output_token_cost == 0.0;
         let need_ctx = cfg.context_window.is_none()
             && config::Config::catalog_context_window("openrouter", model.as_str()).is_none();
-        if need_pricing || need_ctx {
-            if let Ok(infos) = provider::fetch_openrouter_pricing(
+        if (need_pricing || need_ctx)
+            && let Ok(infos) = provider::fetch_openrouter_pricing(
                 cli.api_key.as_deref(),
                 &cfg.custom_providers_map(),
                 cfg.api_keys.as_ref(),
             )
             .await
-            {
-                if let Some(info) = infos.get(model.as_str()) {
-                    if need_pricing {
-                        session.input_token_cost = info.input_cost;
-                        session.output_token_cost = info.output_cost;
-                    }
-                    if need_ctx && let Some(cw) = info.context_length {
-                        session.update_context_window(cw);
-                    }
-                }
+            && let Some(info) = infos.get(model.as_str())
+        {
+            if need_pricing {
+                session.input_token_cost = info.input_cost;
+                session.output_token_cost = info.output_cost;
+            }
+            if need_ctx && let Some(cw) = info.context_length {
+                session.update_context_window(cw);
             }
         }
     }
