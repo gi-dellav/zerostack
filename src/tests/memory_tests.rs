@@ -378,7 +378,7 @@ fn context_block_truncates_cjk_without_panic() {
     )
     .unwrap();
     let b = m.context_block().unwrap(); // must not panic mid-character
-    assert!(b.contains("[memory truncated]"));
+    assert!(b.contains("…[section truncated: Long-term memory (MEMORY.md)]"));
     assert!(b.len() <= MAX_INJECT_BYTES + 128);
     cleanup(&m);
 }
