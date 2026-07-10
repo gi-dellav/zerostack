@@ -25,7 +25,7 @@ Single crate, no workspace. All source under `src/`.
 
 ## Key Types & Relationships
 
-- **`Config`** (`src/config/mod.rs:21`) — central deserialized config, drives all runtime behavior.
+- **`Config`** (`src/config/mod.rs:23`) — central deserialized config, drives all runtime behavior.
 - **`Cli`** (`src/cli.rs:9`) — `clap::Parser` args, overrides `Config` fields.
 - **`AnyClient`** (`src/provider.rs:153`) / **`AnyModel`** (`:545`) / **`AnyAgent`** (`:562`) — type-erased enums wrapping rig's provider-specific clients (OpenAI, Anthropic, Gemini, Ollama, OpenRouter). `AnyAgent` provides `run_print()` and `spawn_runner()`. No custom traits — enum dispatch replaces dynamic dispatch.
 - **`AgentRunner`** (`src/agent/runner.rs:17`) — holds `mpsc::Receiver<AgentEvent>`, spawned via `spawn_agent()`.
@@ -37,7 +37,7 @@ Single crate, no workspace. All source under `src/`.
 - **`Renderer`** (`src/ui/renderer.rs:52`) — line-buffered viewport, markdown rendering, scroll/selection.
 - **`InputEditor`** (`src/ui/input/mod.rs:21`) — text buffer, cursor, history, kill-ring, picker integration.
 - **`ContextFiles`** (`src/context/mod.rs:57`) — loaded agents, prompts, themes, architecture docs.
-- **`HookDispatcher`** (`src/extras/hooks/dispatcher.rs:68`, feature `hooks`) — merges `PreToolUse` verdicts (`Allow`/`Defer`/`Ask`/`Deny`, most severe wins) and applies `PostToolUse`/lifecycle `Decision`s (`Continue`/`Block`/`Rewrite`). Wraps every tool via `wrap_from_global()` (`src/agent/builder.rs:276`), outside each tool's own `PermissionChecker` check.
+- **`HookDispatcher`** (`src/extras/hooks/dispatcher.rs:60`, feature `hooks`) — merges `PreToolUse` verdicts (`Allow`/`Defer`/`Ask`/`Deny`, most severe wins) and applies `PostToolUse`/lifecycle `Decision`s (`Continue`/`Block`/`Rewrite`). Wraps every tool via `wrap_from_global()` (`src/agent/builder.rs:276`), outside each tool's own `PermissionChecker` check.
 
 ## Control Flow
 

@@ -980,7 +980,7 @@ model only when needed.
 enabled = true
 model = "deepseek-v4-pro"
 # max_uses = 3                    # max advisor calls per request (nil = unlimited)
-# human_handoff = true            # route advisor calls to the user instead of a model (this is the default)
+# human_handoff = true            # struct default is true, but currently has no effect from config alone; see the note below
 # advisor_kilobytes_limit = 256   # max KB of conversation context (split half head / half tail)
 ```
 
@@ -1005,9 +1005,15 @@ advisor:
 | `--advisor-human-handoff[=<bool>]` | Route advisor calls to the user instead of a model. Bare flag or `=true` enables it; CLI default is `false` unless passed |
 | `--advisor-kilobytes-limit <n>` | Max KB of conversation context sent to advisor (default: 256) |
 
+**Known quirk:** the CLI flag always supplies a value (`Some(false)` when not
+passed), so `resolve_advisor_human_handoff()` never falls through to the
+config file's `human_handoff` key in practice. Use `--advisor-human-handoff`
+or the `/advisor handoff on` runtime command to actually enable it; setting
+`human_handoff` in the config file alone currently has no effect.
+
 ### Human handoff mode
 
-When `human_handoff = true`, the agent's advisor calls are redirected to the
+When enabled, the agent's advisor calls are redirected to the
 user instead of a second model. The agent pauses, shows its question, and the
 user types a response. This is useful for:
 

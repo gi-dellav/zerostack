@@ -9,7 +9,7 @@ All slash commands are available from the TUI input prompt.
 | `/clear` | Clear the current session (all messages, tokens, compactions). |
 | `/new` | Alias for `/clear`. |
 | `/undo` | Remove the last exchange (user message + assistant response). |
-| `/redo` | Restore the last exchange removed by `/rewind`. |
+| `/redo` | Restore whatever the most recent `/undo` or `/rewind` removed. |
 | `/rewind` | Open a picker to jump the session back to an earlier point. |
 | `/retry` | Load the last user message into the input editor for editing. |
 | `/quit` | Exit zerostack. |
