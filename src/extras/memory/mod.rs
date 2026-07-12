@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -41,6 +42,15 @@ fn backup_file(path: &Path) {
     if path.exists() {
         let _ = fs::copy(path, path.with_extension("bak"));
     }
+}
+
+/// Normalize a line for long-term append dedup comparison: trim, and collapse
+/// every run of Unicode whitespace (ASCII spaces/tabs and full-width U+3000) to
+/// a single ASCII space, preserving case. `split_whitespace` uses the Unicode
+/// White_Space property, so U+3000 folds like an ASCII space, and a whitespace-
+/// only line normalizes to the empty string.
+fn normalize_line(line: &str) -> String {
+    line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Append the injected memory block to a system-prompt preamble.
@@ -304,6 +314,13 @@ impl Mem {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
+        // Message state: `appended_len` is the byte count reported as written
+        // (content bytes for overwrite, surviving bytes for a deduped append);
+        // `dedup_note` is an optional suffix; `nothing_written` short-circuits to
+        // the whole-batch-dropped message. Only long_term append ever sets these.
+        let mut appended_len = content.len();
+        let mut dedup_note = String::new();
+        let mut nothing_written: Option<usize> = None;
         match mode {
             WriteMode::Overwrite => {
                 // Overwriting a curated file replaces its whole content; back it
@@ -315,20 +332,75 @@ impl Mem {
                 atomic_write(&path, content)?;
             }
             WriteMode::Append => {
-                // Memory files are small; read-modify-write is simpler and clearer
-                // than seeking to the end to inspect the last byte.
-                let mut prev = fs::read_to_string(&path).unwrap_or_default();
-                if !prev.is_empty() && !prev.ends_with('\n') {
-                    prev.push('\n');
+                // Long-term memory is curated one-fact-per-line, so drop lines
+                // whose normalized form repeats within this batch or already
+                // exists in MEMORY.md. Blank/whitespace-only lines normalize to
+                // empty and are never treated as a dedup key (they carry no fact,
+                // so they must not swallow real content); they are kept verbatim.
+                // Dedup is scoped to long_term ONLY: scratchpad/daily/note appends
+                // stay byte-identical to the pre-dedup behavior.
+                let mut append_content = content.to_string();
+                if matches!(target, WriteTarget::LongTerm) {
+                    let existing = fs::read_to_string(&path).unwrap_or_default();
+                    let mut seen: HashSet<String> = existing
+                        .lines()
+                        .map(normalize_line)
+                        .filter(|n| !n.is_empty())
+                        .collect();
+                    let mut kept: Vec<&str> = Vec::new();
+                    let mut skipped = 0usize;
+                    for line in content.split('\n') {
+                        let norm = normalize_line(line);
+                        if norm.is_empty() {
+                            kept.push(line);
+                            continue;
+                        }
+                        // insert returns false when the key was already present,
+                        // covering both prior file content and earlier batch lines.
+                        if seen.insert(norm) {
+                            kept.push(line);
+                        } else {
+                            skipped += 1;
+                        }
+                    }
+                    if skipped > 0 {
+                        let survived = kept.iter().any(|l| !normalize_line(l).is_empty());
+                        if survived {
+                            append_content = kept.join("\n");
+                            dedup_note = format!(" (skipped {skipped} duplicate line(s))");
+                        } else {
+                            // Nothing meaningful survived: leave the file untouched
+                            // (no atomic_write) and report that nothing was written.
+                            nothing_written = Some(skipped);
+                        }
+                    }
                 }
-                prev.push_str(content);
-                if !prev.ends_with('\n') {
-                    prev.push('\n');
+                if nothing_written.is_none() {
+                    // Memory files are small; read-modify-write is simpler and clearer
+                    // than seeking to the end to inspect the last byte.
+                    let mut prev = fs::read_to_string(&path).unwrap_or_default();
+                    if !prev.is_empty() && !prev.ends_with('\n') {
+                        prev.push('\n');
+                    }
+                    prev.push_str(&append_content);
+                    if !prev.ends_with('\n') {
+                        prev.push('\n');
+                    }
+                    atomic_write(&path, &prev)?;
+                    appended_len = append_content.len();
                 }
-                atomic_write(&path, &prev)?;
             }
         }
-        let mut msg = format!("Wrote {} bytes to {}", content.len(), path.display());
+        if let Some(n) = nothing_written {
+            return Ok(format!(
+                "Nothing written to {}: all {n} line(s) were duplicates",
+                path.display()
+            ));
+        }
+        let mut msg = format!(
+            "Wrote {appended_len} bytes to {}{dedup_note}",
+            path.display()
+        );
         if original_len > content.len() {
             msg.push_str(&format!(
                 " (truncated from {original_len} bytes to {} byte cap)",
@@ -895,7 +967,9 @@ impl Tool for MemoryWrite {
         ToolDefinition {
             name: Self::NAME.to_string(),
             description: "Persist durable memory to disk. target=long_term writes curated facts/\
-preferences/decisions to MEMORY.md (always loaded next session). target=scratchpad maintains a \
+preferences/decisions to MEMORY.md (always loaded next session), one fact per line; long_term \
+appends are deduplicated (whitespace-insensitive) so a line already present is skipped. \
+target=scratchpad maintains a \
 per-project checklist (use `- [ ]` items; open ones are auto-injected, mode=overwrite to rewrite the list). \
 target=daily appends to today's running log. target=note saves reference material to \
 notes/<name>.md (find it later with memory_search, then read it in full with memory_read). \

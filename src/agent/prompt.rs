@@ -71,7 +71,9 @@ is already injected above; use the tools to read more or to persist new memory.
 
 - memory_write target=long_term: durable facts, preferences, and decisions that \
 should ALWAYS be remembered (written to MEMORY.md, injected every session). Keep \
-it curated and concise.
+it curated and concise: write ONE fact per line. Appends are deduplicated \
+(whitespace-insensitive), so re-appending a line already present is skipped and \
+leaves the file unchanged.
 - memory_write target=daily: a running log of what happened today. Use for \
 progress, findings, and context worth recalling soon but not forever.
 - memory_write target=scratchpad: a checklist; write `- [ ]` items. Open items \

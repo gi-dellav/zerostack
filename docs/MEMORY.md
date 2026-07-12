@@ -51,7 +51,7 @@ Enum selecting which file to write to:
 
 ### `WriteMode`
 
-- `Append` — append content, inserting a `\n` separator if the file does not end with one
+- `Append` — append content, inserting a `\n` separator if the file does not end with one. For `long_term` only, appended lines are deduplicated (see [Long-term append deduplication](#long-term-append-deduplication))
 - `Overwrite` — replace the entire file
 
 ### `Mem`
@@ -175,6 +175,26 @@ Appends are non-destructive by construction, so they never back up. `daily` and 
 | Parameter | Type | Description |
 |---|---|---|
 | `query` | string | Space-separated keywords, searched case-insensitively |
+
+---
+
+## Long-term append deduplication
+
+`MEMORY.md` is curated one fact per line, so `memory_write target=long_term mode=append` deduplicates its lines. This applies to `long_term` appends **only**: `scratchpad`, `daily`, and `note` appends are never deduplicated (repeats are preserved), and no target dedups on `overwrite`.
+
+Comparison is whitespace-insensitive: each line is normalized by trimming and collapsing every run of Unicode whitespace (ASCII spaces/tabs and the full-width `U+3000` space) to a single ASCII space, preserving case. Two lines that differ only in whitespace width are duplicates.
+
+For a `long_term` append batch (the incoming content split on `\n`):
+
+1. Batch-internal duplicates are dropped, keeping the first occurrence.
+2. Lines whose normalized form already exists anywhere in `MEMORY.md` are dropped.
+3. Blank / whitespace-only lines normalize to empty; they are never a dedup key (they carry no fact) and are kept verbatim.
+4. If nothing meaningful survives, the write is skipped entirely and the file is left byte-for-byte unchanged.
+
+The response message reflects the outcome:
+- No duplicates: `Wrote N bytes to <path>` (unchanged).
+- Partial dedup: `Wrote N bytes to <path> (skipped M duplicate line(s))`.
+- Whole batch dropped: `Nothing written to <path>: all M line(s) were duplicates`.
 
 ---
 

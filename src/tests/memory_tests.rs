@@ -594,6 +594,127 @@ fn append_never_backs_up() {
     cleanup(&m);
 }
 
+// ---- long-term append deduplication -----------------------------------------
+
+#[test]
+fn append_long_term_skips_existing_duplicate_line() {
+    let m = fresh("dedup-existing");
+    fs::write(memory_md(&m), "alpha\nbeta\n").unwrap();
+    let before = fs::read(memory_md(&m)).unwrap();
+    let msg = m
+        .write(WriteTarget::LongTerm, "beta", WriteMode::Append, None)
+        .unwrap();
+    assert_eq!(
+        before,
+        fs::read(memory_md(&m)).unwrap(),
+        "duplicate append must leave the file byte-for-byte unchanged"
+    );
+    assert!(
+        msg.contains("Nothing written") && msg.contains("1 line"),
+        "message should report nothing written: {msg}"
+    );
+    cleanup(&m);
+}
+
+#[test]
+fn append_long_term_dedups_whitespace_and_fullwidth_variants() {
+    let m = fresh("dedup-ws");
+    fs::write(memory_md(&m), "the quick brown fox\n").unwrap();
+    let before = fs::read(memory_md(&m)).unwrap();
+    // Leading/trailing padding, widened internal runs, and a full-width U+3000
+    // space all normalize to the same line as the existing one.
+    let msg = m
+        .write(
+            WriteTarget::LongTerm,
+            "  the   quick\u{3000}brown  fox  ",
+            WriteMode::Append,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        before,
+        fs::read(memory_md(&m)).unwrap(),
+        "whitespace-only variation must be treated as a duplicate"
+    );
+    assert!(msg.contains("Nothing written"), "{msg}");
+    cleanup(&m);
+}
+
+#[test]
+fn append_long_term_dedups_within_a_single_batch() {
+    let m = fresh("dedup-batch");
+    let msg = m
+        .write(
+            WriteTarget::LongTerm,
+            "fact one\nfact one\nfact two",
+            WriteMode::Append,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(memory_md(&m)).unwrap(),
+        "fact one\nfact two\n",
+        "a repeated line within one batch must keep only the first occurrence"
+    );
+    assert!(msg.contains("skipped 1 duplicate"), "{msg}");
+    cleanup(&m);
+}
+
+#[test]
+fn append_long_term_whole_batch_duplicate_leaves_file_and_reports_nothing() {
+    let m = fresh("dedup-whole");
+    fs::write(memory_md(&m), "one\ntwo\n").unwrap();
+    let before = fs::read(memory_md(&m)).unwrap();
+    let msg = m
+        .write(WriteTarget::LongTerm, "two\none", WriteMode::Append, None)
+        .unwrap();
+    assert_eq!(
+        before,
+        fs::read(memory_md(&m)).unwrap(),
+        "an all-duplicate batch must leave the file untouched"
+    );
+    assert!(
+        msg.contains("Nothing written") && msg.contains("2 line"),
+        "{msg}"
+    );
+    cleanup(&m);
+}
+
+#[test]
+fn append_non_long_term_never_dedups() {
+    let m = fresh("dedup-others");
+    m.write(WriteTarget::Scratchpad, "repeat", WriteMode::Append, None)
+        .unwrap();
+    m.write(WriteTarget::Scratchpad, "repeat", WriteMode::Append, None)
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(scratchpad(&m)).unwrap(),
+        "repeat\nrepeat\n",
+        "scratchpad appends must never be deduplicated"
+    );
+
+    m.write(WriteTarget::Daily, "dup line", WriteMode::Append, None)
+        .unwrap();
+    m.write(WriteTarget::Daily, "dup line", WriteMode::Append, None)
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(daily(&m, &m.today)).unwrap(),
+        "dup line\ndup line\n",
+        "daily appends must never be deduplicated"
+    );
+
+    m.write(WriteTarget::Note, "same", WriteMode::Append, Some("n"))
+        .unwrap();
+    m.write(WriteTarget::Note, "same", WriteMode::Append, Some("n"))
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(m.note_path("n").unwrap()).unwrap(),
+        "same\nsame\n",
+        "note appends must never be deduplicated"
+    );
+    cleanup(&m);
+}
+
 #[test]
 fn edit_replace_long_term_backs_up_pre_edit_content() {
     let m = fresh("bak-lt-edit");
