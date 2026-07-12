@@ -38,9 +38,25 @@ fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
 /// a history). The `.bak` extension keeps it out of the `.md`-filtered list and
 /// search. If `path` doesn't exist yet (e.g. a first-ever overwrite), there's
 /// nothing to back up, so this is a no-op rather than an error.
-fn backup_file(path: &Path) {
+fn backup_file(path: &Path) -> std::io::Result<()> {
     if path.exists() {
-        let _ = fs::copy(path, path.with_extension("bak"));
+        fs::copy(path, path.with_extension("bak"))?;
+    }
+    Ok(())
+}
+
+/// Back up `path` and return a warning suffix for the tool response if the
+/// backup could not be written (empty string on success). The mutation still
+/// proceeds (fail-open): the primary operation is what the caller asked for, but
+/// a failed backup means there is no `.bak` to undo it, so the response must say
+/// so. The failure is also logged.
+fn backup_warning(path: &Path) -> String {
+    match backup_file(path) {
+        Ok(()) => String::new(),
+        Err(e) => {
+            tracing::warn!("memory backup of {} failed: {e}", path.display());
+            format!(" (warning: backup failed, no .bak written: {e})")
+        }
     }
 }
 
@@ -330,13 +346,14 @@ impl Mem {
         let mut appended_len = content.len();
         let mut dedup_note = String::new();
         let mut nothing_written: Option<usize> = None;
+        let mut backup_note = String::new();
         match mode {
             WriteMode::Overwrite => {
                 // Overwriting a curated file replaces its whole content; back it
                 // up first so the prior version is recoverable. Daily/note
                 // overwrites are out of scope (low-risk / not curated).
                 if matches!(target, WriteTarget::LongTerm | WriteTarget::Scratchpad) {
-                    backup_file(&path);
+                    backup_note = backup_warning(&path);
                 }
                 atomic_write(&path, content)?;
             }
@@ -407,7 +424,7 @@ impl Mem {
             ));
         }
         let mut msg = format!(
-            "Wrote {appended_len} bytes to {}{dedup_note}",
+            "Wrote {appended_len} bytes to {}{dedup_note}{backup_note}",
             path.display()
         );
         if original_len > content.len() {
@@ -490,11 +507,12 @@ impl Mem {
                 // A content-replace on a curated file mutates it in place; back
                 // up the pre-edit version. Daily/note edits are low-risk and out
                 // of scope.
+                let mut warn = String::new();
                 if matches!(target, WriteTarget::LongTerm | WriteTarget::Scratchpad) {
-                    backup_file(&path);
+                    warn = backup_warning(&path);
                 }
                 atomic_write(&path, &updated)?;
-                Ok(format!("Edited {}", path.display()))
+                Ok(format!("Edited {}{warn}", path.display()))
             }
             None => {
                 if !matches!(target, WriteTarget::Note) {
@@ -510,9 +528,9 @@ it is only allowed for target=note, not long_term/scratchpad/daily",
                 // model no longer sees is a clear failure rather than a silent Ok.
                 // Back up the note's bytes before removing it (this branch is
                 // note-only by construction) so the deletion is recoverable.
-                backup_file(&path);
+                let warn = backup_warning(&path);
                 fs::remove_file(&path)?;
-                Ok(format!("Deleted {}", path.display()))
+                Ok(format!("Deleted {}{warn}", path.display()))
             }
         }
     }

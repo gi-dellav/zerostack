@@ -619,6 +619,28 @@ fn overwrite_bak_is_single_version_overwriting_prior() {
 }
 
 #[test]
+fn backup_failure_warns_but_completes_the_mutation() {
+    let m = fresh("bak-fail");
+    fs::write(memory_md(&m), "v1").unwrap();
+    // Make the .bak path a directory so `fs::copy` into it fails on every
+    // platform, without depending on permission bits.
+    fs::create_dir(memory_md(&m).with_extension("bak")).unwrap();
+    let msg = m
+        .write(WriteTarget::LongTerm, "v2", WriteMode::Overwrite, None)
+        .unwrap();
+    assert!(
+        msg.contains("backup failed"),
+        "a failed backup must be surfaced in the response: {msg}"
+    );
+    assert_eq!(
+        fs::read_to_string(memory_md(&m)).unwrap(),
+        "v2",
+        "the mutation must still complete despite the backup failure (fail-open)"
+    );
+    cleanup(&m);
+}
+
+#[test]
 fn append_never_backs_up() {
     let m = fresh("bak-append");
     m.write(WriteTarget::LongTerm, "a", WriteMode::Append, None)

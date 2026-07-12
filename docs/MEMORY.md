@@ -170,6 +170,8 @@ A backup is taken only before these operations (and only when the target file al
 
 Appends are non-destructive by construction, so they never back up. `daily` and `note` content edits are targeted unique-match replacements (low-risk and already reversible via a re-edit), so they are deliberately left un-backed-up to avoid churn.
 
+If the backup copy itself fails (for example the `.bak` path is not writable), the mutation still proceeds (the primary operation is what was asked for), but the tool response is suffixed with a `warning: backup failed, no .bak written` note so the caller knows there is no undo for that change. The failure is also logged.
+
 ### `memory_search`
 
 | Parameter | Type | Description |
