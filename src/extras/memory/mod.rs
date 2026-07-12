@@ -31,6 +31,18 @@ fn atomic_write(path: &Path, content: &str) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Take a single-version backup of `path` before a content-destroying mutation,
+/// so it stays recoverable. Copies the current file to a sibling `.bak` path
+/// (`MEMORY.md` -> `MEMORY.bak`), OVERWRITING any prior `.bak` (one version, not
+/// a history). The `.bak` extension keeps it out of the `.md`-filtered list and
+/// search. If `path` doesn't exist yet (e.g. a first-ever overwrite), there's
+/// nothing to back up, so this is a no-op rather than an error.
+fn backup_file(path: &Path) {
+    if path.exists() {
+        let _ = fs::copy(path, path.with_extension("bak"));
+    }
+}
+
 /// Append the injected memory block to a system-prompt preamble.
 /// None/empty is a no-op, so an empty store leaves zero trace.
 pub fn append_memory_block(preamble: &mut String, memory: Option<&str>) {
@@ -145,6 +157,26 @@ impl Mem {
     }
     fn notes_dir(&self) -> PathBuf {
         self.project_dir().join("notes")
+    }
+    /// Enumerate every `.md` memory file visible to `source=list`: the global
+    /// MEMORY.md (the store root, whose only `.md` is MEMORY.md) plus the current
+    /// project's notes and daily logs, sorted. Any non-`.md` file (notably a
+    /// `.bak` backup) is excluded, matching `Mem::search`, so backups never
+    /// surface here. This is the exact enumeration the `memory_read source=list`
+    /// tool returns.
+    pub(crate) fn list(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        for dir in [self.root.clone(), self.notes_dir(), self.daily_dir()] {
+            if let Ok(rd) = fs::read_dir(&dir) {
+                for e in rd.flatten() {
+                    if e.path().extension().is_some_and(|x| x == "md") {
+                        names.push(e.path().display().to_string());
+                    }
+                }
+            }
+        }
+        names.sort();
+        names
     }
     pub(crate) fn daily_file(&self, date: &str) -> PathBuf {
         self.daily_dir().join(format!("{date}.md"))
@@ -273,7 +305,15 @@ impl Mem {
             fs::create_dir_all(parent)?;
         }
         match mode {
-            WriteMode::Overwrite => atomic_write(&path, content)?,
+            WriteMode::Overwrite => {
+                // Overwriting a curated file replaces its whole content; back it
+                // up first so the prior version is recoverable. Daily/note
+                // overwrites are out of scope (low-risk / not curated).
+                if matches!(target, WriteTarget::LongTerm | WriteTarget::Scratchpad) {
+                    backup_file(&path);
+                }
+                atomic_write(&path, content)?;
+            }
             WriteMode::Append => {
                 // Memory files are small; read-modify-write is simpler and clearer
                 // than seeking to the end to inspect the last byte.
@@ -354,6 +394,12 @@ impl Mem {
                     .expect("match_indices count == 1 guarantees a match");
                 let mut updated = current;
                 updated.replace_range(pos..pos + old.len(), new_str);
+                // A content-replace on a curated file mutates it in place; back
+                // up the pre-edit version. Daily/note edits are low-risk and out
+                // of scope.
+                if matches!(target, WriteTarget::LongTerm | WriteTarget::Scratchpad) {
+                    backup_file(&path);
+                }
                 atomic_write(&path, &updated)?;
                 Ok(format!("Edited {}", path.display()))
             }
@@ -369,6 +415,9 @@ it is only allowed for target=note, not long_term/scratchpad/daily",
                 // rejects invalid names via `note_path`). Removing a missing note
                 // surfaces the io NotFound error, so deleting a stale note the
                 // model no longer sees is a clear failure rather than a silent Ok.
+                // Back up the note's bytes before removing it (this branch is
+                // note-only by construction) so the deletion is recoverable.
+                backup_file(&path);
                 fs::remove_file(&path)?;
                 Ok(format!("Deleted {}", path.display()))
             }
@@ -1030,23 +1079,10 @@ daily (name=YYYY-MM-DD, omit for today), note (name=<stem>), or list (enumerate 
                     .ok_or_else(|| ToolError::Msg("invalid note name".into()))?;
                 Mem::read_capped(&p)
             }
-            "list" => {
-                // Global root yields MEMORY.md only (projects/ is a dir, skipped);
-                // notes_dir()/daily_dir() are the current project's, so listing is
-                // automatically scoped to global + current project.
-                let mut names = Vec::new();
-                for dir in [m.root.clone(), m.notes_dir(), m.daily_dir()] {
-                    if let Ok(rd) = fs::read_dir(&dir) {
-                        for e in rd.flatten() {
-                            if e.path().extension().is_some_and(|x| x == "md") {
-                                names.push(e.path().display().to_string());
-                            }
-                        }
-                    }
-                }
-                names.sort();
-                names.join("\n")
-            }
+            // Global root yields MEMORY.md only (projects/ is a dir, skipped);
+            // notes/daily are the current project's, so listing is automatically
+            // scoped to global + current project. See `Mem::list`.
+            "list" => m.list().join("\n"),
             other => return Err(ToolError::Msg(format!("unknown source: {other}"))),
         };
         Ok(body)

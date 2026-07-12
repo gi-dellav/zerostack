@@ -153,6 +153,23 @@ Replaces a unique substring in a memory file in place. `old_str` is matched lite
 
 Omitting `old_str` deletes an entire note file (`notes/<name>.md`) from disk; this requires `target=note` with a `name`. Omitting `old_str` for `long_term`, `scratchpad`, or `daily` is rejected and changes nothing. Deleting a note that does not exist is an error.
 
+---
+
+## Backups
+
+Content-destroying mutations first copy the current file to a sibling `.bak` (single version, `MEMORY.md` becomes `MEMORY.bak`), so the pre-mutation content stays recoverable. There is exactly one `.bak` per file: each qualifying mutation overwrites the previous `.bak` rather than keeping a history. The `.bak` extension keeps these files out of `memory_read source=list` and `memory_search`, which both filter to `.md` only, so backups never leak into the model's context.
+
+A backup is taken only before these operations (and only when the target file already exists: a first-ever overwrite of a not-yet-created file has nothing to back up and skips silently):
+
+| Operation | `long_term` | `scratchpad` | `daily` | `note` |
+|---|---|---|---|---|
+| `memory_write` overwrite | Backs up | Backs up | No | No |
+| `memory_edit` content-replace (`old_str` given) | Backs up | Backs up | No | No |
+| `memory_edit` whole-note deletion (`old_str` omitted) | n/a | n/a | n/a | Backs up |
+| any append | No | No | No | No |
+
+Appends are non-destructive by construction, so they never back up. `daily` and `note` content edits are targeted unique-match replacements (low-risk and already reversible via a re-edit), so they are deliberately left un-backed-up to avoid churn.
+
 ### `memory_search`
 
 | Parameter | Type | Description |

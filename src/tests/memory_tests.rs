@@ -496,6 +496,221 @@ fn edit_omitted_old_str_missing_note_errors() {
     cleanup(&m);
 }
 
+// ---- backup before destructive mutation --------------------------------------
+
+#[test]
+fn overwrite_long_term_backs_up_pre_overwrite_content() {
+    let m = fresh("bak-lt-ov");
+    m.write(
+        WriteTarget::LongTerm,
+        "original v1",
+        WriteMode::Overwrite,
+        None,
+    )
+    .unwrap();
+    m.write(
+        WriteTarget::LongTerm,
+        "replaced v2",
+        WriteMode::Overwrite,
+        None,
+    )
+    .unwrap();
+    let bak = memory_md(&m).with_extension("bak");
+    assert!(bak.exists(), "overwrite should have created a .bak");
+    assert_eq!(fs::read_to_string(&bak).unwrap(), "original v1");
+    assert_eq!(fs::read_to_string(memory_md(&m)).unwrap(), "replaced v2");
+    cleanup(&m);
+}
+
+#[test]
+fn overwrite_scratchpad_backs_up_pre_overwrite_content() {
+    let m = fresh("bak-sp-ov");
+    m.write(
+        WriteTarget::Scratchpad,
+        "- [ ] first",
+        WriteMode::Overwrite,
+        None,
+    )
+    .unwrap();
+    m.write(
+        WriteTarget::Scratchpad,
+        "- [ ] second",
+        WriteMode::Overwrite,
+        None,
+    )
+    .unwrap();
+    let bak = scratchpad(&m).with_extension("bak");
+    assert!(
+        bak.exists(),
+        "scratchpad overwrite should have created a .bak"
+    );
+    assert_eq!(fs::read_to_string(&bak).unwrap(), "- [ ] first");
+    cleanup(&m);
+}
+
+#[test]
+fn first_ever_overwrite_creates_no_backup() {
+    let m = fresh("bak-first");
+    // Nothing on disk yet: overwriting a not-yet-created file must not error and
+    // must not fabricate a .bak (there is nothing to back up).
+    m.write(
+        WriteTarget::LongTerm,
+        "brand new",
+        WriteMode::Overwrite,
+        None,
+    )
+    .unwrap();
+    assert!(!memory_md(&m).with_extension("bak").exists());
+    cleanup(&m);
+}
+
+#[test]
+fn overwrite_bak_is_single_version_overwriting_prior() {
+    let m = fresh("bak-single");
+    m.write(WriteTarget::LongTerm, "gen1", WriteMode::Overwrite, None)
+        .unwrap();
+    m.write(WriteTarget::LongTerm, "gen2", WriteMode::Overwrite, None)
+        .unwrap();
+    m.write(WriteTarget::LongTerm, "gen3", WriteMode::Overwrite, None)
+        .unwrap();
+    // Single .bak, overwritten each time: it holds the content just before the
+    // latest overwrite (gen2), not the original (gen1).
+    let bak = memory_md(&m).with_extension("bak");
+    assert_eq!(fs::read_to_string(&bak).unwrap(), "gen2");
+    cleanup(&m);
+}
+
+#[test]
+fn append_never_backs_up() {
+    let m = fresh("bak-append");
+    m.write(WriteTarget::LongTerm, "a", WriteMode::Append, None)
+        .unwrap();
+    m.write(WriteTarget::LongTerm, "b", WriteMode::Append, None)
+        .unwrap();
+    assert!(
+        !memory_md(&m).with_extension("bak").exists(),
+        "append is non-destructive and must not back up"
+    );
+    cleanup(&m);
+}
+
+#[test]
+fn edit_replace_long_term_backs_up_pre_edit_content() {
+    let m = fresh("bak-lt-edit");
+    fs::write(memory_md(&m), "alpha\nbeta\ngamma\n").unwrap();
+    m.edit(WriteTarget::LongTerm, None, Some("beta"), "BETA")
+        .unwrap();
+    let bak = memory_md(&m).with_extension("bak");
+    assert!(
+        bak.exists(),
+        "content-replace edit should have created a .bak"
+    );
+    assert_eq!(fs::read_to_string(&bak).unwrap(), "alpha\nbeta\ngamma\n");
+    cleanup(&m);
+}
+
+#[test]
+fn edit_replace_scratchpad_backs_up_pre_edit_content() {
+    let m = fresh("bak-sp-edit");
+    fs::write(scratchpad(&m), "- [ ] keep\n- [ ] change me\n").unwrap();
+    m.edit(WriteTarget::Scratchpad, None, Some("change me"), "changed")
+        .unwrap();
+    let bak = scratchpad(&m).with_extension("bak");
+    assert!(bak.exists(), "scratchpad edit should have created a .bak");
+    assert_eq!(
+        fs::read_to_string(&bak).unwrap(),
+        "- [ ] keep\n- [ ] change me\n"
+    );
+    cleanup(&m);
+}
+
+#[test]
+fn note_deletion_backs_up_deleted_bytes() {
+    let m = fresh("bak-note-del");
+    m.write(
+        WriteTarget::Note,
+        "note body to preserve",
+        WriteMode::Overwrite,
+        Some("somestem"),
+    )
+    .unwrap();
+    let note = m.note_path("somestem").unwrap();
+    m.edit(WriteTarget::Note, Some("somestem"), None, "")
+        .unwrap();
+    assert!(!note.exists(), "note file should be gone after delete");
+    let bak = note.with_extension("bak");
+    assert!(bak.exists(), "note deletion should have created a .bak");
+    assert_eq!(fs::read_to_string(&bak).unwrap(), "note body to preserve");
+    cleanup(&m);
+}
+
+#[test]
+fn daily_content_edit_creates_no_backup() {
+    let m = fresh("bak-daily-edit");
+    fs::write(daily(&m, &m.today), "morning\nafternoon\n").unwrap();
+    m.edit(WriteTarget::Daily, None, Some("afternoon"), "evening")
+        .unwrap();
+    assert!(
+        !daily(&m, &m.today).with_extension("bak").exists(),
+        "daily content edit is low-risk and must not back up"
+    );
+    cleanup(&m);
+}
+
+#[test]
+fn note_content_edit_creates_no_backup() {
+    let m = fresh("bak-note-edit");
+    m.write(
+        WriteTarget::Note,
+        "first\nsecond\n",
+        WriteMode::Overwrite,
+        Some("mynote"),
+    )
+    .unwrap();
+    // Clear the .bak that the initial overwrite of a fresh (nonexistent) note
+    // would NOT have made anyway, then do a content edit.
+    m.edit(WriteTarget::Note, Some("mynote"), Some("second"), "SECOND")
+        .unwrap();
+    let bak = m.note_path("mynote").unwrap().with_extension("bak");
+    assert!(
+        !bak.exists(),
+        "note content edit is low-risk and must not back up"
+    );
+    cleanup(&m);
+}
+
+#[test]
+fn bak_files_never_surface_in_list_or_search() {
+    let m = fresh("bak-hidden");
+    // Real content plus a sibling .bak on disk, in each searched location.
+    fs::write(memory_md(&m), "SECRETMARK in memory\n").unwrap();
+    fs::write(memory_md(&m).with_extension("bak"), "SECRETMARK backup\n").unwrap();
+    fs::write(m.note_path("mynote").unwrap(), "SECRETMARK in note\n").unwrap();
+    fs::write(
+        m.note_path("mynote").unwrap().with_extension("bak"),
+        "SECRETMARK note backup\n",
+    )
+    .unwrap();
+    // search must never return a .bak path.
+    for h in m.search("SECRETMARK").hits {
+        assert!(
+            h.path.extension().and_then(|e| e.to_str()) != Some("bak"),
+            "search surfaced a .bak file: {}",
+            h.path.display()
+        );
+    }
+    // Mem::list is the exact enumeration behind `memory_read source=list`; drive
+    // it directly on this test's store so a regression in its `.md` filter would
+    // surface a .bak here.
+    let listed = m.list();
+    assert!(
+        !listed.iter().any(|n| n.ends_with(".bak")),
+        "list surfaced a .bak file: {listed:?}"
+    );
+    assert!(listed.iter().any(|n| n.ends_with("MEMORY.md")));
+    cleanup(&m);
+}
+
 #[test]
 fn subagent_memory_tool_set_excludes_memory_edit() {
     use crate::extras::memory::MemoryEdit;
