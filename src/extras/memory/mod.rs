@@ -53,6 +53,15 @@ fn normalize_line(line: &str) -> String {
     line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// A daily-log date name is caller-supplied (models pass `name=YYYY-MM-DD`), so
+/// it must be validated before being spliced into a path: `daily_file` does no
+/// sanitization, so an unchecked name like `../../secret` would traverse out of
+/// the memory store. Allow ASCII digits and hyphens only (enough for a
+/// `YYYY-MM-DD` date), which forbids `.`, `/`, and `\`.
+fn is_safe_daily_name(name: &str) -> bool {
+    !name.is_empty() && name.chars().all(|c| c.is_ascii_digit() || c == '-')
+}
+
 /// Append the injected memory block to a system-prompt preamble.
 /// None/empty is a no-op, so an empty store leaves zero trace.
 pub fn append_memory_block(preamble: &mut String, memory: Option<&str>) {
@@ -437,7 +446,19 @@ impl Mem {
         let path = match target {
             WriteTarget::LongTerm => self.memory_md(),
             WriteTarget::Scratchpad => self.scratchpad(),
-            WriteTarget::Daily => self.daily_file(&self.today),
+            WriteTarget::Daily => {
+                // Honor a caller-supplied date (`name`) the way memory_read does,
+                // defaulting to today; validate it first since `daily_file` does
+                // no sanitization of its own.
+                let date = name.unwrap_or(&self.today);
+                if !is_safe_daily_name(date) {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::InvalidInput,
+                        "invalid daily date name (expected YYYY-MM-DD: digits and hyphens only)",
+                    ));
+                }
+                self.daily_file(date)
+            }
             WriteTarget::Note => match name.and_then(|n| self.note_path(n)) {
                 Some(p) => p,
                 None => {
@@ -1044,7 +1065,8 @@ impl Tool for MemoryEdit {
         ToolDefinition {
             name: Self::NAME.to_string(),
             description: "Replace a unique substring in a memory file in place. \
-target=long_term (MEMORY.md), scratchpad, daily (today's log), or note (name=<stem>). old_str must \
+target=long_term (MEMORY.md), scratchpad, daily (a day's log; pass name=YYYY-MM-DD to edit an \
+earlier day, defaults to today), or note (name=<stem>). old_str must \
 occur EXACTLY once in the target file, matched literally (no fuzzy matching); if it matches zero or \
 multiple times the edit fails and nothing is written, so include enough surrounding text to make it \
 unique. The match is replaced with new_str verbatim, with no newline cleanup: set new_str to an \

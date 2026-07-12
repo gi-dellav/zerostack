@@ -486,6 +486,44 @@ fn edit_omitted_old_str_rejects_non_note_targets_and_leaves_files() {
 }
 
 #[test]
+fn edit_daily_honors_name_for_an_earlier_day() {
+    let m = fresh("edit-daily-name");
+    let past = "2026-01-02";
+    fs::write(daily(&m, past), "old line\n").unwrap();
+    fs::write(daily(&m, &m.today), "today line\n").unwrap();
+    m.edit(WriteTarget::Daily, Some(past), Some("old line"), "new line")
+        .unwrap();
+    assert_eq!(
+        fs::read_to_string(daily(&m, past)).unwrap(),
+        "new line\n",
+        "the named day's log should be edited"
+    );
+    assert_eq!(
+        fs::read_to_string(daily(&m, &m.today)).unwrap(),
+        "today line\n",
+        "today's log must be untouched when name selects another day"
+    );
+    cleanup(&m);
+}
+
+#[test]
+fn edit_daily_rejects_unsafe_name_without_touching_files() {
+    let m = fresh("edit-daily-unsafe");
+    // A traversal-style name must be rejected before any path is built.
+    assert!(
+        m.edit(
+            WriteTarget::Daily,
+            Some("../../../etc/passwd"),
+            Some("x"),
+            "y"
+        )
+        .is_err(),
+        "a non-date daily name must be rejected"
+    );
+    cleanup(&m);
+}
+
+#[test]
 fn edit_omitted_old_str_missing_note_errors() {
     let m = fresh("edit-del-missing");
     // No note written; deleting a non-existent note is a clear error.

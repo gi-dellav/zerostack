@@ -145,7 +145,7 @@ Four tools are registered when the `memory` feature is enabled:
 | Parameter | Type | Description |
 |---|---|---|
 | `target` | string | `long_term`, `scratchpad`, `daily`, or `note` |
-| `name` | string (opt) | Note stem, required for `note` |
+| `name` | string (opt) | Note stem (required for `note`); or a `YYYY-MM-DD` date for `daily` to edit an earlier day (defaults to today) |
 | `old_str` | string (opt) | Substring to replace; must occur exactly once. Omit to delete a whole note |
 | `new_str` | string | Replacement text; empty string deletes the matched substring |
 
