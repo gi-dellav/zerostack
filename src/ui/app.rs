@@ -1833,7 +1833,8 @@ impl<'a> App<'a> {
                     .as_ref()
                     .is_some_and(|ls| ls.active && ls.iteration == 0 && !self.is_running)
                 {
-                    let (prompt, label, _active) = {
+                    #[allow(unused_variables)]
+                    let (prompt, label, active) = {
                         let ls = self.loop_state.as_mut().unwrap();
                         ls.iteration = 1;
                         (ls.build_prompt(), ls.iteration_label(), ls.active)
