@@ -87,6 +87,7 @@ fn save_session_preserves_messages() {
     drop(env);
 }
 
+#[cfg(any(feature = "subagents", feature = "acp"))]
 #[test]
 fn save_session_preserves_tool_messages() {
     let env = setup_test_env();

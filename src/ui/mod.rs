@@ -371,20 +371,18 @@ pub(crate) async fn resolve_prebuild<'a>(
 }
 
 #[cfg(not(feature = "mcp"))]
-pub(crate) fn resolve_prebuild<'a>(
+pub(crate) async fn resolve_prebuild<'a>(
     agent: &'a mut Option<AnyAgent>,
     prebuild_rx: &'a mut Option<mpsc::Receiver<PrebuildPayload>>,
-) -> impl std::future::Future<Output = ()> + 'a {
-    async move {
-        if agent.is_some() {
-            return;
+) {
+    if agent.is_some() {
+        return;
+    }
+    if let Some(rx) = prebuild_rx.as_mut() {
+        if let Some(a) = rx.recv().await {
+            *agent = Some(a);
         }
-        if let Some(rx) = prebuild_rx.as_mut() {
-            if let Some(a) = rx.recv().await {
-                *agent = Some(a);
-            }
-            *prebuild_rx = None;
-        }
+        *prebuild_rx = None;
     }
 }
 

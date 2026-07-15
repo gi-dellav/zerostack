@@ -28,6 +28,10 @@ jobs:
         run: cargo fmt --check
 
   clippy:
+    strategy:
+      fail-fast: false
+      matrix:
+        features: ["--all-features", "--no-default-features"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -35,8 +39,8 @@ jobs:
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
 
-      - name: Run Clippy
-        run: cargo clippy --all-features -- -D warnings
+      - name: Run Clippy (${{ matrix.features }})
+        run: cargo clippy --locked ${{ matrix.features }} -- -D warnings
 
   test:
     strategy:
@@ -52,7 +56,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
 
       - name: Test (${{ matrix.features }})
-        run: cargo test ${{ matrix.features }}
+        run: cargo test --locked ${{ matrix.features }}
 
   install:
     strategy:
@@ -67,4 +71,15 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
 
       - name: Install locally (debug)
-        run: cargo install --path . --debug
+        run: cargo install --locked --path . --debug
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
+
+      - name: Check package manifest
+        run: cargo package --locked --allow-dirty --no-verify
