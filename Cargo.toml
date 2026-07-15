@@ -33,7 +33,7 @@ advisor = []
 hooks = []
 
 [dependencies]
-rig = { version = "0.39", features = ["rmcp"] }
+rig = { version = "0.40", features = ["rmcp"] }
 rmcp = { version = "2.0", optional = true, default-features = false, features = [
     "client",
     "transport-child-process",
@@ -62,7 +62,7 @@ thiserror = "2"
 futures = "0.3"
 reqwest = "0.13"
 dirs = "6"
-compact_str = { version = "0.9", features = ["serde"] }
+compact_str = { version = "0.10", features = ["serde"] }
 smallvec = "1"
 regex = "1"
 unicode-width = "0.2"
