@@ -225,6 +225,15 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
             )),
         ]);
 
+        #[cfg_attr(
+            not(any(
+                feature = "subagents",
+                feature = "memory",
+                feature = "mcp",
+                feature = "advisor"
+            )),
+            allow(unused_mut)
+        )]
         let mut all_tools: Vec<Box<dyn rig::tool::ToolDyn>> = base_tools.into_vec();
 
         #[cfg(feature = "subagents")]

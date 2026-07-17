@@ -9,7 +9,7 @@ fn format_session_line(s: &crate::session::Session) -> String {
     let last = s
         .messages
         .last()
-        .map(|m| format!("...{}", &m.content.chars().take(30).collect::<String>()))
+        .map(|m| format!("...{}", m.content.chars().take(30).collect::<String>()))
         .unwrap_or_default();
     let time = crate::ui::events::format_time(&s.updated_at);
     let name_part = if s.name.is_empty() {
@@ -93,7 +93,7 @@ async fn handle_sessions(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Resu
                 let preview = s
                     .messages
                     .last()
-                    .map(|m| format!("...{}", &m.content.chars().take(40).collect::<String>()))
+                    .map(|m| format!("...{}", m.content.chars().take(40).collect::<String>()))
                     .unwrap_or_default();
                 if let Err(e) = crate::session::storage::delete_session(&id) {
                     write_error(ctx.renderer, format!("failed to delete: {}", e));

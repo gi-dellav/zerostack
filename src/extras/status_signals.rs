@@ -39,6 +39,7 @@ impl StatusSignals {
     pub fn send_stop(&self) {}
 
     #[cfg(unix)]
+    #[allow(dead_code)]
     pub fn send_git_conflict(&self) {
         let _ = (|| -> std::io::Result<()> {
             let mut stream = UnixStream::connect(&self.path)?;
@@ -48,5 +49,6 @@ impl StatusSignals {
     }
 
     #[cfg(not(unix))]
+    #[allow(dead_code)]
     pub fn send_git_conflict(&self) {}
 }

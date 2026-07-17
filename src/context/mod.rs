@@ -71,6 +71,7 @@ pub struct ContextFiles {
 }
 
 impl ContextFiles {
+    #[cfg(feature = "git-worktree")]
     pub fn reload(&mut self) {
         self.agents = walk_context_files().0;
         #[cfg(feature = "archmd")]
@@ -142,6 +143,7 @@ const MAX_ANCESTOR_CONTEXT_BYTES: usize = 524_288;
 /// older separate load_agents / load_architecture performed.
 fn walk_context_files() -> (Option<String>, Option<String>) {
     let mut agent_parts: SmallVec<[String; 4]> = SmallVec::new();
+    #[cfg_attr(not(feature = "archmd"), allow(unused_mut))]
     let mut arch_parts: SmallVec<[String; 4]> = SmallVec::new();
     let mut total_bytes: usize = 0;
 

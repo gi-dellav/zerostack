@@ -428,6 +428,7 @@ pub fn inject_mcp_defaults(cfg: &mut Config) {
 }
 
 pub fn save_config(cfg: &Config) -> io::Result<()> {
+    #[cfg_attr(not(feature = "mcp"), allow(unused_mut))]
     let mut cfg = cfg.clone();
     #[cfg(feature = "mcp")]
     {

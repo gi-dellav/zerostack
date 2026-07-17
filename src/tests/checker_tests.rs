@@ -988,6 +988,7 @@ fn yolo_allows_todo_write() {
 
 // --- MCP allow-all via checker ---
 
+#[cfg(feature = "mcp")]
 #[test]
 fn allow_all_mcp_does_not_override_deny_rules() {
     // Security fix: deny rules are the baseline and must be evaluated before
@@ -1011,6 +1012,7 @@ fn allow_all_mcp_does_not_override_deny_rules() {
     );
 }
 
+#[cfg(feature = "mcp")]
 #[test]
 fn allow_all_mcp_does_not_affect_non_mcp_tools() {
     let config = PermissionConfig {

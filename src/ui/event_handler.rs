@@ -21,7 +21,11 @@ use crate::ui::feed::BlockStyle;
 use crate::ui::renderer::Renderer;
 use crate::ui::slash::handle_compress;
 
-use super::{C_AGENT, C_ERROR, C_TOOL, apply_current_prompt_mode};
+#[cfg(any(feature = "git-worktree", feature = "loop"))]
+use super::C_AGENT;
+#[cfg(feature = "git-worktree")]
+use super::apply_current_prompt_mode;
+use super::{C_ERROR, C_TOOL};
 
 #[cfg(feature = "mcp")]
 #[allow(clippy::too_many_arguments)]
@@ -194,6 +198,7 @@ pub async fn handle_agent_event(
             );
             renderer.write_line(&sanitize_output(&line), C_TOOL)?;
         }
+        #[cfg(any(feature = "subagents", feature = "acp"))]
         AgentEvent::SubagentToolCall { name, args } => {
             session.add_subagent_tool_call(&name, &args);
             save_session_if_enabled(session, cli, renderer)?;
@@ -418,7 +423,7 @@ async fn handle_agent_done(
     was_reasoning: &mut bool,
     agent: &mut Option<AnyAgent>,
     client: &mut AnyClient,
-    loop_label: &mut Option<String>,
+    _loop_label: &mut Option<String>,
     permission: &Option<PermCheck>,
     ask_tx: &Option<AskSender>,
     sandbox: &Sandbox,
@@ -590,7 +595,7 @@ async fn handle_agent_done(
                 C_AGENT,
             )?;
             ls.active = false;
-            *loop_label = None;
+            *_loop_label = None;
         } else {
             let prompt = ls.build_prompt();
             *agent = Some({
@@ -633,7 +638,7 @@ async fn handle_agent_done(
             if let Some(ss) = status_signals.as_ref() {
                 ss.send_start();
             }
-            *loop_label = Some(ls.iteration_label());
+            *_loop_label = Some(ls.iteration_label());
             renderer.write_line(
                 &format!("[loop] launching {}", ls.iteration_label()),
                 C_AGENT,

@@ -1,6 +1,10 @@
+#[cfg(feature = "git-worktree")]
 use crate::ui::apply_current_prompt_mode;
+#[cfg(feature = "git-worktree")]
 use crate::ui::events::render_session;
-use crate::ui::slash::{SlashCtx, write_error, write_ok, write_result};
+use crate::ui::slash::{SlashCtx, write_error};
+#[cfg(feature = "loop")]
+use crate::ui::slash::{write_ok, write_result};
 
 pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     match parts[0] {

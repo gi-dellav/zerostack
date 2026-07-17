@@ -345,6 +345,7 @@ impl Session {
         }
     }
 
+    #[cfg(any(feature = "subagents", feature = "acp"))]
     pub fn add_subagent_tool_call(&mut self, name: &str, args: &serde_json::Value) {
         self.add_message(
             MessageRole::SubagentToolCall,

@@ -509,6 +509,7 @@ impl PermissionChecker {
         self.mode
     }
 
+    #[cfg(feature = "mcp")]
     pub fn set_allow_all_mcp_calls(&mut self, allow: bool) {
         self.allow_all_mcp_calls = allow;
     }

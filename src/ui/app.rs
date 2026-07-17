@@ -39,10 +39,12 @@ use super::handle_human_handoff;
 #[cfg(feature = "git-worktree")]
 use super::spawn_merge_agent;
 use super::{
-    C_AGENT, C_BTW, C_ERROR, C_PERM, C_TOOL, PrebuildPayload, apply_current_prompt_mode,
-    classify_submission, mid_turn_compact_and_respawn, refresh_display, spawn_event_thread,
-    start_main_run, stop_turn_context_exhausted,
+    C_AGENT, C_BTW, C_ERROR, C_TOOL, PrebuildPayload, classify_submission,
+    mid_turn_compact_and_respawn, refresh_display, spawn_event_thread, start_main_run,
+    stop_turn_context_exhausted,
 };
+#[cfg(feature = "git-worktree")]
+use super::{C_PERM, apply_current_prompt_mode};
 
 const TURN_TRACE_MAX: usize = 64;
 
@@ -545,18 +547,18 @@ impl<'a> App<'a> {
             }
 
             #[cfg(feature = "advisor")]
-            if let Some(ref mut rx) = self.handoff_rx {
-                if let Ok(req) = rx.try_recv() {
-                    handle_human_handoff(
-                        req,
-                        &mut self.renderer,
-                        &mut self.user_rx,
-                        &mut self.agent_line_started,
-                        &mut self.was_reasoning,
-                    )
-                    .await?;
-                    self.refresh()?;
-                }
+            if let Some(ref mut rx) = self.handoff_rx
+                && let Ok(req) = rx.try_recv()
+            {
+                handle_human_handoff(
+                    req,
+                    &mut self.renderer,
+                    &mut self.user_rx,
+                    &mut self.agent_line_started,
+                    &mut self.was_reasoning,
+                )
+                .await?;
+                self.refresh()?;
             }
         }
 
@@ -624,23 +626,23 @@ impl<'a> App<'a> {
                         .input_cursor_for_click(row, col, &self.input.buffer)
                 {
                     self.input.set_cursor(pos);
-                } else if row < self.renderer.visible_lines() as u16 {
-                    if let Some(idx) = self.renderer.buffer_line_at_row(row) {
-                        if let Some(url) = self.renderer.link_url_at(idx, col) {
-                            renderer_mod::open_url(&url);
-                        } else {
-                            self.renderer.selection_active = true;
-                            self.renderer.selection_start = Some(idx);
-                            self.renderer.selection_end = Some(idx);
-                        }
+                } else if row < self.renderer.visible_lines() as u16
+                    && let Some(idx) = self.renderer.buffer_line_at_row(row)
+                {
+                    if let Some(url) = self.renderer.link_url_at(idx, col) {
+                        renderer_mod::open_url(&url);
+                    } else {
+                        self.renderer.selection_active = true;
+                        self.renderer.selection_start = Some(idx);
+                        self.renderer.selection_end = Some(idx);
                     }
                 }
             }
             UserEvent::MouseDrag { row, col: _ } => {
-                if self.renderer.selection_active {
-                    if let Some(idx) = self.renderer.buffer_line_at_row(row) {
-                        self.renderer.selection_end = Some(idx);
-                    }
+                if self.renderer.selection_active
+                    && let Some(idx) = self.renderer.buffer_line_at_row(row)
+                {
+                    self.renderer.selection_end = Some(idx);
                 }
             }
             UserEvent::MouseUp { row, col: _ } => {
@@ -1334,11 +1336,11 @@ impl<'a> App<'a> {
             self.renderer
                 .write_line(&format!("switched to prompt '{}'", prompt_name), C_AGENT)?;
             self.save_session()?;
-            return Ok(true);
+            Ok(true)
         } else {
             self.renderer
                 .write_line(&format!("error: unknown prompt '{}'", prompt_name), C_ERROR)?;
-            return Ok(true);
+            Ok(true)
         }
     }
 
@@ -2027,11 +2029,9 @@ impl<'a> App<'a> {
             let (built_agent, built_mcp) = prebuilt;
             self.agent = Some(built_agent);
             self.mcp_manager = built_mcp;
-            if notify {
-                if let Some(m) = self.mcp_manager.as_mut() {
-                    for notice in m.take_notices() {
-                        self.renderer.write_line(&notice, C_ERROR)?;
-                    }
+            if notify && let Some(m) = self.mcp_manager.as_mut() {
+                for notice in m.take_notices() {
+                    self.renderer.write_line(&notice, C_ERROR)?;
                 }
             }
         }
@@ -2158,11 +2158,11 @@ impl<'a> App<'a> {
     }
 
     fn save_session(&mut self) -> anyhow::Result<()> {
-        if !self.cli.no_session {
-            if let Err(e) = crate::session::storage::save_session(self.session) {
-                self.renderer
-                    .write_line(&format!("warning: failed to save session: {}", e), C_ERROR)?;
-            }
+        if !self.cli.no_session
+            && let Err(e) = crate::session::storage::save_session(self.session)
+        {
+            self.renderer
+                .write_line(&format!("warning: failed to save session: {}", e), C_ERROR)?;
         }
         Ok(())
     }

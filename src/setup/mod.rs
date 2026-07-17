@@ -833,6 +833,7 @@ fn run_inner(cfg: &mut Config) -> anyhow::Result<SetupOutcome> {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum KeyResult {
     Screen(Screen),
     Outcome(SetupOutcome, Config),
@@ -1261,10 +1262,10 @@ fn handle_manage_models_key(
         return match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') => {
                 let mut new_cfg = ctx.cfg.clone();
-                if let Some((name, _)) = models.get(selected) {
-                    if let Some(m) = new_cfg.quick_models.as_mut() {
-                        m.remove(name);
-                    }
+                if let Some((name, _)) = models.get(selected)
+                    && let Some(m) = new_cfg.quick_models.as_mut()
+                {
+                    m.remove(name);
                 }
                 let new_selected = selected.min(count.saturating_sub(2));
                 Ok(KeyResult::Screen(Screen::ManageModels {

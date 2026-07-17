@@ -17,6 +17,7 @@ use crate::auth::{AuthResolver, ProviderKind};
 use crate::cli::Cli;
 use crate::config::{ApiStyle, Config, CustomProviderConfig};
 use crate::context::ContextFiles;
+#[cfg(any(feature = "hooks", feature = "subagents"))]
 use crate::event::AgentEvent;
 #[cfg(feature = "hooks")]
 use crate::extras::hooks::LoopInfo;

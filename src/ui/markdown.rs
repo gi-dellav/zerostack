@@ -140,7 +140,7 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
         match event {
             Event::Start(tag) => match tag {
                 Tag::Paragraph => {}
-                Tag::Heading { level: _, .. } => {
+                Tag::Heading { .. } => {
                     flush_acc(&acc, Color::White, max_width, &mut result);
                     acc.clear();
                     in_heading = true;

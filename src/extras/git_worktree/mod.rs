@@ -133,13 +133,12 @@ pub fn detect() -> Option<WorktreeInfo> {
             .unwrap_or_else(|| git_dir_path.to_path_buf())
     };
 
-    let main_repo_path = if let Some(parent) = Path::new(&common_dir).parent() {
+    let main_repo_path = {
+        let parent = Path::new(&common_dir).parent()?;
         parent
             .canonicalize()
             .ok()
             .unwrap_or_else(|| parent.to_path_buf())
-    } else {
-        return None;
     };
 
     let branch = current_branch().unwrap_or_default();
