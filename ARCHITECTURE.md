@@ -54,7 +54,7 @@ CLI parse (main.rs:150) → config load → context load → session load
 ### Interactive TUI Event Loop (`src/ui/mod.rs`)
 
 Single `tokio::select!` with 6 branches plus an `else` fallback (line 1119):
-1. **`UserEvent` from `user_rx`** — keyboard/mouse/resize/paste from background event thread (polls crossterm every 50ms)
+1. **`UserEvent` from `user_rx`** — keyboard/mouse/resize/paste from background event thread (polls crossterm every 50ms idle, 10ms while coalescing a paste burst)
 2. **Background agent prebuild** from `prebuild_rx` — consumed once idle, so MCP connection notices land in the transcript instead of racing the alt-screen TUI
 3. **`AgentEvent` from `agent_rx`** — streaming LLM tokens, tool calls, errors
 4. **Permission `AskRequest` from `ask_rx`** — user must approve/reject tool calls

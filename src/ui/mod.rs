@@ -18,7 +18,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crossterm::event;
-use crossterm::event::{KeyEventKind, MouseButton, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use crossterm::style::Color;
 use tokio::sync::mpsc;
 
@@ -111,61 +111,161 @@ pub(crate) fn refresh_display(
     Ok(())
 }
 
+/// Idle cadence of the event thread's poll loop.
+const IDLE_POLL: Duration = Duration::from_millis(50);
+
+/// How far ahead the event thread peeks after an `Enter`/`Ctrl+J` to decide
+/// whether it is really a pasted newline, and how long it waits for the next
+/// event before declaring a paste burst over. Terminals WITHOUT
+/// bracketed-paste support (common on Windows conhost and some SSH/tmux
+/// chains) deliver a multi-line paste as a rapid stream of key events whose
+/// newlines arrive as `KeyCode::Enter` (`VK_RETURN` on Windows, `\r` on
+/// Unix) or `Ctrl+J` (raw `\n` on Unix); without coalescing, each pasted
+/// line would be submitted/queued separately or gain literal `j`s (#197).
+/// 10 ms is far below the time a human needs to press another key after
+/// `Enter`, so genuine submits are unaffected.
+const PASTE_BURST_WINDOW: Duration = Duration::from_millis(10);
+
+/// What a plain `Enter` keypress means in the current input stream.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum EnterVerdict {
+    /// Genuine submit: no burst in progress and no input queued behind it.
+    Submit,
+    /// Pasted newline: mid-burst, or more input is already queued behind it.
+    Newline,
+}
+
+/// Whether a key event is a candidate pasted newline: a bare `Enter`
+/// (Windows conhost injects `VK_RETURN` records for pasted newlines, and
+/// `\r` maps to `Enter` on Unix), or `Ctrl+J` — which is how crossterm
+/// reports a raw pasted `\n` byte on Unix in raw mode (crossterm issue
+/// #371). `Enter`/`j` with any other modifier combo is a deliberate key
+/// combination and passes through untouched.
+pub(crate) fn is_paste_newline_key(code: KeyCode, modifiers: KeyModifiers) -> bool {
+    (code == KeyCode::Enter && modifiers == KeyModifiers::NONE)
+        || (code == KeyCode::Char('j') && modifiers == KeyModifiers::CONTROL)
+}
+
+/// Paste-burst state for terminals without bracketed paste. A burst starts
+/// when a paste-newline key (see [`is_paste_newline_key`]) has more input
+/// queued right behind it, and ends once the input stream goes quiet for
+/// [`PASTE_BURST_WINDOW`]. While a burst is active every such key is a pasted
+/// newline, never a submit (and never a literal `j`) — so a multi-line paste
+/// lands in the input buffer whole instead of submitting line by line (#197).
+/// Pure state machine so it can be unit-tested without a terminal.
+#[derive(Default)]
+pub(crate) struct PasteBurst {
+    active: bool,
+}
+
+impl PasteBurst {
+    /// Poll timeout for the next event: short while a burst is alive so its
+    /// end is detected quickly, idle cadence otherwise.
+    pub(crate) fn wait_timeout(&self) -> Duration {
+        if self.active {
+            PASTE_BURST_WINDOW
+        } else {
+            IDLE_POLL
+        }
+    }
+
+    /// No event arrived within the window: any burst in progress is over.
+    pub(crate) fn on_timeout(&mut self) {
+        self.active = false;
+    }
+
+    /// Classify a plain `Enter` press and update burst state.
+    /// `more_input_pending` is the result of peeking [`PASTE_BURST_WINDOW`]
+    /// ahead (callers skip the peek when a burst is already active).
+    pub(crate) fn on_enter(&mut self, more_input_pending: bool) -> EnterVerdict {
+        if self.active || more_input_pending {
+            self.active = true;
+            EnterVerdict::Newline
+        } else {
+            EnterVerdict::Submit
+        }
+    }
+}
+
 pub(crate) fn spawn_event_thread(
     user_tx: mpsc::Sender<UserEvent>,
     running: Arc<AtomicBool>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
+        let mut paste_burst = PasteBurst::default();
         while running.load(Ordering::Relaxed) {
-            if let Ok(true) = event::poll(Duration::from_millis(50)) {
-                match event::read() {
-                    Ok(event::Event::Key(key)) => {
-                        if key.kind == KeyEventKind::Press
-                            && user_tx.blocking_send(UserEvent::Key(key)).is_err()
-                        {
+            let Ok(ready) = event::poll(paste_burst.wait_timeout()) else {
+                continue;
+            };
+            if !ready {
+                paste_burst.on_timeout();
+                continue;
+            }
+            match event::read() {
+                Ok(event::Event::Key(key)) => {
+                    if key.kind != KeyEventKind::Press {
+                        continue;
+                    }
+                    // A paste-newline key (bare Enter, or Ctrl+J — a raw
+                    // pasted '\n' on Unix) is either a submit/normal key or
+                    // — during a paste burst — a pasted newline (see
+                    // PasteBurst). Enter/j with other modifiers passes
+                    // through (Shift/Alt+Enter = literal newline).
+                    let ev = if is_paste_newline_key(key.code, key.modifiers) {
+                        let pending = paste_burst.active
+                            || matches!(event::poll(PASTE_BURST_WINDOW), Ok(true));
+                        match paste_burst.on_enter(pending) {
+                            EnterVerdict::Submit => UserEvent::Key(key),
+                            // Reuse the paste path: inserts a literal '\n'
+                            // into the input buffer.
+                            EnterVerdict::Newline => UserEvent::Paste("\n".to_string()),
+                        }
+                    } else {
+                        UserEvent::Key(key)
+                    };
+                    if user_tx.blocking_send(ev).is_err() {
+                        break;
+                    }
+                }
+                Ok(event::Event::Mouse(m)) => match m.kind {
+                    MouseEventKind::ScrollUp => {
+                        if user_tx.blocking_send(UserEvent::ScrollUp).is_err() {
                             break;
                         }
                     }
-                    Ok(event::Event::Mouse(m)) => match m.kind {
-                        MouseEventKind::ScrollUp => {
-                            if user_tx.blocking_send(UserEvent::ScrollUp).is_err() {
-                                break;
-                            }
+                    MouseEventKind::ScrollDown => {
+                        if user_tx.blocking_send(UserEvent::ScrollDown).is_err() {
+                            break;
                         }
-                        MouseEventKind::ScrollDown => {
-                            if user_tx.blocking_send(UserEvent::ScrollDown).is_err() {
-                                break;
-                            }
-                        }
-                        MouseEventKind::Down(MouseButton::Left) => {
-                            let _ = user_tx.blocking_send(UserEvent::MouseDown {
-                                row: m.row,
-                                col: m.column,
-                            });
-                        }
-                        MouseEventKind::Drag(MouseButton::Left) => {
-                            let _ = user_tx.blocking_send(UserEvent::MouseDrag {
-                                row: m.row,
-                                col: m.column,
-                            });
-                        }
-                        MouseEventKind::Up(MouseButton::Left) => {
-                            let _ = user_tx.blocking_send(UserEvent::MouseUp {
-                                row: m.row,
-                                col: m.column,
-                            });
-                        }
-                        _ => {}
-                    },
-                    Ok(event::Event::Resize(_cols, _rows)) => {
-                        let _ = user_tx.blocking_send(UserEvent::Resize);
                     }
-                    Ok(event::Event::Paste(data)) => {
-                        let _ = user_tx.blocking_send(UserEvent::Paste(data));
+                    MouseEventKind::Down(MouseButton::Left) => {
+                        let _ = user_tx.blocking_send(UserEvent::MouseDown {
+                            row: m.row,
+                            col: m.column,
+                        });
                     }
-                    Err(_) => break,
+                    MouseEventKind::Drag(MouseButton::Left) => {
+                        let _ = user_tx.blocking_send(UserEvent::MouseDrag {
+                            row: m.row,
+                            col: m.column,
+                        });
+                    }
+                    MouseEventKind::Up(MouseButton::Left) => {
+                        let _ = user_tx.blocking_send(UserEvent::MouseUp {
+                            row: m.row,
+                            col: m.column,
+                        });
+                    }
                     _ => {}
+                },
+                Ok(event::Event::Resize(_cols, _rows)) => {
+                    let _ = user_tx.blocking_send(UserEvent::Resize);
                 }
+                Ok(event::Event::Paste(data)) => {
+                    let _ = user_tx.blocking_send(UserEvent::Paste(data));
+                }
+                Err(_) => break,
+                _ => {}
             }
         }
     })

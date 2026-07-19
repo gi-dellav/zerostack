@@ -51,6 +51,8 @@ mod multimodal_tests;
 #[cfg(test)]
 mod normalize_tests;
 #[cfg(test)]
+mod paste_burst_tests;
+#[cfg(test)]
 mod picker_tests;
 #[cfg(test)]
 mod provider_tests;
