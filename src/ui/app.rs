@@ -166,7 +166,16 @@ impl<'a> App<'a> {
 
         let mut input = InputEditor::new();
         input.set_monochrome(cli.no_color);
-        input.set_prompt_names(context.prompts.keys().cloned().collect());
+        let mut prompt_names: Vec<String> = context.prompts.keys().cloned().collect();
+        prompt_names.sort();
+        input.set_prompt_names(prompt_names);
+        input.set_prompt_sources(
+            context
+                .prompt_sources
+                .iter()
+                .map(|(name, src)| (name.clone(), src.label().to_string()))
+                .collect(),
+        );
         input.set_theme_names(context.themes.keys().cloned().collect());
         if let Some(editor) = &cfg.editor {
             input.set_editor(editor.clone());

@@ -1,5 +1,6 @@
 use compact_str::CompactString;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::collections::HashMap;
 
 use super::file::FilePicker;
 use super::list::ListPicker;
@@ -110,6 +111,7 @@ pub fn handle_file_key(
 
 pub struct CommandPickerCtx<'a> {
     pub prompt_names: &'a [String],
+    pub prompt_sources: &'a HashMap<String, String>,
     pub theme_names: &'a [String],
     pub quick_model_names: &'a [String],
     pub live_model_names: &'a [String],
@@ -232,6 +234,7 @@ pub fn handle_command_key(
                     picker.deactivate();
                     let mut pp = ListPicker::new();
                     pp.set_items(ctx.prompt_names.to_vec());
+                    pp.set_annotations(ctx.prompt_sources.clone());
                     pp.activate();
                     return (true, Some(Picker::Prefixed(pp, "/prompt ")));
                 }

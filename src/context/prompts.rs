@@ -5,6 +5,33 @@ use include_dir::{Dir, include_dir};
 
 static EMBEDDED: Dir = include_dir!("$CARGO_MANIFEST_DIR/data/prompts");
 
+/// Which source a prompt was loaded from. Later sources override earlier
+/// ones for same-named prompts, so each prompt's source is the
+/// highest-priority location that defines it (see `load_with_sources`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptSource {
+    /// Compiled into the binary (`data/prompts` at build time).
+    Embedded,
+    /// User-level data dir (`~/.local/share/zerostack/prompts/`).
+    Global,
+    /// Project-local `data/prompts/`, relative to the CWD.
+    DataDir,
+    /// Project-level `.zerostack/prompts/` (highest priority).
+    Project,
+}
+
+impl PromptSource {
+    /// Short tag shown next to the prompt name in pickers and `/prompt`.
+    /// Both project-level sources display as `local`.
+    pub fn label(&self) -> &'static str {
+        match self {
+            PromptSource::Embedded => "built-in",
+            PromptSource::Global => "global",
+            PromptSource::DataDir | PromptSource::Project => "local",
+        }
+    }
+}
+
 pub fn global_dir() -> PathBuf {
     crate::session::storage::data_dir().join("prompts")
 }
@@ -13,23 +40,32 @@ pub fn zerostack_dir() -> PathBuf {
     PathBuf::from(".zerostack/prompts")
 }
 
-pub fn load() -> HashMap<String, String> {
+/// Load all prompts together with the source each one came from. Sources are
+/// scanned in priority order (low to high); a later source overrides both the
+/// content and the provenance of a same-named prompt. Within the embedded
+/// set, the first file with a given name wins.
+pub fn load_with_sources() -> (HashMap<String, String>, HashMap<String, PromptSource>) {
     let mut prompts: HashMap<String, String> = HashMap::new();
+    let mut sources: HashMap<String, PromptSource> = HashMap::new();
 
     for (name, content) in crate::context::load_embedded_files(&EMBEDDED, "md") {
-        prompts.entry(name).or_insert(content);
+        prompts.entry(name.clone()).or_insert(content);
+        sources.entry(name).or_insert(PromptSource::Embedded);
     }
     for (name, content) in crate::context::load_dir_files(&global_dir(), "md") {
+        sources.insert(name.clone(), PromptSource::Global);
         prompts.insert(name, content);
     }
     for (name, content) in crate::context::load_dir_files(&PathBuf::from("data/prompts"), "md") {
+        sources.insert(name.clone(), PromptSource::DataDir);
         prompts.insert(name, content);
     }
     for (name, content) in crate::context::load_dir_files(&zerostack_dir(), "md") {
+        sources.insert(name.clone(), PromptSource::Project);
         prompts.insert(name, content);
     }
 
-    prompts
+    (prompts, sources)
 }
 
 pub fn ensure_global() -> anyhow::Result<()> {
@@ -96,7 +132,7 @@ mod tests {
         let dir = zerostack_dir();
         write_prompt(&dir, "myproject", "# My Project Prompt");
 
-        let prompts = load();
+        let prompts = load_with_sources().0;
         assert!(prompts.contains_key("myproject"));
         assert_eq!(prompts["myproject"], "# My Project Prompt");
     }
@@ -109,7 +145,7 @@ mod tests {
         write_prompt(&prompts_dir, "code", "from prompts/");
         write_prompt(&zs_dir, "code", "from .zerostack/prompts/");
 
-        let prompts = load();
+        let prompts = load_with_sources().0;
         assert_eq!(prompts["code"], "from .zerostack/prompts/");
     }
 
@@ -121,7 +157,7 @@ mod tests {
         write_prompt(&global, "code", "from global/");
         write_prompt(&zs_dir, "code", "from .zerostack/");
 
-        let prompts = load();
+        let prompts = load_with_sources().0;
         assert_eq!(prompts["code"], "from .zerostack/");
     }
 
@@ -131,7 +167,7 @@ mod tests {
         let zs_dir = zerostack_dir();
         write_prompt(&zs_dir, "code", "from .zerostack/");
 
-        let prompts = load();
+        let prompts = load_with_sources().0;
         assert_eq!(prompts["code"], "from .zerostack/");
     }
 
@@ -143,7 +179,7 @@ mod tests {
         write_prompt(&global, "custom", "from global/");
         write_prompt(&prompts_dir, "custom", "from prompts/");
 
-        let prompts = load();
+        let prompts = load_with_sources().0;
         assert_eq!(prompts["custom"], "from prompts/");
     }
 
@@ -159,7 +195,7 @@ mod tests {
         write_prompt(&zs_dir, "custom", "from .zerostack/");
         write_prompt(&zs_dir, "code", "from .zerostack/code");
 
-        let prompts = load();
+        let prompts = load_with_sources().0;
         assert_eq!(prompts["code"], "from .zerostack/code");
         assert_eq!(prompts["custom"], "from .zerostack/");
         assert!(prompts.contains_key("ask"));
@@ -168,9 +204,59 @@ mod tests {
     #[test]
     fn test_zerostack_dir_missing_is_ok() {
         let _td = TestDir::new();
-        let prompts = load();
+        let prompts = load_with_sources().0;
         assert!(prompts.contains_key("code"));
         assert!(prompts.contains_key("ask"));
         assert!(prompts.contains_key("default"));
+    }
+
+    #[test]
+    fn test_source_labels() {
+        assert_eq!(PromptSource::Embedded.label(), "built-in");
+        assert_eq!(PromptSource::Global.label(), "global");
+        assert_eq!(PromptSource::DataDir.label(), "local");
+        assert_eq!(PromptSource::Project.label(), "local");
+    }
+
+    #[test]
+    fn test_embedded_prompt_source() {
+        let _td = TestDir::new();
+        let (_, sources) = load_with_sources();
+        assert_eq!(sources.get("code"), Some(&PromptSource::Embedded));
+    }
+
+    #[test]
+    fn test_global_override_source() {
+        let _td = TestDir::new();
+        write_prompt(&global_dir(), "code", "from global/");
+        let (prompts, sources) = load_with_sources();
+        assert_eq!(prompts["code"], "from global/");
+        assert_eq!(sources.get("code"), Some(&PromptSource::Global));
+    }
+
+    #[test]
+    fn test_data_dir_override_source() {
+        let _td = TestDir::new();
+        write_prompt(&PathBuf::from("data/prompts"), "code", "from data/");
+        let (_, sources) = load_with_sources();
+        assert_eq!(sources.get("code"), Some(&PromptSource::DataDir));
+    }
+
+    #[test]
+    fn test_project_override_source() {
+        let _td = TestDir::new();
+        write_prompt(&zerostack_dir(), "code", "from .zerostack/");
+        let (_, sources) = load_with_sources();
+        assert_eq!(sources.get("code"), Some(&PromptSource::Project));
+    }
+
+    #[test]
+    fn test_source_tracks_winning_override() {
+        let _td = TestDir::new();
+        write_prompt(&global_dir(), "mixed", "from global/");
+        write_prompt(&zerostack_dir(), "mixed", "from .zerostack/");
+        let (prompts, sources) = load_with_sources();
+        assert_eq!(prompts["mixed"], "from .zerostack/");
+        assert_eq!(sources.get("mixed"), Some(&PromptSource::Project));
     }
 }

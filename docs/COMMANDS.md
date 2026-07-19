@@ -93,7 +93,7 @@ starting a session or making a model call. See
 
 | Command | Description |
 | ------- | ----------- |
-| `/prompt` | List available prompts. |
+| `/prompt` | List available prompts, sorted alphabetically, each tagged with its source (`built-in`, `global`, `local`). The `/prompt` and `.` pickers show the same tags. |
 | `/prompt <name>` | Activate a named prompt. Also applies `%%mode=` from the prompt file if present (see below). |
 | `/prompt default` | Clear the active prompt. |
 

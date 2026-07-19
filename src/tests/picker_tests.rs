@@ -299,6 +299,28 @@ fn test_static_commands_prepopulated() {
     assert!(picker.matches.contains(&"/model".to_string()));
 }
 
+#[test]
+fn test_list_picker_annotations_not_in_filter_or_selection() {
+    let mut picker = ListPicker::new();
+    picker.set_items(vec!["alpha".to_string(), "beta".to_string()]);
+    picker.set_annotations(std::collections::HashMap::from([
+        ("alpha".to_string(), "built-in".to_string()),
+        ("beta".to_string(), ".zerostack".to_string()),
+    ]));
+    picker.activate();
+
+    // Selection returns the bare name, never the decorated display string.
+    assert_eq!(picker.selected_name(), Some("alpha"));
+
+    // Filtering matches item names only: the annotation text is not searched.
+    picker.char_input('z');
+    assert!(picker.matches.is_empty());
+
+    picker.backspace();
+    picker.char_input('a');
+    assert_eq!(picker.matches, vec!["alpha", "beta"]);
+}
+
 // ── walk_files tests ────────────────────────────────────────────────
 
 use std::fs;

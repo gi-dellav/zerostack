@@ -17,14 +17,14 @@ overriding earlier ones for same-named files:
 
 **Prompts** (priority low to high):
 1. Embedded at compile time
-2. `~/.local/share/zerostack/prompts/` (global, user-level)
-3. `prompts/` (project-local, relative to CWD)
+2. `$ZS_DATA_DIR/prompts/`, defaulting to `~/.local/share/zerostack/prompts/` (global, user-level)
+3. `data/prompts/` (project-local, relative to CWD)
 4. `.zerostack/prompts/` (project-level config, highest priority)
 
 **Themes** (priority low to high):
 1. Embedded at compile time
-2. `~/.local/share/zerostack/themes/` (global, user-level)
-3. `themes/` (project-local, relative to CWD)
+2. `$ZS_DATA_DIR/themes/`, defaulting to `~/.local/share/zerostack/themes/` (global, user-level)
+3. `data/themes/` (project-local, relative to CWD)
 
 If `ZS_CONFIG_DIR` is set, it overrides the data directory for the config file
 location only (prompts and themes still use `ZS_DATA_DIR` / the default data

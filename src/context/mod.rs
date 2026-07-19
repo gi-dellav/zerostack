@@ -57,6 +57,7 @@ pub(crate) fn copy_embedded_to(embedded: &Dir, dest: &Path) -> anyhow::Result<()
 pub struct ContextFiles {
     pub agents: Option<String>,
     pub prompts: HashMap<String, String>,
+    pub prompt_sources: HashMap<String, prompts::PromptSource>,
     pub current_prompt: Option<String>,
     pub current_prompt_name: Option<String>,
     pub themes: HashMap<String, String>,
@@ -78,7 +79,9 @@ impl ContextFiles {
         {
             self.architecture = walk_context_files().1;
         }
-        self.prompts = prompts::load();
+        let (prompt_map, prompt_sources) = prompts::load_with_sources();
+        self.prompts = prompt_map;
+        self.prompt_sources = prompt_sources;
         if let Some(name) = &self.current_prompt_name {
             self.current_prompt = self.prompts.get(name).cloned();
         }
@@ -103,7 +106,7 @@ pub fn load(no_context_files: bool) -> ContextFiles {
     let architecture = arch_candidate;
     #[cfg(not(feature = "archmd"))]
     let _ = arch_candidate;
-    let prompt_map = prompts::load();
+    let (prompt_map, prompt_sources) = prompts::load_with_sources();
     let theme_map = themes::load();
     let theme_name = crate::session::storage::load_theme_name();
     #[cfg(feature = "memory")]
@@ -111,6 +114,7 @@ pub fn load(no_context_files: bool) -> ContextFiles {
     ContextFiles {
         agents,
         prompts: prompt_map,
+        prompt_sources,
         current_prompt: None,
         current_prompt_name: None,
         themes: theme_map,

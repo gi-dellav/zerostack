@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::draw_picker_list;
 
 /// Slash commands that are always available, regardless of which optional
@@ -96,6 +98,11 @@ pub struct ListPicker {
     pub matches: Vec<String>,
     pub selected: usize,
     items: Vec<String>,
+    /// Optional per-item tag drawn after the item name in parentheses (e.g. a
+    /// provenance label). Never part of filtering or selection: the query
+    /// matches against item names only and `selected_name` returns the bare
+    /// name.
+    annotations: HashMap<String, String>,
     monochrome: bool,
 }
 
@@ -108,6 +115,7 @@ impl ListPicker {
             matches: Vec::new(),
             selected: 0,
             items: Vec::new(),
+            annotations: HashMap::new(),
             monochrome: false,
         }
     }
@@ -124,6 +132,10 @@ impl ListPicker {
 
     pub fn set_items(&mut self, items: Vec<String>) {
         self.items = items;
+    }
+
+    pub fn set_annotations(&mut self, annotations: HashMap<String, String>) {
+        self.annotations = annotations;
     }
 
     pub fn activate(&mut self) {
@@ -201,12 +213,23 @@ impl ListPicker {
         if !self.active {
             return Ok(());
         }
-        draw_picker_list(
-            &self.matches,
-            self.selected,
-            self.monochrome,
-            empty_message,
-            4,
-        )
+        if self.annotations.is_empty() {
+            return draw_picker_list(
+                &self.matches,
+                self.selected,
+                self.monochrome,
+                empty_message,
+                4,
+            );
+        }
+        let display: Vec<String> = self
+            .matches
+            .iter()
+            .map(|m| match self.annotations.get(m) {
+                Some(tag) => format!("{} ({})", m, tag),
+                None => m.clone(),
+            })
+            .collect();
+        draw_picker_list(&display, self.selected, self.monochrome, empty_message, 4)
     }
 }

@@ -16,6 +16,10 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
 async fn handle_prompt(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let mut sorted: Vec<&String> = ctx.context.prompts.keys().collect();
     sorted.sort();
+    let tagged = |name: &String| match ctx.context.prompt_sources.get(name) {
+        Some(src) => format!("  {} ({})", name, src.label()),
+        None => format!("  {}", name),
+    };
     if parts.len() < 2 {
         if sorted.is_empty() {
             write_ok(ctx.renderer, "no prompts available");
@@ -30,7 +34,7 @@ async fn handle_prompt(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
                 format!("available prompts (current: {}):", current),
             );
             for name in &sorted {
-                write_result(ctx.renderer, format!("  {}", name));
+                write_result(ctx.renderer, tagged(name));
             }
             write_result(ctx.renderer, "usage: /prompt <name>  |  /prompt default");
         }
@@ -104,7 +108,7 @@ async fn handle_prompt(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
             if !sorted.is_empty() {
                 write_ok(ctx.renderer, "available prompts:");
                 for p in &sorted {
-                    write_result(ctx.renderer, format!("  {}", p));
+                    write_result(ctx.renderer, tagged(p));
                 }
             }
         }
@@ -180,7 +184,20 @@ async fn handle_theme(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
 async fn handle_regen_prompts(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     match context::prompts::regen() {
         Ok(()) => {
-            ctx.context.prompts = context::prompts::load();
+            let (prompts, sources) = context::prompts::load_with_sources();
+            ctx.context.prompts = prompts;
+            ctx.context.prompt_sources = sources;
+            // Keep the prompt pickers in sync with the regenerated set.
+            let mut names: Vec<String> = ctx.context.prompts.keys().cloned().collect();
+            names.sort();
+            ctx.input.set_prompt_names(names);
+            ctx.input.set_prompt_sources(
+                ctx.context
+                    .prompt_sources
+                    .iter()
+                    .map(|(name, src)| (name.clone(), src.label().to_string()))
+                    .collect(),
+            );
             write_ok(ctx.renderer, "default prompts regenerated");
         }
         Err(e) => {

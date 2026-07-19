@@ -9,6 +9,7 @@ pub use pickers::Picker;
 
 use compact_str::CompactString;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use std::collections::HashMap;
 use std::io::Write;
 
 use crate::ui::pickers::file::FilePicker;
@@ -27,6 +28,9 @@ pub struct InputEditor {
     pub picker: Option<Picker>,
     monochrome: bool,
     prompt_names: Vec<String>,
+    /// Provenance label per prompt name, drawn in the prompt pickers (never
+    /// part of filtering or selection).
+    prompt_sources: HashMap<String, String>,
     theme_names: Vec<String>,
     quick_model_names: Vec<String>,
     live_model_names: Vec<String>,
@@ -48,6 +52,7 @@ impl InputEditor {
             picker: None,
             monochrome: false,
             prompt_names: Vec::new(),
+            prompt_sources: HashMap::new(),
             theme_names: Vec::new(),
             quick_model_names: Vec::new(),
             live_model_names: Vec::new(),
@@ -117,6 +122,10 @@ impl InputEditor {
 
     pub fn set_prompt_names(&mut self, names: Vec<String>) {
         self.prompt_names = names;
+    }
+
+    pub fn set_prompt_sources(&mut self, sources: HashMap<String, String>) {
+        self.prompt_sources = sources;
     }
 
     pub fn set_theme_names(&mut self, names: Vec<String>) {
@@ -198,6 +207,7 @@ impl InputEditor {
         picker.set_monochrome(self.monochrome);
         if !self.prompt_names.is_empty() {
             picker.set_items(self.prompt_names.clone());
+            picker.set_annotations(self.prompt_sources.clone());
         }
         picker.activate();
         self.picker = Some(Picker::Prefixed(picker, "/prompt "));
@@ -208,6 +218,7 @@ impl InputEditor {
         picker.set_monochrome(self.monochrome);
         if !self.prompt_names.is_empty() {
             picker.set_items(self.prompt_names.clone());
+            picker.set_annotations(self.prompt_sources.clone());
         }
         picker.activate();
         self.picker = Some(Picker::Prefixed(picker, "."));
