@@ -37,6 +37,21 @@ pub(crate) struct UiContext<'a> {
 }
 
 impl<'a> UiContext<'a> {
+    /// Borrow the pieces [`AgentBuildCtx::rebuild_agent`] needs.
+    pub(crate) fn agent_build_ctx(&self) -> AgentBuildCtx<'_> {
+        AgentBuildCtx {
+            cli: self.cli,
+            cfg: self.cfg,
+            context: self.context,
+            client: &self.client,
+            permission: &self.permission,
+            ask_tx: &self.ask_tx,
+            sandbox: &self.sandbox,
+            #[cfg(feature = "mcp")]
+            mcp_manager: self.mcp_manager.as_ref(),
+        }
+    }
+
     /// Composition root: built once in `main` and threaded through the TUI.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
@@ -63,6 +78,49 @@ impl<'a> UiContext<'a> {
             #[cfg(feature = "mcp")]
             mcp_manager: None,
         }
+    }
+}
+
+/// Everything needed to (re)build the main agent, borrowed from whichever
+/// state bundle the caller has: [`UiContext`] in the main loop and mid-turn
+/// compaction, `SlashCtx` in slash commands, or owned clones in the startup
+/// prebuild task. Centralizes the per-model resolution (completion model,
+/// temperature, extra_body) and the `build_agent` call itself so every
+/// rebuild path stays in sync.
+pub(crate) struct AgentBuildCtx<'a> {
+    pub cli: &'a Cli,
+    pub cfg: &'a Config,
+    pub context: &'a ContextFiles,
+    pub client: &'a AnyClient,
+    pub permission: &'a Option<PermCheck>,
+    pub ask_tx: &'a Option<AskSender>,
+    pub sandbox: &'a Sandbox,
+    #[cfg(feature = "mcp")]
+    pub mcp_manager: Option<&'a McpClientManager>,
+}
+
+impl AgentBuildCtx<'_> {
+    /// Build the main agent for `model_id` (usually `session.model`; model
+    /// switches pass the not-yet-committed new id).
+    pub(crate) async fn rebuild_agent(&self, model_id: &str, reasoning_enabled: bool) -> AnyAgent {
+        let model = self.client.completion_model(model_id.to_string());
+        let temperature = crate::config::resolve_temperature(self.cli, self.cfg, model_id);
+        let extra_body = crate::config::resolve_extra_body(self.cfg, model_id);
+        crate::provider::build_agent(
+            model,
+            self.cli,
+            self.cfg,
+            self.context,
+            self.permission.clone(),
+            self.ask_tx.clone(),
+            self.sandbox.clone(),
+            reasoning_enabled,
+            temperature,
+            extra_body,
+            #[cfg(feature = "mcp")]
+            self.mcp_manager,
+        )
+        .await
     }
 }
 

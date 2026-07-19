@@ -30,27 +30,12 @@ pub async fn ensure_agent(
     if agent.is_some() {
         return;
     }
-    let model = ui.client.completion_model(ui.session.model.to_string());
-    let temperature = crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
-    let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
     #[cfg(feature = "mcp")]
-    let mcp_ref = crate::ui::ensure_mcp_manager(&mut ui.mcp_manager, ui.cfg).await;
+    crate::ui::ensure_mcp_manager(&mut ui.mcp_manager, ui.cfg).await;
     *agent = Some(
-        crate::provider::build_agent(
-            model,
-            ui.cli,
-            ui.cfg,
-            ui.context,
-            ui.permission.clone(),
-            ui.ask_tx.clone(),
-            ui.sandbox.clone(),
-            reasoning_enabled,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            mcp_ref,
-        )
-        .await,
+        ui.agent_build_ctx()
+            .rebuild_agent(&ui.session.model, reasoning_enabled)
+            .await,
     );
     // Keep the pre-calibration context estimate in sync with the preamble we
     // just built (system prompt + tools + context files).
@@ -486,27 +471,11 @@ async fn handle_agent_done(
             chain.loop_label = None;
         } else {
             let prompt = ls.build_prompt();
-            run.agent = Some({
-                let model = ui.client.completion_model(ui.session.model.to_string());
-                let temperature =
-                    crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
-                let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
-                crate::provider::build_agent(
-                    model,
-                    ui.cli,
-                    ui.cfg,
-                    ui.context,
-                    ui.permission.clone(),
-                    ui.ask_tx.clone(),
-                    ui.sandbox.clone(),
-                    true,
-                    temperature,
-                    extra_body,
-                    #[cfg(feature = "mcp")]
-                    ui.mcp_manager.as_ref(),
-                )
-                .await
-            });
+            run.agent = Some(
+                ui.agent_build_ctx()
+                    .rebuild_agent(&ui.session.model, true)
+                    .await,
+            );
             let runner = run
                 .agent
                 .as_ref()
@@ -544,27 +513,11 @@ async fn handle_agent_done(
                 ui.session.working_dir = compact_str::CompactString::new(&main_path);
                 ui.context.reload();
                 apply_current_prompt_mode(ui.context, &ui.permission);
-                run.agent = Some({
-                    let model = ui.client.completion_model(ui.session.model.to_string());
-                    let temperature =
-                        crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
-                    let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
-                    crate::provider::build_agent(
-                        model,
-                        ui.cli,
-                        ui.cfg,
-                        ui.context,
-                        ui.permission.clone(),
-                        ui.ask_tx.clone(),
-                        ui.sandbox.clone(),
-                        true,
-                        temperature,
-                        extra_body,
-                        #[cfg(feature = "mcp")]
-                        ui.mcp_manager.as_ref(),
-                    )
-                    .await
-                });
+                run.agent = Some(
+                    ui.agent_build_ctx()
+                        .rebuild_agent(&ui.session.model, true)
+                        .await,
+                );
                 crate::ui::events::render_session(
                     renderer, ui.session, ui.cli, ui.cfg, ui.context,
                 )?;

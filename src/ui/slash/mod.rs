@@ -26,7 +26,7 @@ use crate::session::{MessageRole, Session};
 use crate::ui::events::render_session;
 use crate::ui::input::InputEditor;
 use crate::ui::renderer::Renderer;
-use crate::ui::state::{AgentRunState, ChainState, SlashState, UiContext};
+use crate::ui::state::{AgentBuildCtx, AgentRunState, ChainState, SlashState, UiContext};
 
 pub(crate) const C_AGENT: crossterm::style::Color = crossterm::style::Color::White;
 pub(crate) const C_RESULT: crossterm::style::Color = crossterm::style::Color::DarkGrey;
@@ -55,33 +55,32 @@ pub struct SlashCtx<'a> {
 }
 
 impl SlashCtx<'_> {
+    /// Borrow the pieces [`AgentBuildCtx::rebuild_agent`] needs.
+    fn agent_build_ctx(&self) -> AgentBuildCtx<'_> {
+        AgentBuildCtx {
+            cli: self.cli,
+            cfg: self.cfg,
+            context: self.context,
+            client: self.client,
+            permission: self.permission,
+            ask_tx: self.ask_tx,
+            sandbox: self.sandbox,
+            #[cfg(feature = "mcp")]
+            mcp_manager: self.mcp_manager,
+        }
+    }
+
     pub async fn rebuild_agent(&mut self) {
-        let model = self.client.completion_model(self.session.model.to_string());
-        let temperature =
-            crate::config::resolve_temperature(self.cli, self.cfg, &self.session.model);
-        let extra_body = crate::config::resolve_extra_body(self.cfg, &self.session.model);
         #[cfg(feature = "advisor")]
         {
             crate::extras::advisor::update_client(self.client.clone());
             crate::extras::advisor::set_session_messages(self.session.messages.clone());
         }
-        *self.agent = Some(
-            crate::provider::build_agent(
-                model,
-                self.cli,
-                self.cfg,
-                self.context,
-                self.permission.clone(),
-                self.ask_tx.clone(),
-                self.sandbox.clone(),
-                *self.reasoning_enabled,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                self.mcp_manager,
-            )
-            .await,
-        );
+        let new_agent = self
+            .agent_build_ctx()
+            .rebuild_agent(&self.session.model, *self.reasoning_enabled)
+            .await;
+        *self.agent = Some(new_agent);
     }
 
     pub async fn rebuild_agent_with_client(
@@ -95,32 +94,16 @@ impl SlashCtx<'_> {
             &self.cfg.custom_providers_map(),
             self.cfg.api_keys.as_ref(),
         )?;
-        let model = self.client.completion_model(self.session.model.to_string());
-        let temperature =
-            crate::config::resolve_temperature(self.cli, self.cfg, &self.session.model);
-        let extra_body = crate::config::resolve_extra_body(self.cfg, &self.session.model);
         #[cfg(feature = "advisor")]
         {
             crate::extras::advisor::update_client(self.client.clone());
             crate::extras::advisor::set_session_messages(self.session.messages.clone());
         }
-        *self.agent = Some(
-            crate::provider::build_agent(
-                model,
-                self.cli,
-                self.cfg,
-                self.context,
-                self.permission.clone(),
-                self.ask_tx.clone(),
-                self.sandbox.clone(),
-                new_reasoning,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                self.mcp_manager,
-            )
-            .await,
-        );
+        let new_agent = self
+            .agent_build_ctx()
+            .rebuild_agent(&self.session.model, new_reasoning)
+            .await;
+        *self.agent = Some(new_agent);
         Ok(())
     }
 
@@ -165,31 +148,16 @@ impl SlashCtx<'_> {
                 }
             }
         } else {
-            let model = self.client.completion_model(new_model.to_string());
-            let temperature = crate::config::resolve_temperature(self.cli, self.cfg, &new_model);
-            let extra_body = crate::config::resolve_extra_body(self.cfg, &new_model);
             #[cfg(feature = "advisor")]
             {
                 crate::extras::advisor::update_client(self.client.clone());
                 crate::extras::advisor::set_session_messages(self.session.messages.clone());
             }
-            *self.agent = Some(
-                crate::provider::build_agent(
-                    model,
-                    self.cli,
-                    self.cfg,
-                    self.context,
-                    self.permission.clone(),
-                    self.ask_tx.clone(),
-                    self.sandbox.clone(),
-                    *self.reasoning_enabled,
-                    temperature,
-                    extra_body,
-                    #[cfg(feature = "mcp")]
-                    self.mcp_manager,
-                )
-                .await,
-            );
+            let new_agent = self
+                .agent_build_ctx()
+                .rebuild_agent(&new_model, *self.reasoning_enabled)
+                .await;
+            *self.agent = Some(new_agent);
         }
 
         self.session.input_token_cost = qmc.input_token_cost;
@@ -262,30 +230,15 @@ pub(crate) async fn apply_prompt_model(
         }
     }
 
-    let model = ui.client.completion_model(new_model.to_string());
-    let temperature = crate::config::resolve_temperature(ui.cli, ui.cfg, &new_model);
-    let extra_body = crate::config::resolve_extra_body(ui.cfg, &new_model);
     #[cfg(feature = "advisor")]
     {
         crate::extras::advisor::update_client(ui.client.clone());
         crate::extras::advisor::set_session_messages(ui.session.messages.clone());
     }
     *agent = Some(
-        crate::provider::build_agent(
-            model,
-            ui.cli,
-            ui.cfg,
-            ui.context,
-            ui.permission.clone(),
-            ui.ask_tx.clone(),
-            ui.sandbox.clone(),
-            reasoning_enabled,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            ui.mcp_manager.as_ref(),
-        )
-        .await,
+        ui.agent_build_ctx()
+            .rebuild_agent(&new_model, reasoning_enabled)
+            .await,
     );
 
     ui.session.input_token_cost = qmc.input_token_cost;
@@ -421,25 +374,10 @@ pub async fn handle_compress(
     );
     ui.session.compress(summary, cut_idx, tokens_before);
 
-    let model = ui.client.completion_model(ui.session.model.to_string());
-    let temperature = crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
-    let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
     *agent = Some(
-        crate::provider::build_agent(
-            model,
-            ui.cli,
-            ui.cfg,
-            ui.context,
-            ui.permission.clone(),
-            ui.ask_tx.clone(),
-            ui.sandbox.clone(),
-            reasoning_enabled,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            ui.mcp_manager.as_ref(),
-        )
-        .await,
+        ui.agent_build_ctx()
+            .rebuild_agent(&ui.session.model, reasoning_enabled)
+            .await,
     );
 
     render_session(renderer, ui.session, ui.cli, ui.cfg, ui.context)?;

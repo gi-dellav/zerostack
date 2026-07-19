@@ -148,26 +148,11 @@ fn lookup_pricing_from_cache(provider: &str, model_id: &str) -> Option<(f64, f64
 
 async fn apply_model(ctx: &mut SlashCtx<'_>, model_id: &str) {
     let new_model = compact_str::CompactString::new(model_id);
-    let model = ctx.client.completion_model(new_model.to_string());
-    let temperature = crate::config::resolve_temperature(ctx.cli, ctx.cfg, &new_model);
-    let extra_body = crate::config::resolve_extra_body(ctx.cfg, &new_model);
-    *ctx.agent = Some(
-        crate::provider::build_agent(
-            model,
-            ctx.cli,
-            ctx.cfg,
-            ctx.context,
-            ctx.permission.clone(),
-            ctx.ask_tx.clone(),
-            ctx.sandbox.clone(),
-            *ctx.reasoning_enabled,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            ctx.mcp_manager,
-        )
-        .await,
-    );
+    let new_agent = ctx
+        .agent_build_ctx()
+        .rebuild_agent(&new_model, *ctx.reasoning_enabled)
+        .await;
+    *ctx.agent = Some(new_agent);
     ctx.session.model = new_model.clone();
     ctx.session
         .update_context_window(ctx.cfg.resolve_context_window(
@@ -256,26 +241,11 @@ async fn handle_model(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
         return Ok(());
     }
     let new_model = compact_str::CompactString::new(parts[1].trim());
-    let model = ctx.client.completion_model(new_model.to_string());
-    let temperature = crate::config::resolve_temperature(ctx.cli, ctx.cfg, &new_model);
-    let extra_body = crate::config::resolve_extra_body(ctx.cfg, &new_model);
-    *ctx.agent = Some(
-        crate::provider::build_agent(
-            model,
-            ctx.cli,
-            ctx.cfg,
-            ctx.context,
-            ctx.permission.clone(),
-            ctx.ask_tx.clone(),
-            ctx.sandbox.clone(),
-            *ctx.reasoning_enabled,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            ctx.mcp_manager,
-        )
-        .await,
-    );
+    let new_agent = ctx
+        .agent_build_ctx()
+        .rebuild_agent(&new_model, *ctx.reasoning_enabled)
+        .await;
+    *ctx.agent = Some(new_agent);
     ctx.session.model = new_model.clone();
     ctx.session.provider = ctx.cli.resolve_provider(ctx.cfg);
     ctx.session

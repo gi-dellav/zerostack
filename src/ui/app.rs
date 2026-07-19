@@ -190,27 +190,11 @@ impl<'a> App<'a> {
                     ui.context.reload();
                     apply_current_prompt_mode(ui.context, &ui.permission);
                     #[cfg(feature = "mcp")]
-                    let mcp_ref = ensure_mcp_manager(&mut ui.mcp_manager, ui.cfg).await;
-                    let model = ui.client.completion_model(ui.session.model.to_string());
-                    let temperature =
-                        crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
-                    let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
+                    ensure_mcp_manager(&mut ui.mcp_manager, ui.cfg).await;
                     run.agent = Some(
-                        crate::provider::build_agent(
-                            model,
-                            ui.cli,
-                            ui.cfg,
-                            ui.context,
-                            ui.permission.clone(),
-                            ui.ask_tx.clone(),
-                            ui.sandbox.clone(),
-                            slash.reasoning_enabled,
-                            temperature,
-                            extra_body,
-                            #[cfg(feature = "mcp")]
-                            mcp_ref,
-                        )
-                        .await,
+                        ui.agent_build_ctx()
+                            .rebuild_agent(&ui.session.model, slash.reasoning_enabled)
+                            .await,
                     );
                     let _ = render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context);
                 }
@@ -235,27 +219,11 @@ impl<'a> App<'a> {
                     ui.context.reload();
                     apply_current_prompt_mode(ui.context, &ui.permission);
                     #[cfg(feature = "mcp")]
-                    let mcp_ref = ensure_mcp_manager(&mut ui.mcp_manager, ui.cfg).await;
-                    let model = ui.client.completion_model(ui.session.model.to_string());
-                    let temperature =
-                        crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
-                    let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
+                    ensure_mcp_manager(&mut ui.mcp_manager, ui.cfg).await;
                     run.agent = Some(
-                        crate::provider::build_agent(
-                            model,
-                            ui.cli,
-                            ui.cfg,
-                            ui.context,
-                            ui.permission.clone(),
-                            ui.ask_tx.clone(),
-                            ui.sandbox.clone(),
-                            slash.reasoning_enabled,
-                            temperature,
-                            extra_body,
-                            #[cfg(feature = "mcp")]
-                            mcp_ref,
-                        )
-                        .await,
+                        ui.agent_build_ctx()
+                            .rebuild_agent(&ui.session.model, slash.reasoning_enabled)
+                            .await,
                     );
                     let _ = render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context);
                 }
@@ -326,24 +294,18 @@ impl<'a> App<'a> {
                     None
                 };
 
-                let model = client_clone.completion_model(session_model.clone());
-                let temperature =
-                    crate::config::resolve_temperature(&cli_clone, &cfg_clone, &session_model);
-                let extra_body = crate::config::resolve_extra_body(&cfg_clone, &session_model);
-                let a = crate::provider::build_agent(
-                    model,
-                    &cli_clone,
-                    &cfg_clone,
-                    &context_clone,
-                    permission_clone,
-                    ask_tx_clone,
-                    sandbox_clone,
-                    reasoning_enabled,
-                    temperature,
-                    extra_body,
+                let a = crate::ui::state::AgentBuildCtx {
+                    cli: &cli_clone,
+                    cfg: &cfg_clone,
+                    context: &context_clone,
+                    client: &client_clone,
+                    permission: &permission_clone,
+                    ask_tx: &ask_tx_clone,
+                    sandbox: &sandbox_clone,
                     #[cfg(feature = "mcp")]
-                    mcp.as_ref(),
-                )
+                    mcp_manager: mcp.as_ref(),
+                }
+                .rebuild_agent(&session_model, reasoning_enabled)
                 .await;
 
                 #[cfg(feature = "mcp")]
@@ -1449,36 +1411,13 @@ impl<'a> App<'a> {
                         self.ui.context.reload();
                         apply_current_prompt_mode(self.ui.context, &self.ui.permission);
                         #[cfg(feature = "mcp")]
-                        let mcp_ref =
-                            ensure_mcp_manager(&mut self.ui.mcp_manager, self.ui.cfg).await;
-                        let model = self
+                        ensure_mcp_manager(&mut self.ui.mcp_manager, self.ui.cfg).await;
+                        let new_agent = self
                             .ui
-                            .client
-                            .completion_model(self.ui.session.model.to_string());
-                        let temperature = crate::config::resolve_temperature(
-                            self.ui.cli,
-                            self.ui.cfg,
-                            &self.ui.session.model,
-                        );
-                        let extra_body =
-                            crate::config::resolve_extra_body(self.ui.cfg, &self.ui.session.model);
-                        self.run.agent = Some(
-                            crate::provider::build_agent(
-                                model,
-                                self.ui.cli,
-                                self.ui.cfg,
-                                self.ui.context,
-                                self.ui.permission.clone(),
-                                self.ui.ask_tx.clone(),
-                                self.ui.sandbox.clone(),
-                                self.slash.reasoning_enabled,
-                                temperature,
-                                extra_body,
-                                #[cfg(feature = "mcp")]
-                                mcp_ref,
-                            )
-                            .await,
-                        );
+                            .agent_build_ctx()
+                            .rebuild_agent(&self.ui.session.model, self.slash.reasoning_enabled)
+                            .await;
+                        self.run.agent = Some(new_agent);
                         render_session(
                             &mut self.renderer,
                             self.ui.session,
@@ -1815,33 +1754,12 @@ impl<'a> App<'a> {
             match (self.ui.mcp_manager.as_mut(), server_cfg) {
                 (Some(mgr), Some(scfg)) => match mgr.reconnect(&server, &scfg).await {
                     Ok(()) => {
-                        let model = self
+                        let new_agent = self
                             .ui
-                            .client
-                            .completion_model(self.ui.session.model.to_string());
-                        let temperature = crate::config::resolve_temperature(
-                            self.ui.cli,
-                            self.ui.cfg,
-                            &self.ui.session.model,
-                        );
-                        let extra_body =
-                            crate::config::resolve_extra_body(self.ui.cfg, &self.ui.session.model);
-                        self.run.agent = Some(
-                            crate::provider::build_agent(
-                                model,
-                                self.ui.cli,
-                                self.ui.cfg,
-                                self.ui.context,
-                                self.ui.permission.clone(),
-                                self.ui.ask_tx.clone(),
-                                self.ui.sandbox.clone(),
-                                self.slash.reasoning_enabled,
-                                temperature,
-                                extra_body,
-                                self.ui.mcp_manager.as_ref(),
-                            )
-                            .await,
-                        );
+                            .agent_build_ctx()
+                            .rebuild_agent(&self.ui.session.model, self.slash.reasoning_enabled)
+                            .await;
+                        self.run.agent = Some(new_agent);
                         self.renderer.write_line(
                             &format!("authorized and connected '{}'", server),
                             C_AGENT,
