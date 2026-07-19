@@ -15,7 +15,7 @@ Single crate, no workspace. All source under `src/`.
 | `src/agent/` | Agent lifecycle: `builder.rs` (rig Agent construction + tool injection), `runner.rs` (spawn, stream), `prompt.rs` (system prompts), `tools/` (8 core tool impls: read, write, edit, bash, grep, find_files, list_dir, todo; plus feature-gated `TaskTool` and `AdvisorTool`) |
 | `src/session/` | Session state: `mod.rs` (messages, compactions, costs), `storage.rs` (JSON file I/O), `chat_history.rs` |
 | `src/permission/` | Security: `checker.rs` (glob+regex rules, doom-loop detection), `ask.rs` (user prompt UI), `pattern.rs` |
-| `src/ui/` | Custom TUI on crossterm (no ratatui): `mod.rs` (event loop), `terminal.rs` (raw mode guard), `renderer.rs` (line buffer + viewport), `input/` (text editor + pickers), `status.rs`, `markdown.rs`, `event_handler.rs`, `cmd_picker.rs` |
+| `src/ui/` | Custom TUI on crossterm (no ratatui): `mod.rs` (event loop), `terminal.rs` (raw mode guard), `renderer.rs` (line buffer + viewport), `input/` (text editor + pickers), `status.rs`, `markdown.rs`, `event_handler.rs`, `state.rs` (grouped TUI state: `UiContext`, `AgentRunState`, `ChainState`, `SlashState`), `cmd_picker.rs` |
 | `src/context/` | Context gathering: embedded prompt themes (`prompts.rs`, `themes.rs`), AGENTS.md/ARCHITECTURE.md loading |
 | `src/config/` | Configuration: `load.rs` (TOML/YAML/JSON from disk+env), `types.rs` (QuickModel, CustomProvider, Colors, EditSystem) |
 | `src/extras/` | Feature-gated extensions: `loop/` (headless), `mcp/` (MCP client), `acp/` (ACP server), `memory/` (persistent memory), `subagents/` (parallel task delegation), `git_worktree/`, `archmd/`, `advisor/` (external model consultation, `/advisor`), `multimodal/` (image/PDF ingestion, gated separately by `multimodal`/`pdf`), `hooks/` (lifecycle hook dispatch: `PreToolUse`/`PostToolUse`/`Stop`/`UserPromptSubmit`/session+subagent events, trust-hash confirmation). Two subsystems are always compiled (not feature-gated): `chain/` (brainstorm→plan→code prompt transitions) and `status_signals` (Unix-socket start/stop/git-conflict signals, itself gated by the `status-signals` feature at the call site) |
@@ -121,7 +121,7 @@ Optional (`mcp` feature): `rmcp 2.0` (MCP client with child-process + HTTP trans
 - **`--print`** / `-p` — `agent.run_print()` → single reply, then exit (`main.rs:774`)
 - **`--loop`** — `run_headless_loop()` → iterative prompt/validate loop (branch at `main.rs:891`, definition at `:1160`)
 - **`--acp`** — `extras::acp::serve()` → ACP server mode (`main.rs:417`)
-- **Default (no flags)** — `ui::run_interactive()` → full TUI (call at `main.rs:931`, definition at `src/ui/mod.rs:751`)
+- **Default (no flags)** — `ui::run_interactive()` → full TUI (call at `main.rs:931`, definition at `src/ui/mod.rs:636`)
 - **`--resume`** / `--continue` / `--session <id>` — loads prior session before entering TUI/print
 - **`--advisor`** (feature `advisor`) — registers `AdvisorTool` so the agent can consult a second model for strategic guidance mid-session (`src/agent/builder.rs:269-273`)
 - **`--no-hooks`** / **`--hooks-test`** (feature `hooks`) — disables the hook dispatcher, or dry-runs a single hook invocation against stdin and exits (`src/main.rs:178`, `:191`)

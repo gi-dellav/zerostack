@@ -8,6 +8,7 @@ mod permission_handler;
 pub(crate) mod pickers;
 pub(crate) mod renderer;
 pub(crate) mod slash;
+pub(crate) mod state;
 pub(crate) mod statusline;
 mod terminal;
 pub(crate) mod utils;
@@ -22,19 +23,19 @@ use crossterm::event::{KeyEventKind, MouseButton, MouseEventKind};
 use crossterm::style::Color;
 use tokio::sync::mpsc;
 
-use crate::cli::Cli;
+#[cfg(feature = "mcp")]
 use crate::config::Config;
+#[cfg(feature = "git-worktree")]
 use crate::context::ContextFiles;
-use crate::event::{AgentEvent, UserEvent};
+use crate::event::UserEvent;
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::McpClientManager;
-use crate::extras::status_signals::StatusSignals;
 #[cfg(feature = "git-worktree")]
 use crate::permission;
-use crate::permission::ask::{AskReceiver, AskSender};
+use crate::permission::ask::AskReceiver;
+#[cfg(feature = "git-worktree")]
 use crate::permission::checker::PermCheck;
-use crate::provider::{AnyAgent, AnyClient};
-use crate::sandbox::Sandbox;
+use crate::provider::AnyAgent;
 use crate::session::{MessageRole, Session};
 use crate::ui::event_handler::ensure_agent;
 #[cfg(feature = "advisor")]
@@ -42,6 +43,9 @@ use crate::ui::events::sanitize_output;
 use crate::ui::input::InputEditor;
 use crate::ui::renderer::Renderer;
 use crate::ui::slash::handle_compress;
+#[cfg(feature = "git-worktree")]
+use crate::ui::state::MergeRequest;
+use crate::ui::state::{AgentRunState, BtwStats, ChainState, SlashState, UiContext};
 
 #[cfg(feature = "git-worktree")]
 pub(crate) fn apply_current_prompt_mode(
@@ -75,36 +79,36 @@ pub(super) const C_BTW: Color = Color::Cyan;
 #[cfg(feature = "advisor")]
 pub(super) const C_HANDOFF: Color = Color::Green;
 
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn refresh_display(
     renderer: &mut Renderer,
     input: &mut InputEditor,
-    session: &Session,
-    is_running: bool,
-    loop_label: Option<&str>,
-    prompt_name: Option<&str>,
-    perm_mode: Option<&str>,
-    chain_label: Option<&str>,
-    btw_cost: f64,
-    btw_in: u64,
-    btw_out: u64,
+    ui: &UiContext,
+    run: &AgentRunState,
+    chain: &ChainState,
+    btw: BtwStats,
 ) -> io::Result<()> {
     // Reconcile the input height first so the chat viewport is drawn against
     // the size the input is about to occupy (avoids a stale separator when the
     // input shrinks, or chat text hidden under it when the input grows).
     renderer.sync_input_height(&input.buffer)?;
     renderer.render_viewport()?;
+    let perm_mode = ui.permission.as_ref().map(|p| {
+        p.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .mode()
+            .to_string()
+    });
     let statusline_ctx = crate::ui::statusline::StatusContext {
-        loop_label,
-        prompt_name,
-        perm_mode,
-        chain_label,
-        btw_cost,
-        btw_in,
-        btw_out,
+        loop_label: chain.loop_label.as_deref(),
+        prompt_name: ui.context.current_prompt_name.as_deref(),
+        perm_mode: perm_mode.as_deref(),
+        chain_label: chain.label_msg.as_deref(),
+        btw_cost: btw.cost,
+        btw_in: btw.input,
+        btw_out: btw.output,
     };
-    let statusline = crate::ui::statusline::build(session, &statusline_ctx);
-    renderer.draw_bottom(&input.buffer, input.cursor, &statusline, is_running)?;
+    let statusline = crate::ui::statusline::build(ui.session, &statusline_ctx);
+    renderer.draw_bottom(&input.buffer, input.cursor, &statusline, run.is_running)?;
     if let Some(ref mut picker) = input.picker {
         picker.draw()?;
     }
@@ -242,32 +246,14 @@ pub(crate) fn classify_submission(is_running: bool, text: &str) -> SubmitAction 
 }
 
 #[cfg(feature = "git-worktree")]
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn spawn_merge_agent(
-    branch: &str,
-    target: &str,
-    main_path: &str,
-    wt_path: &str,
-    force_flag: bool,
-    session: &mut Session,
-    agent: &mut Option<AnyAgent>,
-    client: &AnyClient,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    sandbox: &Sandbox,
-    reasoning_enabled: bool,
-    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
-    main_abort: &mut Option<tokio::task::AbortHandle>,
-    is_running: &mut bool,
-    status_signals: &Option<StatusSignals>,
-    wt_return_path: &mut Option<(String, String, String, bool)>,
-    #[cfg(feature = "mcp")] mcp_manager: &mut Option<McpClientManager>,
+    req: MergeRequest<'_>,
+    run: &mut AgentRunState,
+    ui: &mut UiContext<'_>,
+    chain: &mut ChainState,
 ) {
-    let wt_remove_flag = if force_flag { "--force" } else { "" };
-    let branch_delete_flag = if force_flag { "-D" } else { "-d" };
+    let wt_remove_flag = if req.force { "--force" } else { "" };
+    let branch_delete_flag = if req.force { "-D" } else { "-d" };
     let prompt = format!(
         "I'm in a git worktree on branch '{branch}' at '{wt_path}'. \
          Merge it into '{target}' in the main repo at '{main_path}'.\n\n\
@@ -294,55 +280,41 @@ pub(crate) async fn spawn_merge_agent(
            - git branch {branch_delete_flag} {branch}\n\n\
          8. cd {main_path} and report completion.\n\n\
          Important: Do NOT skip any step. Always check for conflicts after merge.",
-        branch = branch,
-        wt_path = wt_path,
-        target = target,
-        main_path = main_path,
+        branch = req.branch,
+        wt_path = req.wt_path,
+        target = req.target,
+        main_path = req.main_path,
         wt_remove_flag = wt_remove_flag,
         branch_delete_flag = branch_delete_flag
     );
-    session.add_message(MessageRole::User, &prompt);
-    let history = crate::agent::runner::convert_history(session);
-    #[cfg(feature = "mcp")]
-    let mcp_ref = ensure_mcp_manager(mcp_manager, cfg).await;
-    ensure_agent(
-        agent,
-        client,
-        session,
-        cli,
-        cfg,
-        context,
-        permission,
-        ask_tx,
-        sandbox,
-        reasoning_enabled,
-        #[cfg(feature = "mcp")]
-        mcp_ref,
-    )
-    .await;
-    let runner = agent
+    ui.session.add_message(MessageRole::User, &prompt);
+    let history = crate::agent::runner::convert_history(ui.session);
+    let reasoning_enabled = ui.session.reasoning_enabled;
+    ensure_agent(&mut run.agent, ui, reasoning_enabled).await;
+    let runner = run
+        .agent
         .as_ref()
         .unwrap()
         .clone()
         .spawn_runner(
             prompt,
             history,
-            cfg.retry.clone(),
+            ui.cfg.retry.clone(),
             #[cfg(feature = "hooks")]
             None,
         )
         .await;
-    *agent_rx = Some(runner.event_rx);
-    *main_abort = Some(runner.abort_handle);
-    *is_running = true;
-    if let Some(ss) = status_signals.as_ref() {
+    run.agent_rx = Some(runner.event_rx);
+    run.main_abort = Some(runner.abort_handle);
+    run.is_running = true;
+    if let Some(ss) = ui.status_signals.as_ref() {
         ss.send_start();
     }
-    *wt_return_path = Some((
-        main_path.to_string(),
-        wt_path.to_string(),
-        branch.to_string(),
-        force_flag,
+    chain.wt_return_path = Some((
+        req.main_path.to_string(),
+        req.wt_path.to_string(),
+        req.branch.to_string(),
+        req.force,
     ));
 }
 /// Result of a background agent prebuild.
@@ -390,54 +362,24 @@ pub(crate) async fn resolve_prebuild<'a>(
 /// The ONLY place that sets `agent_rx`/`is_running` for user-driven runs, so the
 /// "at most one main run" invariant is enforced in one spot. Callers must ensure
 /// no run is already active (otherwise the previous one would be orphaned).
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn start_main_run(
     text: &str,
-    agent: &mut Option<AnyAgent>,
-    client: &AnyClient,
-    session: &mut Session,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    sandbox: &Sandbox,
-    reasoning_enabled: bool,
-    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
-    main_abort: &mut Option<tokio::task::AbortHandle>,
-    is_running: &mut bool,
-    status_signals: &Option<StatusSignals>,
-    #[cfg(feature = "mcp")] mcp_manager: &mut Option<McpClientManager>,
+    run: &mut AgentRunState,
+    ui: &mut UiContext<'_>,
+    slash: &SlashState,
     prebuild_rx: &mut Option<mpsc::Receiver<PrebuildPayload>>,
-    pending_send: &mut Option<String>,
 ) {
     // Wait for the background prebuild if it hasn't completed yet.
     #[cfg(feature = "mcp")]
-    resolve_prebuild(agent, mcp_manager, prebuild_rx).await;
+    resolve_prebuild(&mut run.agent, &mut ui.mcp_manager, prebuild_rx).await;
     #[cfg(not(feature = "mcp"))]
-    resolve_prebuild(agent, prebuild_rx).await;
+    resolve_prebuild(&mut run.agent, prebuild_rx).await;
 
-    #[cfg(feature = "mcp")]
-    let mcp_ref = ensure_mcp_manager(mcp_manager, cfg).await;
-    ensure_agent(
-        agent,
-        client,
-        session,
-        cli,
-        cfg,
-        context,
-        permission,
-        ask_tx,
-        sandbox,
-        reasoning_enabled,
-        #[cfg(feature = "mcp")]
-        mcp_ref,
-    )
-    .await;
-    let history = crate::agent::runner::convert_history(session);
+    ensure_agent(&mut run.agent, ui, slash.reasoning_enabled).await;
+    let history = crate::agent::runner::convert_history(ui.session);
     #[cfg(feature = "multimodal")]
     let history = {
-        let media = session.drain_media();
+        let media = ui.session.drain_media();
         if media.is_empty() {
             history
         } else {
@@ -446,35 +388,36 @@ pub(crate) async fn start_main_run(
             h
         }
     };
-    let runner = agent
+    let runner = run
+        .agent
         .as_ref()
         .unwrap()
         .clone()
         .spawn_runner(
             text.to_string(),
             history,
-            cfg.retry.clone(),
+            ui.cfg.retry.clone(),
             #[cfg(feature = "hooks")]
             None,
         )
         .await;
-    *agent_rx = Some(runner.event_rx);
-    *main_abort = Some(runner.abort_handle);
-    *is_running = true;
-    if let Some(ss) = status_signals.as_ref() {
+    run.agent_rx = Some(runner.event_rx);
+    run.main_abort = Some(runner.abort_handle);
+    run.is_running = true;
+    if let Some(ss) = ui.status_signals.as_ref() {
         ss.send_start();
     }
-    session.add_message(MessageRole::User, text);
+    ui.session.add_message(MessageRole::User, text);
     // Mark this message as the rollback target if the turn fails (see the
     // failed-send handling in the main event loop).
-    *pending_send = Some(text.to_string());
+    run.pending_send = Some(text.to_string());
     #[cfg(feature = "advisor")]
-    crate::extras::advisor::set_session_messages(session.messages.clone());
-    if !cli.no_session {
+    crate::extras::advisor::set_session_messages(ui.session.messages.clone());
+    if !ui.cli.no_session {
         let _ = crate::session::chat_history::append_entry(
             &crate::session::chat_history::ChatHistoryEntry {
                 content: text.to_string(),
-                timestamp: session.updated_at.clone(),
+                timestamp: ui.session.updated_at.clone(),
             },
         );
     }
@@ -506,61 +449,43 @@ wide ones until pressure subsides.";
 /// The dominant pressure relief is dropping the aborted run's in-flight tool
 /// context, which the respawn achieves even when the session itself is under the
 /// between-turn limit and `handle_compress` is a no-op.
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn mid_turn_compact_and_respawn(
     pressure: f64,
     renderer: &mut Renderer,
-    agent: &mut Option<AnyAgent>,
-    client: &mut AnyClient,
-    session: &mut Session,
-    cli: &Cli,
-    cfg: &Config,
-    context: &mut ContextFiles,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    sandbox: &Sandbox,
-    reasoning_enabled: bool,
-    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
-    main_abort: &mut Option<tokio::task::AbortHandle>,
-    is_running: &mut bool,
-    status_signals: &Option<StatusSignals>,
-    turn_trace: &mut Vec<compact_str::CompactString>,
-    response_buf: &mut String,
-    response_start_block: &mut Option<usize>,
-    agent_line_started: &mut bool,
-    was_reasoning: &mut bool,
-    #[cfg(feature = "mcp")] mcp_manager: &mut Option<McpClientManager>,
+    run: &mut AgentRunState,
+    ui: &mut UiContext<'_>,
+    slash: &SlashState,
 ) -> anyhow::Result<()> {
     // 1. Stop the in-flight run. bash children die via kill_on_drop.
-    if let Some(h) = main_abort.take() {
+    if let Some(h) = run.main_abort.take() {
         h.abort();
     }
-    *is_running = false;
-    *agent_rx = None;
-    *was_reasoning = false;
+    run.is_running = false;
+    run.agent_rx = None;
+    run.was_reasoning = false;
 
     // 2. Record progress so far. `turn_trace` is a capped/truncated digest, so
     // this is best-effort continuity, paired with any partial response text.
     let mut recap = String::new();
-    if !response_buf.trim().is_empty() {
-        recap.push_str(response_buf.trim());
+    if !run.response_buf.trim().is_empty() {
+        recap.push_str(run.response_buf.trim());
         recap.push_str("\n\n");
     }
-    if !turn_trace.is_empty() {
+    if !run.turn_trace.is_empty() {
         recap.push_str("[Progress this turn before context compaction]\n");
-        for line in turn_trace.iter() {
+        for line in run.turn_trace.iter() {
             recap.push_str(line);
             recap.push('\n');
         }
     }
     let recap = recap.trim();
     if !recap.is_empty() {
-        session.add_message(MessageRole::Assistant, recap);
+        ui.session.add_message(MessageRole::Assistant, recap);
     }
-    turn_trace.clear();
-    response_buf.clear();
-    *response_start_block = None;
-    *agent_line_started = false;
+    run.turn_trace.clear();
+    run.response_buf.clear();
+    run.response_start_block = None;
+    run.agent_line_started = false;
 
     // Unlike the between-turn gate, this announces unconditionally: the relief
     // here is dropping the aborted run's in-flight tool context via the respawn
@@ -577,24 +502,13 @@ pub(crate) async fn mid_turn_compact_and_respawn(
     )?;
 
     // 3. Compact the session (no-op if its text history is under the limit).
-    #[cfg(feature = "mcp")]
-    let mcp_ref = ensure_mcp_manager(mcp_manager, cfg).await;
     let compress_result = handle_compress(
         None,
         true,
-        agent,
-        client,
+        &mut run.agent,
         renderer,
-        session,
-        cli,
-        cfg,
-        context,
-        reasoning_enabled,
-        permission,
-        ask_tx,
-        sandbox,
-        #[cfg(feature = "mcp")]
-        mcp_ref,
+        ui,
+        slash.reasoning_enabled,
     )
     .await;
     if let Err(e) = compress_result {
@@ -602,40 +516,25 @@ pub(crate) async fn mid_turn_compact_and_respawn(
     }
 
     // 4. Respawn on the compacted history with the continuation prompt.
-    #[cfg(feature = "mcp")]
-    let mcp_ref = ensure_mcp_manager(mcp_manager, cfg).await;
-    ensure_agent(
-        agent,
-        client,
-        session,
-        cli,
-        cfg,
-        context,
-        permission,
-        ask_tx,
-        sandbox,
-        reasoning_enabled,
-        #[cfg(feature = "mcp")]
-        mcp_ref,
-    )
-    .await;
-    let history = crate::agent::runner::convert_history(session);
-    let runner = agent
+    ensure_agent(&mut run.agent, ui, slash.reasoning_enabled).await;
+    let history = crate::agent::runner::convert_history(ui.session);
+    let runner = run
+        .agent
         .as_ref()
         .unwrap()
         .clone()
         .spawn_runner(
             MID_TURN_CONTINUE_PROMPT.to_string(),
             history,
-            cfg.retry.clone(),
+            ui.cfg.retry.clone(),
             #[cfg(feature = "hooks")]
             None,
         )
         .await;
-    *agent_rx = Some(runner.event_rx);
-    *main_abort = Some(runner.abort_handle);
-    *is_running = true;
-    if let Some(ss) = status_signals.as_ref() {
+    run.agent_rx = Some(runner.event_rx);
+    run.main_abort = Some(runner.abort_handle);
+    run.is_running = true;
+    if let Some(ss) = ui.status_signals.as_ref() {
         ss.send_start();
     }
     Ok(())
@@ -647,34 +546,24 @@ pub(crate) async fn mid_turn_compact_and_respawn(
 /// space), so compacting again is futile. Aborts the run and shows the user the
 /// full arithmetic — the model and context-window combination is simply too
 /// small to run the agentic loop on this task.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn stop_turn_context_exhausted(
     prompt_tokens: u64,
     threshold: f64,
     renderer: &mut Renderer,
-    session: &Session,
-    cfg: &Config,
-    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
-    main_abort: &mut Option<tokio::task::AbortHandle>,
-    is_running: &mut bool,
-    status_signals: &Option<StatusSignals>,
-    turn_trace: &mut Vec<compact_str::CompactString>,
-    response_buf: &mut String,
-    response_start_block: &mut Option<usize>,
-    agent_line_started: &mut bool,
-    was_reasoning: &mut bool,
+    ui: &UiContext,
+    run: &mut AgentRunState,
 ) -> anyhow::Result<()> {
-    if let Some(h) = main_abort.take() {
+    if let Some(h) = run.main_abort.take() {
         h.abort();
     }
-    *is_running = false;
-    *agent_rx = None;
-    *was_reasoning = false;
-    *agent_line_started = false;
-    turn_trace.clear();
-    response_buf.clear();
-    *response_start_block = None;
-    if let Some(ss) = status_signals.as_ref() {
+    run.is_running = false;
+    run.agent_rx = None;
+    run.was_reasoning = false;
+    run.agent_line_started = false;
+    run.turn_trace.clear();
+    run.response_buf.clear();
+    run.response_start_block = None;
+    if let Some(ss) = ui.status_signals.as_ref() {
         ss.send_stop();
     }
 
@@ -690,9 +579,10 @@ pub(crate) fn stop_turn_context_exhausted(
     for line in context_exhausted_report(
         prompt_tokens,
         threshold,
-        session.context_window,
-        cfg.resolve_reserve_tokens(&session.model, &crate::config::quick_models_map(cfg)),
-        cfg.resolve_keep_recent_tokens(),
+        ui.session.context_window,
+        ui.cfg
+            .resolve_reserve_tokens(&ui.session.model, &crate::config::quick_models_map(ui.cfg)),
+        ui.cfg.resolve_keep_recent_tokens(),
     ) {
         renderer.write_line(&line, Color::White)?;
     }
@@ -743,35 +633,18 @@ pub(crate) fn context_exhausted_report(
     ]
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn run_interactive(
-    client: AnyClient,
+    ui: UiContext<'_>,
     agent: Option<AnyAgent>,
-    cli: &Cli,
-    cfg: &Config,
-    session: &mut Session,
-    context: &mut ContextFiles,
-    permission: Option<PermCheck>,
-    ask_tx: Option<AskSender>,
     ask_rx: Option<AskReceiver>,
-    sandbox: Sandbox,
     auto_trigger_msg: Option<String>,
-    status_signals: Option<StatusSignals>,
     #[cfg(feature = "advisor")] handoff_rx: Option<crate::extras::advisor::HandoffReceiver>,
 ) -> anyhow::Result<()> {
     let mut app = app::App::new(
-        client,
+        ui,
         agent,
-        cli,
-        cfg,
-        session,
-        context,
-        permission,
-        ask_tx,
         ask_rx,
-        sandbox,
         auto_trigger_msg,
-        status_signals,
         #[cfg(feature = "advisor")]
         handoff_rx,
     )
@@ -785,13 +658,12 @@ pub(crate) async fn handle_human_handoff(
     req: crate::extras::advisor::HandoffRequest,
     renderer: &mut Renderer,
     user_rx: &mut mpsc::Receiver<UserEvent>,
-    agent_line_started: &mut bool,
-    was_reasoning: &mut bool,
+    run: &mut AgentRunState,
 ) -> anyhow::Result<()> {
-    *was_reasoning = false;
-    if *agent_line_started {
+    run.was_reasoning = false;
+    if run.agent_line_started {
         renderer.write_line("", Color::White)?;
-        *agent_line_started = false;
+        run.agent_line_started = false;
     }
 
     renderer.write_line("[handoff] Model requests your guidance:", C_HANDOFF)?;

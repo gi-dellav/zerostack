@@ -1,25 +1,18 @@
 use compact_str::CompactString;
 use crossterm::style::Color;
-use tokio::sync::mpsc;
 
 use crate::agent::tools::todo::TODO_LIST;
 use crate::cli::Cli;
-use crate::config::{Config, ResolvedShowToolDetails};
-use crate::context::ContextFiles;
+use crate::config::ResolvedShowToolDetails;
 use crate::event::AgentEvent;
-#[cfg(feature = "mcp")]
-use crate::extras::mcp::McpClientManager;
-use crate::extras::status_signals::StatusSignals;
-use crate::permission::ask::AskSender;
-use crate::permission::checker::PermCheck;
-use crate::provider::{AnyAgent, AnyClient};
-use crate::sandbox::Sandbox;
+use crate::provider::AnyAgent;
 use crate::session::storage::save_session;
 use crate::session::{MessageRole, Session};
 use crate::ui::events::sanitize_output;
 use crate::ui::feed::BlockStyle;
 use crate::ui::renderer::Renderer;
 use crate::ui::slash::handle_compress;
+use crate::ui::state::{AgentRunState, ChainState, SlashState, TurnUsage, UiContext};
 
 #[cfg(any(feature = "git-worktree", feature = "loop"))]
 use super::C_AGENT;
@@ -27,139 +20,77 @@ use super::C_AGENT;
 use super::apply_current_prompt_mode;
 use super::{C_ERROR, C_TOOL};
 
-#[cfg(feature = "mcp")]
-#[allow(clippy::too_many_arguments)]
+/// Build the main agent on first use, lazily connecting MCP as well. Callers
+/// only reach the build when `agent` is `None`, so MCP connects at most once.
 pub async fn ensure_agent(
     agent: &mut Option<AnyAgent>,
-    client: &AnyClient,
-    session: &mut Session,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    sandbox: &Sandbox,
-    reasoning_enabled: bool,
-    mcp_manager: Option<&McpClientManager>,
-) {
-    if agent.is_some() {
-        return;
-    }
-    let model = client.completion_model(session.model.to_string());
-    let temperature = crate::config::resolve_temperature(cli, cfg, &session.model);
-    let extra_body = crate::config::resolve_extra_body(cfg, &session.model);
-    *agent = Some(
-        crate::provider::build_agent(
-            model,
-            cli,
-            cfg,
-            context,
-            permission.clone(),
-            ask_tx.clone(),
-            sandbox.clone(),
-            reasoning_enabled,
-            temperature,
-            extra_body,
-            mcp_manager,
-        )
-        .await,
-    );
-    // Keep the pre-calibration context estimate in sync with the preamble we
-    // just built (system prompt + tools + context files).
-    session.overhead_tokens = crate::agent::builder::estimate_overhead(context, reasoning_enabled);
-}
-
-#[cfg(not(feature = "mcp"))]
-#[allow(clippy::too_many_arguments)]
-pub async fn ensure_agent(
-    agent: &mut Option<AnyAgent>,
-    client: &AnyClient,
-    session: &mut Session,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    sandbox: &Sandbox,
+    ui: &mut UiContext<'_>,
     reasoning_enabled: bool,
 ) {
     if agent.is_some() {
         return;
     }
-    let model = client.completion_model(session.model.to_string());
-    let temperature = crate::config::resolve_temperature(cli, cfg, &session.model);
-    let extra_body = crate::config::resolve_extra_body(cfg, &session.model);
+    let model = ui.client.completion_model(ui.session.model.to_string());
+    let temperature = crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
+    let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
+    #[cfg(feature = "mcp")]
+    let mcp_ref = crate::ui::ensure_mcp_manager(&mut ui.mcp_manager, ui.cfg).await;
     *agent = Some(
         crate::provider::build_agent(
             model,
-            cli,
-            cfg,
-            context,
-            permission.clone(),
-            ask_tx.clone(),
-            sandbox.clone(),
+            ui.cli,
+            ui.cfg,
+            ui.context,
+            ui.permission.clone(),
+            ui.ask_tx.clone(),
+            ui.sandbox.clone(),
             reasoning_enabled,
             temperature,
             extra_body,
+            #[cfg(feature = "mcp")]
+            mcp_ref,
         )
         .await,
     );
     // Keep the pre-calibration context estimate in sync with the preamble we
     // just built (system prompt + tools + context files).
-    session.overhead_tokens = crate::agent::builder::estimate_overhead(context, reasoning_enabled);
+    ui.session.overhead_tokens =
+        crate::agent::builder::estimate_overhead(ui.context, reasoning_enabled);
 }
 
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_agent_event(
     event: AgentEvent,
     renderer: &mut Renderer,
-    session: &mut Session,
-    cfg: &Config,
-    cli: &Cli,
-    context: &mut ContextFiles,
-    is_running: &mut bool,
-    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
-    agent_line_started: &mut bool,
-    response_buf: &mut String,
-    response_start_block: &mut Option<usize>,
-    was_reasoning: &mut bool,
-    show_reasoning: bool,
-    agent: &mut Option<AnyAgent>,
-    client: &mut AnyClient,
-    loop_label: &mut Option<String>,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    sandbox: &Sandbox,
-    status_signals: &Option<StatusSignals>,
-    #[cfg(feature = "loop")] loop_state: &mut Option<crate::extras::r#loop::LoopState>,
-    #[cfg(feature = "git-worktree")] wt_return_path: &mut Option<(String, String, String, bool)>,
-    #[cfg(feature = "mcp")] mcp_manager: Option<&crate::extras::mcp::McpClientManager>,
+    run: &mut AgentRunState,
+    ui: &mut UiContext<'_>,
+    slash: &SlashState,
+    chain: &mut ChainState,
 ) -> anyhow::Result<()> {
     match event {
         AgentEvent::Reasoning(text) => {
-            if !show_reasoning {
+            if !slash.show_reasoning {
                 return Ok(());
             }
-            if !*agent_line_started {
+            if !run.agent_line_started {
                 renderer.write("< ", Color::DarkMagenta)?;
-                *agent_line_started = true;
+                run.agent_line_started = true;
             }
             let safe = sanitize_output(&text);
             renderer.write(&safe, Color::DarkMagenta)?;
-            *was_reasoning = true;
+            run.was_reasoning = true;
         }
         AgentEvent::Token(text) => {
-            if *was_reasoning {
+            if run.was_reasoning {
                 renderer.write_line("", Color::White)?;
-                *agent_line_started = false;
-                *was_reasoning = false;
-                response_buf.clear();
-                *response_start_block = None;
+                run.agent_line_started = false;
+                run.was_reasoning = false;
+                run.response_buf.clear();
+                run.response_start_block = None;
             }
             let safe = sanitize_output(&text);
-            response_buf.push_str(&safe);
+            run.response_buf.push_str(&safe);
 
-            if response_buf.is_empty() {
+            if run.response_buf.is_empty() {
                 return Ok(());
             }
 
@@ -168,30 +99,30 @@ pub async fn handle_agent_event(
             // boundaries) or when the buffer is small. This avoids O(n²)
             // re-parsing on every token. The final parse happens in
             // handle_agent_done.
-            if response_buf.len() >= 200 && !response_buf.ends_with('\n') {
+            if run.response_buf.len() >= 200 && !run.response_buf.ends_with('\n') {
                 return Ok(());
             }
 
-            if response_start_block.is_none() {
+            if run.response_start_block.is_none() {
                 renderer.feed_mut().push_block(BlockStyle::Agent, "");
-                *response_start_block = Some(renderer.feed().block_count() - 1);
+                run.response_start_block = Some(renderer.feed().block_count() - 1);
             }
             renderer
                 .feed_mut()
-                .replace_last(BlockStyle::Agent, response_buf.as_str());
+                .replace_last(BlockStyle::Agent, run.response_buf.as_str());
             renderer.render_viewport()?;
-            *agent_line_started = true;
+            run.agent_line_started = true;
         }
         AgentEvent::ToolCall { name, args } => {
-            *was_reasoning = false;
-            if *agent_line_started {
+            run.was_reasoning = false;
+            if run.agent_line_started {
                 renderer.write_line("", Color::White)?;
-                *agent_line_started = false;
+                run.agent_line_started = false;
             }
-            response_buf.clear();
-            *response_start_block = None;
-            session.add_tool_call(&name, &args);
-            save_session_if_enabled(session, cli, renderer)?;
+            run.response_buf.clear();
+            run.response_start_block = None;
+            ui.session.add_tool_call(&name, &args);
+            save_session_if_enabled(ui.session, ui.cli, renderer)?;
             let line = format!(
                 "◈ {}",
                 crate::ui::utils::format_tool_call_summary(&name, &args)
@@ -200,8 +131,8 @@ pub async fn handle_agent_event(
         }
         #[cfg(any(feature = "subagents", feature = "acp"))]
         AgentEvent::SubagentToolCall { name, args } => {
-            session.add_subagent_tool_call(&name, &args);
-            save_session_if_enabled(session, cli, renderer)?;
+            ui.session.add_subagent_tool_call(&name, &args);
+            save_session_if_enabled(ui.session, ui.cli, renderer)?;
             let line = format!(
                 "⌥ {}",
                 crate::ui::utils::format_tool_call_summary(&name, &args)
@@ -209,8 +140,8 @@ pub async fn handle_agent_event(
             renderer.write_line(&sanitize_output(&line), C_TOOL)?;
         }
         AgentEvent::ToolResult { name, output } => {
-            session.add_tool_result(&name, &output);
-            save_session_if_enabled(session, cli, renderer)?;
+            ui.session.add_tool_result(&name, &output);
+            save_session_if_enabled(ui.session, ui.cli, renderer)?;
             if name == "todo_write" {
                 let list = TODO_LIST.lock().unwrap_or_else(|e| e.into_inner());
                 if list.is_empty() {
@@ -247,7 +178,8 @@ pub async fn handle_agent_event(
                     }
                 }
             } else {
-                let show_details = cfg
+                let show_details = ui
+                    .cfg
                     .show_tool_details
                     .as_ref()
                     .map(|s| s.resolve())
@@ -292,34 +224,16 @@ pub async fn handle_agent_event(
         } => {
             handle_agent_done(
                 response,
-                input_tokens,
-                output_tokens,
-                cached_input_tokens,
-                cache_creation_input_tokens,
+                TurnUsage {
+                    input_tokens,
+                    output_tokens,
+                    cached_input_tokens,
+                    cache_creation_input_tokens,
+                },
                 renderer,
-                session,
-                cfg,
-                cli,
-                context,
-                is_running,
-                agent_rx,
-                agent_line_started,
-                response_buf,
-                response_start_block,
-                was_reasoning,
-                agent,
-                client,
-                loop_label,
-                permission,
-                ask_tx,
-                sandbox,
-                status_signals,
-                #[cfg(feature = "loop")]
-                loop_state,
-                #[cfg(feature = "git-worktree")]
-                wt_return_path,
-                #[cfg(feature = "mcp")]
-                mcp_manager,
+                run,
+                ui,
+                chain,
             )
             .await?;
         }
@@ -336,55 +250,57 @@ pub async fn handle_agent_event(
             // Use the cache-inclusive prompt size so Anthropic cache hits (which
             // report input_tokens excluding cached tokens) don't deflate it.
             let real = Session::real_input_tokens(
-                cfg.is_anthropic_native(&session.provider),
+                ui.cfg.is_anthropic_native(&ui.session.provider),
                 input_tokens,
                 cached_input_tokens,
                 cache_creation_input_tokens,
             )
             .saturating_add(output_tokens);
-            if real > session.total_estimated_tokens {
-                session.total_estimated_tokens = real;
+            if real > ui.session.total_estimated_tokens {
+                ui.session.total_estimated_tokens = real;
             }
             // Accumulate cost for intermediate calls (tool-use turns). The Done
             // event only carries the final call's usage, so without this every
             // tool-call round-trip would go uncosted.
-            session.total_input_tokens = session.total_input_tokens.saturating_add(input_tokens);
-            session.total_output_tokens = session.total_output_tokens.saturating_add(output_tokens);
-            session.total_cost += crate::pricing::estimate_cost(
+            ui.session.total_input_tokens =
+                ui.session.total_input_tokens.saturating_add(input_tokens);
+            ui.session.total_output_tokens =
+                ui.session.total_output_tokens.saturating_add(output_tokens);
+            ui.session.total_cost += crate::pricing::estimate_cost(
                 crate::pricing::billable_input_tokens(
-                    cfg.is_anthropic_native(&session.provider),
+                    ui.cfg.is_anthropic_native(&ui.session.provider),
                     input_tokens,
                     cached_input_tokens,
                     cache_creation_input_tokens,
                 ),
                 output_tokens,
-                session.input_token_cost,
-                session.output_token_cost,
+                ui.session.input_token_cost,
+                ui.session.output_token_cost,
             );
         }
         AgentEvent::Retrying { attempt, max } => {
-            *was_reasoning = false;
-            if *agent_line_started {
+            run.was_reasoning = false;
+            if run.agent_line_started {
                 renderer.write_line("", Color::White)?;
-                *agent_line_started = false;
+                run.agent_line_started = false;
             }
-            response_buf.clear();
-            *response_start_block = None;
+            run.response_buf.clear();
+            run.response_start_block = None;
             renderer.write_line(&format!("retrying... ({}/{})", attempt, max), Color::Yellow)?;
         }
         AgentEvent::Error(e) => {
-            *was_reasoning = false;
+            run.was_reasoning = false;
             let safe = sanitize_output(&e);
             renderer.write_line(&format!("error: {}", safe), C_ERROR)?;
-            *is_running = false;
-            if let Some(ss) = status_signals.as_ref() {
+            run.is_running = false;
+            if let Some(ss) = ui.status_signals.as_ref() {
                 ss.send_stop();
             }
-            *agent_rx = None;
-            *agent_line_started = false;
-            response_buf.clear();
-            *response_start_block = None;
-            save_session_if_enabled(session, cli, renderer)?;
+            run.agent_rx = None;
+            run.agent_line_started = false;
+            run.response_buf.clear();
+            run.response_start_block = None;
+            save_session_if_enabled(ui.session, ui.cli, renderer)?;
         }
     }
     Ok(())
@@ -403,68 +319,56 @@ fn save_session_if_enabled(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_agent_done(
     response: CompactString,
-    input_tokens: u64,
-    output_tokens: u64,
-    cached_input_tokens: u64,
-    cache_creation_input_tokens: u64,
+    usage: TurnUsage,
     renderer: &mut Renderer,
-    session: &mut Session,
-    cfg: &Config,
-    cli: &Cli,
-    context: &mut ContextFiles,
-    is_running: &mut bool,
-    agent_rx: &mut Option<mpsc::Receiver<AgentEvent>>,
-    agent_line_started: &mut bool,
-    response_buf: &mut String,
-    response_start_block: &mut Option<usize>,
-    was_reasoning: &mut bool,
-    agent: &mut Option<AnyAgent>,
-    client: &mut AnyClient,
-    _loop_label: &mut Option<String>,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    sandbox: &Sandbox,
-    status_signals: &Option<StatusSignals>,
-    #[cfg(feature = "loop")] loop_state: &mut Option<crate::extras::r#loop::LoopState>,
-    #[cfg(feature = "git-worktree")] wt_return_path: &mut Option<(String, String, String, bool)>,
-    #[cfg(feature = "mcp")] mcp_manager: Option<&crate::extras::mcp::McpClientManager>,
+    run: &mut AgentRunState,
+    ui: &mut UiContext<'_>,
+    chain: &mut ChainState,
 ) -> anyhow::Result<()> {
-    *was_reasoning = false;
+    // `chain` is only read by the /loop-respawn and worktree-return paths.
+    #[cfg(not(any(feature = "loop", feature = "git-worktree")))]
+    let _ = &chain;
+    run.was_reasoning = false;
 
-    if !response_buf.is_empty() {
-        if let Some(start) = *response_start_block {
+    if !run.response_buf.is_empty() {
+        if let Some(start) = run.response_start_block {
             renderer.feed_mut().truncate_blocks(start + 1);
         }
         renderer
             .feed_mut()
-            .replace_last(BlockStyle::Agent, response_buf.as_str());
+            .replace_last(BlockStyle::Agent, run.response_buf.as_str());
         renderer.render_viewport()?;
-    } else if !*agent_line_started {
+    } else if !run.agent_line_started {
         renderer.feed_mut().push_line(BlockStyle::Agent, "< ");
     }
 
     renderer.write_line("", Color::White)?;
     renderer.write_line("", Color::White)?;
-    session.add_message(MessageRole::Assistant, &response);
+    ui.session.add_message(MessageRole::Assistant, &response);
     // `total_input_tokens`/`total_output_tokens` keep the raw provider-reported
     // counts (that's what those fields mean), but cost prices the *billable*
     // input — for Anthropic that folds in cache reads/writes, which the raw
     // `input_tokens` excludes yet are still billed (see `billable_input_tokens`).
-    session.total_input_tokens = session.total_input_tokens.saturating_add(input_tokens);
-    session.total_output_tokens = session.total_output_tokens.saturating_add(output_tokens);
-    session.total_cost += crate::pricing::estimate_cost(
+    ui.session.total_input_tokens = ui
+        .session
+        .total_input_tokens
+        .saturating_add(usage.input_tokens);
+    ui.session.total_output_tokens = ui
+        .session
+        .total_output_tokens
+        .saturating_add(usage.output_tokens);
+    ui.session.total_cost += crate::pricing::estimate_cost(
         crate::pricing::billable_input_tokens(
-            cfg.is_anthropic_native(&session.provider),
-            input_tokens,
-            cached_input_tokens,
-            cache_creation_input_tokens,
+            ui.cfg.is_anthropic_native(&ui.session.provider),
+            usage.input_tokens,
+            usage.cached_input_tokens,
+            usage.cache_creation_input_tokens,
         ),
-        output_tokens,
-        session.input_token_cost,
-        session.output_token_cost,
+        usage.output_tokens,
+        ui.session.input_token_cost,
+        ui.session.output_token_cost,
     );
     // Anchor context-size accounting to the provider's real usage. Context
     // measurement needs the full prompt size, so use the cache-inclusive count
@@ -472,72 +376,56 @@ async fn handle_agent_done(
     // which would otherwise collapse the context meter to ~0 on cache hits).
     // Must come after add_message so the anchor includes the just-appended response.
     let context_input_tokens = Session::real_input_tokens(
-        cfg.is_anthropic_native(&session.provider),
-        input_tokens,
-        cached_input_tokens,
-        cache_creation_input_tokens,
+        ui.cfg.is_anthropic_native(&ui.session.provider),
+        usage.input_tokens,
+        usage.cached_input_tokens,
+        usage.cache_creation_input_tokens,
     );
-    session.set_calibration(context_input_tokens, output_tokens);
-    *agent_line_started = false;
-    response_buf.clear();
-    *response_start_block = None;
+    ui.session
+        .set_calibration(context_input_tokens, usage.output_tokens);
+    run.agent_line_started = false;
+    run.response_buf.clear();
+    run.response_start_block = None;
 
     #[cfg(feature = "loop")]
-    let loop_running = loop_state.as_ref().is_some_and(|ls| ls.active);
+    let loop_running = chain.loop_state.as_ref().is_some_and(|ls| ls.active);
     #[cfg(not(feature = "loop"))]
     let loop_running = false;
 
-    let qm = crate::config::quick_models_map(cfg);
+    let qm = crate::config::quick_models_map(ui.cfg);
 
     #[cfg(feature = "memory")]
     let reserve = crate::extras::memory::effective_reserve(
-        cfg.resolve_reserve_tokens(&session.model, &qm),
-        context.memory.as_deref(),
+        ui.cfg.resolve_reserve_tokens(&ui.session.model, &qm),
+        ui.context.memory.as_deref(),
     );
     #[cfg(not(feature = "memory"))]
-    let reserve = cfg.resolve_reserve_tokens(&session.model, &qm);
+    let reserve = ui.cfg.resolve_reserve_tokens(&ui.session.model, &qm);
 
     if !loop_running
-        && cfg.resolve_compact_enabled()
-        && session.needs_compaction(reserve)
-        && !cli.no_session
+        && ui.cfg.resolve_compact_enabled()
+        && ui.session.needs_compaction(reserve)
+        && !ui.cli.no_session
     {
-        let compress_result = handle_compress(
-            None,
-            true,
-            agent,
-            client,
-            renderer,
-            session,
-            cli,
-            cfg,
-            context,
-            true,
-            permission,
-            ask_tx,
-            sandbox,
-            #[cfg(feature = "mcp")]
-            mcp_manager,
-        )
-        .await;
+        let compress_result = handle_compress(None, true, &mut run.agent, renderer, ui, true).await;
         if let Err(e) = compress_result {
             renderer.write_line(&format!("auto-compact error: {}", e), C_ERROR)?;
         }
     }
 
-    if !cli.no_session
-        && let Err(e) = save_session(session)
+    if !ui.cli.no_session
+        && let Err(e) = save_session(ui.session)
     {
         renderer.write_line(&format!("warning: failed to save session: {}", e), C_ERROR)?;
     }
-    *is_running = false;
-    if let Some(ss) = status_signals.as_ref() {
+    run.is_running = false;
+    if let Some(ss) = ui.status_signals.as_ref() {
         ss.send_stop();
     }
-    *agent_rx = None;
+    run.agent_rx = None;
 
     #[cfg(feature = "loop")]
-    if let Some(ls) = loop_state
+    if let Some(ls) = chain.loop_state.as_mut()
         && ls.active
     {
         let summary: String = response
@@ -576,7 +464,7 @@ async fn handle_agent_done(
         ls.last_run_output = validation_output.clone();
 
         let _ = crate::extras::r#loop::transcript::save_iteration(
-            &session.id,
+            &ui.session.id,
             ls.iteration,
             &ls.build_prompt(),
             &response,
@@ -595,37 +483,39 @@ async fn handle_agent_done(
                 C_AGENT,
             )?;
             ls.active = false;
-            *_loop_label = None;
+            chain.loop_label = None;
         } else {
             let prompt = ls.build_prompt();
-            *agent = Some({
-                let model = client.completion_model(session.model.to_string());
-                let temperature = crate::config::resolve_temperature(cli, cfg, &session.model);
-                let extra_body = crate::config::resolve_extra_body(cfg, &session.model);
+            run.agent = Some({
+                let model = ui.client.completion_model(ui.session.model.to_string());
+                let temperature =
+                    crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
+                let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
                 crate::provider::build_agent(
                     model,
-                    cli,
-                    cfg,
-                    context,
-                    permission.clone(),
-                    ask_tx.clone(),
-                    sandbox.clone(),
+                    ui.cli,
+                    ui.cfg,
+                    ui.context,
+                    ui.permission.clone(),
+                    ui.ask_tx.clone(),
+                    ui.sandbox.clone(),
                     true,
                     temperature,
                     extra_body,
                     #[cfg(feature = "mcp")]
-                    mcp_manager,
+                    ui.mcp_manager.as_ref(),
                 )
                 .await
             });
-            let runner = agent
+            let runner = run
+                .agent
                 .as_ref()
                 .unwrap()
                 .clone()
                 .spawn_runner(
                     prompt,
                     Vec::new(),
-                    cfg.retry.clone(),
+                    ui.cfg.retry.clone(),
                     #[cfg(feature = "hooks")]
                     Some(crate::extras::hooks::LoopInfo {
                         iteration: ls.iteration,
@@ -633,12 +523,12 @@ async fn handle_agent_done(
                     }),
                 )
                 .await;
-            *agent_rx = Some(runner.event_rx);
-            *is_running = true;
-            if let Some(ss) = status_signals.as_ref() {
+            run.agent_rx = Some(runner.event_rx);
+            run.is_running = true;
+            if let Some(ss) = ui.status_signals.as_ref() {
                 ss.send_start();
             }
-            *_loop_label = Some(ls.iteration_label());
+            chain.loop_label = Some(ls.iteration_label());
             renderer.write_line(
                 &format!("[loop] launching {}", ls.iteration_label()),
                 C_AGENT,
@@ -647,34 +537,37 @@ async fn handle_agent_done(
     }
 
     #[cfg(feature = "git-worktree")]
-    if let Some((main_path, wt_path, branch, force)) = wt_return_path.take() {
+    if let Some((main_path, wt_path, branch, force)) = chain.wt_return_path.take() {
         crate::extras::git_worktree::cleanup_worktree(&wt_path, &branch, &main_path, force);
         match std::env::set_current_dir(&main_path) {
             Ok(()) => {
-                session.working_dir = compact_str::CompactString::new(&main_path);
-                context.reload();
-                apply_current_prompt_mode(context, permission);
-                *agent = Some({
-                    let model = client.completion_model(session.model.to_string());
-                    let temperature = crate::config::resolve_temperature(cli, cfg, &session.model);
-                    let extra_body = crate::config::resolve_extra_body(cfg, &session.model);
+                ui.session.working_dir = compact_str::CompactString::new(&main_path);
+                ui.context.reload();
+                apply_current_prompt_mode(ui.context, &ui.permission);
+                run.agent = Some({
+                    let model = ui.client.completion_model(ui.session.model.to_string());
+                    let temperature =
+                        crate::config::resolve_temperature(ui.cli, ui.cfg, &ui.session.model);
+                    let extra_body = crate::config::resolve_extra_body(ui.cfg, &ui.session.model);
                     crate::provider::build_agent(
                         model,
-                        cli,
-                        cfg,
-                        context,
-                        permission.clone(),
-                        ask_tx.clone(),
-                        sandbox.clone(),
+                        ui.cli,
+                        ui.cfg,
+                        ui.context,
+                        ui.permission.clone(),
+                        ui.ask_tx.clone(),
+                        ui.sandbox.clone(),
                         true,
                         temperature,
                         extra_body,
                         #[cfg(feature = "mcp")]
-                        mcp_manager,
+                        ui.mcp_manager.as_ref(),
                     )
                     .await
                 });
-                crate::ui::events::render_session(renderer, session, cli, cfg, context)?;
+                crate::ui::events::render_session(
+                    renderer, ui.session, ui.cli, ui.cfg, ui.context,
+                )?;
                 renderer.write_line(
                     &format!("merged and returned to main repo at {}", main_path),
                     C_AGENT,

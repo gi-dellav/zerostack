@@ -952,18 +952,20 @@ async fn run() -> anyhow::Result<()> {
             session.add_message(MessageRole::User, &initial_msg);
         }
         ui::run_interactive(
-            client,
+            crate::ui::state::UiContext::new(
+                &cli,
+                &cfg,
+                &mut session,
+                &mut context,
+                client,
+                permission,
+                ask_tx,
+                sandbox,
+                status_signals,
+            ),
             None,
-            &cli,
-            &cfg,
-            &mut session,
-            &mut context,
-            permission,
-            ask_tx,
             ask_rx,
-            sandbox,
             arch_msg,
-            status_signals,
             #[cfg(feature = "advisor")]
             handoff_rx,
         )
