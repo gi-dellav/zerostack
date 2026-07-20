@@ -751,7 +751,9 @@ async fn run() -> anyhow::Result<()> {
         }
     }
 
-    // Apply mode from prompt %%mode= directive (if any)
+    // Apply mode from prompt %%mode= directive (if any). Read the directive
+    // from the raw prompt content: `context.current_prompt` has already been
+    // stripped of it (and had capabilities appended).
     if let Some(perm) = &permission {
         let allowlist: Vec<(String, String)> = session
             .permission_allowlist
@@ -760,14 +762,11 @@ async fn run() -> anyhow::Result<()> {
             .collect();
         let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
         guard.load_session_allowlist(&allowlist);
-        if let Some(current_prompt) = &context.current_prompt {
-            let (mode_directive, _) = crate::permission::parse_prompt_mode(current_prompt);
-            if let Some(mode_str) = mode_directive
-                && mode_str != "last_user_mode"
-                && let Some(mode) = SecurityMode::from_str(mode_str)
-            {
-                guard.set_prompt_mode(mode);
-            }
+        if let Some(name) = &context.current_prompt_name
+            && let Some(mode) =
+                crate::permission::resolve_startup_prompt_mode(&context.prompts, name)
+        {
+            guard.set_prompt_mode(mode);
         }
     }
 
@@ -936,15 +935,6 @@ async fn run() -> anyhow::Result<()> {
             #[cfg(feature = "hooks")]
             crate::extras::hooks::dispatch_session_end("exit").await;
             return result;
-        }
-
-        if !cli.resolve_no_tools(&cfg)
-            && let Some(perm) = &permission
-        {
-            let mode = resolve_mode(&cli, &cfg);
-            perm.lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .set_mode(mode);
         }
 
         let initial_msg = cli.message.join(" ");
