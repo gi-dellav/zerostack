@@ -1,5 +1,5 @@
-use crate::permission::{self, SecurityMode};
 use crate::session::MessageRole;
+use crate::ui::apply_prompt_mode;
 use crate::ui::slash::{SlashCtx, write_error, write_ok};
 
 fn is_session_empty(ctx: &SlashCtx<'_>) -> bool {
@@ -59,29 +59,7 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
     ctx.context.one_shot_restore = ctx.context.current_prompt_name.clone();
 
     // Switch to review prompt
-    if let Some(content) = ctx.context.prompts.get("review").cloned() {
-        let (mode_directive_str, clean_content) = permission::parse_prompt_mode(&content);
-        let mode_directive = mode_directive_str.map(|s| s.to_string());
-        ctx.context.current_prompt = Some(if mode_directive.is_some() {
-            clean_content.to_string()
-        } else {
-            content
-        });
-        ctx.context.current_prompt_name = Some("review".to_string());
-        if let Some(ref mode_str) = mode_directive {
-            if mode_str == "last_user_mode" {
-                if let Some(perm) = ctx.permission {
-                    let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
-                    guard.restore_user_mode();
-                }
-            } else if let Some(mode) = SecurityMode::from_str(mode_str)
-                && let Some(perm) = ctx.permission
-            {
-                let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
-                guard.set_prompt_mode(mode);
-            }
-        }
-    }
+    apply_prompt_mode("review", ctx.context, ctx.permission);
 
     let model_switched = ctx.switch_to_prompt_model("review").await;
     if !model_switched {

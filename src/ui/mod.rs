@@ -25,16 +25,13 @@ use tokio::sync::mpsc;
 
 #[cfg(feature = "mcp")]
 use crate::config::Config;
-#[cfg(feature = "git-worktree")]
 use crate::context::ContextFiles;
 use crate::event::UserEvent;
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::McpClientManager;
-#[cfg(feature = "git-worktree")]
-use crate::permission;
 use crate::permission::ask::AskReceiver;
-#[cfg(feature = "git-worktree")]
 use crate::permission::checker::PermCheck;
+use crate::permission::{self, SecurityMode};
 use crate::provider::AnyAgent;
 use crate::session::{MessageRole, Session};
 use crate::ui::event_handler::ensure_agent;
@@ -47,6 +44,61 @@ use crate::ui::slash::handle_compress;
 use crate::ui::state::MergeRequest;
 use crate::ui::state::{AgentRunState, BtwStats, ChainState, SlashState, UiContext};
 
+/// What [`apply_prompt_mode`] did with the prompt's `%%mode=` directive, so
+/// callers can report the change without re-parsing the prompt.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum PromptModeOutcome {
+    /// No directive, an unrecognized mode name, or no permission checker.
+    None,
+    /// `%%mode=last_user_mode`: the user-selected mode was restored.
+    RestoredUserMode,
+    /// `%%mode=<mode>`: the given security mode was applied.
+    Applied(SecurityMode),
+}
+
+/// Select prompt `name` as the current prompt and apply its `%%mode=`
+/// directive (if any) to the permission checker. The directive line is
+/// stripped from the stored prompt content. Unknown prompt names are a no-op.
+pub(crate) fn apply_prompt_mode(
+    name: &str,
+    context: &mut ContextFiles,
+    permission: &Option<PermCheck>,
+) -> PromptModeOutcome {
+    let Some(content) = context.prompts.get(name) else {
+        return PromptModeOutcome::None;
+    };
+    let (mode_directive, clean_content) = permission::parse_prompt_mode(content);
+    context.current_prompt = Some(if mode_directive.is_some() {
+        clean_content.to_string()
+    } else {
+        content.clone()
+    });
+    context.current_prompt_name = Some(name.to_string());
+    apply_mode_directive(mode_directive, permission)
+}
+
+/// Apply an already-parsed `%%mode=` directive to the permission checker.
+fn apply_mode_directive(
+    mode_directive: Option<&str>,
+    permission: &Option<PermCheck>,
+) -> PromptModeOutcome {
+    let (Some(mode_str), Some(perm)) = (mode_directive, permission) else {
+        return PromptModeOutcome::None;
+    };
+    let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
+    if mode_str == "last_user_mode" {
+        guard.restore_user_mode();
+        PromptModeOutcome::RestoredUserMode
+    } else if let Some(mode) = SecurityMode::from_str(mode_str) {
+        guard.set_prompt_mode(mode);
+        PromptModeOutcome::Applied(mode)
+    } else {
+        PromptModeOutcome::None
+    }
+}
+
+/// Re-apply the current prompt's `%%mode=` directive after a context reload
+/// (which restores the raw, unstripped prompt content from disk).
 #[cfg(feature = "git-worktree")]
 pub(crate) fn apply_current_prompt_mode(
     context: &mut ContextFiles,
@@ -59,16 +111,7 @@ pub(crate) fn apply_current_prompt_mode(
     if mode_directive.is_some() {
         context.current_prompt = Some(clean_content.to_string());
     }
-    let Some(mode_str) = mode_directive else {
-        return;
-    };
-    let Some(perm) = permission else { return };
-    let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
-    if mode_str == "last_user_mode" {
-        guard.restore_user_mode();
-    } else if let Some(mode) = permission::SecurityMode::from_str(mode_str) {
-        guard.set_prompt_mode(mode);
-    }
+    apply_mode_directive(mode_directive, permission);
 }
 
 pub(super) const C_AGENT: Color = Color::White;

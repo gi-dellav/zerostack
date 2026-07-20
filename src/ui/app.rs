@@ -35,7 +35,7 @@ use super::handle_human_handoff;
 #[cfg(feature = "git-worktree")]
 use super::spawn_merge_agent;
 use super::{
-    C_AGENT, C_BTW, C_ERROR, C_TOOL, PrebuildPayload, classify_submission,
+    C_AGENT, C_BTW, C_ERROR, C_TOOL, PrebuildPayload, apply_prompt_mode, classify_submission,
     mid_turn_compact_and_respawn, refresh_display, spawn_event_thread, start_main_run,
     stop_turn_context_exhausted,
 };
@@ -982,30 +982,7 @@ impl<'a> App<'a> {
         extra: Option<&str>,
     ) -> anyhow::Result<()> {
         let next_name = phase.next_prompt_name();
-        if let Some(content) = self.ui.context.prompts.get(next_name).cloned() {
-            let (mode_directive_str, clean_content) =
-                crate::permission::parse_prompt_mode(&content);
-            let mode_directive = mode_directive_str.map(|s| s.to_string());
-            self.ui.context.current_prompt = Some(if mode_directive.is_some() {
-                clean_content.to_string()
-            } else {
-                content
-            });
-            self.ui.context.current_prompt_name = Some(next_name.to_string());
-            if let Some(ref mode_str) = mode_directive {
-                if mode_str == "last_user_mode"
-                    && let Some(perm) = &self.ui.permission
-                {
-                    let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
-                    guard.restore_user_mode();
-                } else if let Some(mode) = crate::permission::SecurityMode::from_str(mode_str)
-                    && let Some(perm) = &self.ui.permission
-                {
-                    let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
-                    guard.set_prompt_mode(mode);
-                }
-            }
-        }
+        apply_prompt_mode(next_name, self.ui.context, &self.ui.permission);
         apply_prompt_model(
             next_name,
             &mut self.ui,
@@ -1059,10 +1036,7 @@ impl<'a> App<'a> {
             let msg = msg.trim();
             if !prompt_name.is_empty() && self.ui.context.prompts.contains_key(prompt_name) {
                 self.chain.dot_prompt_restore = self.ui.context.current_prompt_name.clone();
-                if let Some(content) = self.ui.context.prompts.get(prompt_name).cloned() {
-                    self.apply_prompt_from_content(&content, prompt_name)
-                        .await?;
-                }
+                apply_prompt_mode(prompt_name, self.ui.context, &self.ui.permission);
                 apply_prompt_model(
                     prompt_name,
                     &mut self.ui,
@@ -1083,10 +1057,7 @@ impl<'a> App<'a> {
 
         let prompt_name = after_dot.trim();
         if self.ui.context.prompts.contains_key(prompt_name) {
-            if let Some(content) = self.ui.context.prompts.get(prompt_name).cloned() {
-                self.apply_prompt_from_content(&content, prompt_name)
-                    .await?;
-            }
+            apply_prompt_mode(prompt_name, self.ui.context, &self.ui.permission);
             apply_prompt_model(
                 prompt_name,
                 &mut self.ui,
@@ -1105,32 +1076,6 @@ impl<'a> App<'a> {
                 .write_line(&format!("error: unknown prompt '{}'", prompt_name), C_ERROR)?;
             Ok(true)
         }
-    }
-
-    async fn apply_prompt_from_content(
-        &mut self,
-        content: &str,
-        prompt_name: &str,
-    ) -> anyhow::Result<()> {
-        let (mode_directive_str, clean_content) = crate::permission::parse_prompt_mode(content);
-        let mode_directive = mode_directive_str.map(|s| s.to_string());
-        self.ui.context.current_prompt = Some(if mode_directive.is_some() {
-            clean_content.to_string()
-        } else {
-            content.to_string()
-        });
-        self.ui.context.current_prompt_name = Some(prompt_name.to_string());
-        if let Some(ref mode_str) = mode_directive
-            && let Some(perm) = &self.ui.permission
-        {
-            let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
-            if mode_str == "last_user_mode" {
-                guard.restore_user_mode();
-            } else if let Some(mode) = crate::permission::SecurityMode::from_str(mode_str) {
-                guard.set_prompt_mode(mode);
-            }
-        }
-        Ok(())
     }
 
     fn run_queue_command(&mut self, arg: &str) -> anyhow::Result<()> {
