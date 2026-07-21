@@ -70,6 +70,8 @@ mod singleflight_tests;
 mod slash_add_tests;
 #[cfg(test)]
 mod slash_init_tests;
+#[cfg(test)]
+mod startup_prompt_mode_tests;
 #[cfg(all(test, unix))]
 mod status_signals_tests;
 #[cfg(test)]

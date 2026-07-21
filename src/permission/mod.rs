@@ -121,6 +121,24 @@ pub fn parse_prompt_mode(content: &str) -> (Option<&str>, &str) {
     }
 }
 
+/// Resolve the security mode requested by prompt `name`'s `%%mode=`
+/// directive, reading the raw (unstripped) prompt content from `prompts`.
+/// Returns `None` when the prompt is unknown, has no directive, names an
+/// unknown mode, or uses `last_user_mode` (meaningless at startup: the
+/// current mode already is the user's mode).
+pub fn resolve_startup_prompt_mode(
+    prompts: &HashMap<String, String>,
+    name: &str,
+) -> Option<SecurityMode> {
+    let content = prompts.get(name)?;
+    let (mode_directive, _) = parse_prompt_mode(content);
+    let mode_str = mode_directive?;
+    if mode_str == "last_user_mode" {
+        return None;
+    }
+    SecurityMode::from_str(mode_str)
+}
+
 /// Auto-deny regex patterns that are always active regardless of config.
 /// These are appended to the end of each relevant tool's rules, so they
 /// take precedence over user-configured allow/ask entries.
