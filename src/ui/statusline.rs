@@ -18,7 +18,7 @@ use crate::ui::utils::parse_color;
 pub const MAX_STATUS_LINES: usize = 3;
 
 /// A drawable statusline piece after items are resolved.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StatusSpan {
     Text {
         text: String,

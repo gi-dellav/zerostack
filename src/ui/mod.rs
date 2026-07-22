@@ -153,7 +153,14 @@ pub(crate) fn refresh_display(
     let statusline = crate::ui::statusline::build(ui.session, &statusline_ctx);
     renderer.draw_bottom(&input.buffer, input.cursor, &statusline, run.is_running)?;
     if let Some(ref mut picker) = input.picker {
+        let was_active = picker.active();
         picker.draw()?;
+        if was_active {
+            // The picker painted over the chat and bottom regions, which the
+            // dirty-region tracking cannot see; force a full repaint next
+            // frame so a closing picker never leaves remnants behind.
+            renderer.invalidate();
+        }
     }
     Ok(())
 }

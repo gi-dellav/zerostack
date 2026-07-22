@@ -50,6 +50,68 @@ pub struct ChainPrompt {
     pub question: CompactString,
 }
 
+/// Everything that affects what the chat viewport paints. Compared between
+/// frames to decide whether `render_viewport` can skip drawing.
+#[derive(Clone, PartialEq)]
+struct ChatSnapshot {
+    feed_generation: u64,
+    width: usize,
+    visible_rows: usize,
+    scroll_offset: usize,
+    selection_active: bool,
+    selection_start: Option<usize>,
+    selection_end: Option<usize>,
+    partial: CompactString,
+    partial_style: BlockStyle,
+    chat_bg: Option<Color>,
+    monochrome: bool,
+}
+
+/// Which prompt mode `draw_bottom` paints in the input area.
+#[derive(Clone, PartialEq)]
+pub(crate) enum PromptSnapshot {
+    Input,
+    Permission {
+        tool: CompactString,
+        options: CompactString,
+    },
+    Chain {
+        question: CompactString,
+        but_mode: bool,
+    },
+}
+
+/// Everything `draw_bottom` paints, compared between frames to decide how much
+/// of the bottom region (input area + statusline) needs repainting.
+#[derive(Clone, PartialEq)]
+pub(crate) struct BottomSnapshot {
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) statusline_height: usize,
+    pub(crate) input: String,
+    pub(crate) cursor_pos: usize,
+    pub(crate) is_running: bool,
+    pub(crate) spinner_frame: u8,
+    pub(crate) input_vscroll_offset: usize,
+    pub(crate) prompt: PromptSnapshot,
+    pub(crate) statusline: Vec<Vec<StatusSpan>>,
+    pub(crate) scroll_indicator: bool,
+    pub(crate) monochrome: bool,
+    pub(crate) input_bg: Option<Color>,
+    pub(crate) status_bg: Option<Color>,
+}
+
+/// How much of the bottom region a `draw_bottom` call must repaint.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BottomRedrawPlan {
+    /// Nothing changed since the last frame; draw nothing.
+    Skip,
+    /// Only the statusline content changed; redraw just the statusline rows.
+    StatuslineOnly,
+    /// Input area (or the geometry it sits in) changed; full bottom redraw.
+    Full,
+}
+
 pub struct Renderer {
     spinner_frame: u8,
     feed: Feed,
@@ -84,6 +146,15 @@ pub struct Renderer {
     pub permission_prompt: Option<PermissionPrompt>,
     pub chain_prompt: Option<ChainPrompt>,
     pub chain_but_mode: bool,
+    /// Dirty-region tracking: explicit invalidation flags plus snapshots of
+    /// the state recorded after the last successful draw of each region.
+    chat_dirty: bool,
+    last_chat_snapshot: Option<ChatSnapshot>,
+    bottom_dirty: bool,
+    last_bottom_snapshot: Option<BottomSnapshot>,
+    /// Screen position of the input caret after the last full bottom draw;
+    /// `None` when the caret is hidden (permission/chain prompts).
+    bottom_cursor: Option<(u16, u16)>,
 }
 
 impl Renderer {
@@ -117,6 +188,11 @@ impl Renderer {
             permission_prompt: None,
             chain_prompt: None,
             chain_but_mode: false,
+            chat_dirty: true,
+            last_chat_snapshot: None,
+            bottom_dirty: true,
+            last_bottom_snapshot: None,
+            bottom_cursor: None,
         })
     }
 
@@ -205,6 +281,58 @@ impl Renderer {
         &mut self.feed
     }
 
+    /// Snapshot of everything the chat viewport currently paints.
+    fn chat_snapshot(&self) -> ChatSnapshot {
+        ChatSnapshot {
+            feed_generation: self.feed.generation(),
+            width: self.max_line_width(),
+            visible_rows: self.visible_lines(),
+            scroll_offset: self.scroll_offset,
+            selection_active: self.selection_active,
+            selection_start: self.selection_start,
+            selection_end: self.selection_end,
+            partial: self.partial.clone(),
+            partial_style: self.partial_style,
+            chat_bg: self.chat_bg,
+            monochrome: self.monochrome,
+        }
+    }
+
+    /// Whether the chat viewport needs repainting: either a renderer-internal
+    /// mutation marked it dirty, or the tracked state changed since the last
+    /// recorded draw. The state comparison also catches feed mutations made
+    /// through `feed_mut()` and direct writes to the public selection fields.
+    pub fn chat_needs_redraw(&self) -> bool {
+        if self.chat_dirty {
+            return true;
+        }
+        match &self.last_chat_snapshot {
+            Some(prev) => *prev != self.chat_snapshot(),
+            None => true,
+        }
+    }
+
+    /// Record the current chat state as freshly drawn.
+    fn record_chat_drawn(&mut self) {
+        self.last_chat_snapshot = Some(self.chat_snapshot());
+        self.chat_dirty = false;
+    }
+
+    /// Test helper: mark the chat viewport clean without drawing, as if a
+    /// `render_viewport` had just completed.
+    #[cfg(test)]
+    pub fn mark_chat_clean(&mut self) {
+        self.record_chat_drawn();
+    }
+
+    /// Mark both regions dirty, forcing a full repaint on the next frame.
+    /// Used when something painted over the screen outside the tracked paths
+    /// (e.g. an active picker overlay).
+    pub fn invalidate(&mut self) {
+        self.chat_dirty = true;
+        self.bottom_dirty = true;
+    }
+
     pub fn visible_lines(&self) -> usize {
         let (_, rows) = self.terminal_size();
         let input_height = self.prev_input_height.max(1);
@@ -263,6 +391,7 @@ impl Renderer {
     }
 
     pub fn clear_selection(&mut self) {
+        self.chat_dirty = true;
         self.selection_active = false;
         self.selection_start = None;
         self.selection_end = None;
@@ -312,6 +441,7 @@ impl Renderer {
             self.feed
                 .push_block(self.partial_style, self.partial.as_str());
             self.partial.clear();
+            self.chat_dirty = true;
         }
     }
 
@@ -387,12 +517,14 @@ impl Renderer {
         let max_offset = self.buffer_len().saturating_sub(visible);
         if self.scroll_offset < max_offset {
             self.scroll_offset += 1;
+            self.chat_dirty = true;
         }
     }
 
     pub fn scroll_line_down(&mut self) {
         if self.scroll_offset > 0 {
             self.scroll_offset -= 1;
+            self.chat_dirty = true;
         }
     }
 
@@ -400,26 +532,41 @@ impl Renderer {
         let visible = self.visible_lines();
         let page = visible.saturating_sub(2).max(1);
         let max_offset = self.buffer_len().saturating_sub(visible);
-        self.scroll_offset = (self.scroll_offset + page).min(max_offset);
+        let new_offset = (self.scroll_offset + page).min(max_offset);
+        if new_offset != self.scroll_offset {
+            self.scroll_offset = new_offset;
+            self.chat_dirty = true;
+        }
     }
 
     pub fn scroll_page_down(&mut self) {
         let visible = self.visible_lines();
         let page = visible.saturating_sub(2).max(1);
-        if self.scroll_offset <= page {
-            self.scroll_offset = 0;
+        let new_offset = if self.scroll_offset <= page {
+            0
         } else {
-            self.scroll_offset = self.scroll_offset.saturating_sub(page);
+            self.scroll_offset.saturating_sub(page)
+        };
+        if new_offset != self.scroll_offset {
+            self.scroll_offset = new_offset;
+            self.chat_dirty = true;
         }
     }
 
     pub fn scroll_to_top(&mut self) {
         let visible = self.visible_lines();
-        self.scroll_offset = self.buffer_len().saturating_sub(visible);
+        let new_offset = self.buffer_len().saturating_sub(visible);
+        if new_offset != self.scroll_offset {
+            self.scroll_offset = new_offset;
+            self.chat_dirty = true;
+        }
     }
 
     pub fn scroll_to_bottom(&mut self) -> io::Result<()> {
-        self.scroll_offset = 0;
+        if self.scroll_offset != 0 {
+            self.scroll_offset = 0;
+            self.chat_dirty = true;
+        }
         self.sync_to_buffer()
     }
 
@@ -429,6 +576,9 @@ impl Renderer {
     }
 
     pub fn render_viewport(&mut self) -> io::Result<()> {
+        if !self.chat_needs_redraw() {
+            return Ok(());
+        }
         let (cols, _rows) = self.terminal_size();
         let max_width = cols.saturating_sub(1 + self.chat_margin) as usize;
         let visible = self.visible_lines();
@@ -533,6 +683,7 @@ impl Renderer {
         }
 
         stdout.flush()?;
+        self.record_chat_drawn();
         Ok(())
     }
 
@@ -540,6 +691,7 @@ impl Renderer {
         self.commit_partial();
         let style = style_from_color(color);
         self.feed.push_block(style, text);
+        self.chat_dirty = true;
         if self.scroll_offset == 0 {
             self.render_viewport()?;
         }
@@ -566,6 +718,7 @@ impl Renderer {
                 self.partial.push_str(segment);
             }
         }
+        self.chat_dirty = true;
         if self.scroll_offset == 0 {
             self.render_viewport()?;
         }
@@ -573,6 +726,7 @@ impl Renderer {
     }
 
     pub fn clear_content(&mut self) -> io::Result<()> {
+        self.chat_dirty = true;
         self.feed.clear();
         self.partial.clear();
         self.scroll_offset = 0;
@@ -589,6 +743,7 @@ impl Renderer {
     }
 
     pub fn resize(&mut self) {
+        self.chat_dirty = true;
         let visible = self.visible_lines();
         let max_offset = self.buffer_len().saturating_sub(visible);
         if self.scroll_offset > max_offset {
@@ -752,6 +907,97 @@ impl Renderer {
         Ok(())
     }
 
+    /// Snapshot of everything `draw_bottom` would paint for these arguments.
+    fn bottom_snapshot(
+        &self,
+        input_line: &str,
+        cursor_pos: usize,
+        statusline: &[Vec<StatusSpan>],
+        is_running: bool,
+        cols: u16,
+        rows: u16,
+    ) -> BottomSnapshot {
+        let prompt = if let Some(ref pp) = self.permission_prompt {
+            PromptSnapshot::Permission {
+                tool: pp.tool.clone(),
+                options: pp.options.clone(),
+            }
+        } else if let Some(ref cp) = self.chain_prompt {
+            PromptSnapshot::Chain {
+                question: cp.question.clone(),
+                but_mode: self.chain_but_mode,
+            }
+        } else {
+            PromptSnapshot::Input
+        };
+        BottomSnapshot {
+            cols,
+            rows,
+            statusline_height: self.statusline_height,
+            input: input_line.to_string(),
+            cursor_pos,
+            is_running,
+            spinner_frame: self.spinner_frame,
+            input_vscroll_offset: self.input_vscroll_offset,
+            scroll_indicator: matches!(prompt, PromptSnapshot::Input) && self.scroll_offset > 0,
+            prompt,
+            statusline: statusline.to_vec(),
+            monochrome: self.monochrome,
+            input_bg: self.input_bg,
+            status_bg: self.status_bg,
+        }
+    }
+
+    /// Pure redraw decision for the bottom region: compare the state recorded
+    /// after the last draw with the state about to be drawn. When only the
+    /// statusline content (or the scroll indicator painted inside it) differs,
+    /// the input area is untouched and only the statusline rows need a repaint.
+    pub(crate) fn bottom_redraw_plan(
+        prev: Option<&BottomSnapshot>,
+        next: &BottomSnapshot,
+        force_full: bool,
+    ) -> BottomRedrawPlan {
+        if force_full {
+            return BottomRedrawPlan::Full;
+        }
+        let Some(prev) = prev else {
+            return BottomRedrawPlan::Full;
+        };
+        if prev == next {
+            return BottomRedrawPlan::Skip;
+        }
+        let mut status_only = next.clone();
+        status_only.statusline = prev.statusline.clone();
+        status_only.scroll_indicator = prev.scroll_indicator;
+        if status_only == *prev {
+            BottomRedrawPlan::StatuslineOnly
+        } else {
+            BottomRedrawPlan::Full
+        }
+    }
+
+    /// Record the bottom region as freshly drawn.
+    fn record_bottom_drawn(&mut self, snapshot: BottomSnapshot) {
+        self.last_bottom_snapshot = Some(snapshot);
+        self.bottom_dirty = false;
+    }
+
+    /// Re-place the terminal caret where the last full bottom draw left it.
+    /// Needed after a statusline-only redraw, which moves the cursor.
+    fn restore_bottom_cursor(&self) -> io::Result<()> {
+        let mut stdout = io::stdout();
+        match self.bottom_cursor {
+            Some((x, row)) => {
+                stdout.execute(MoveTo(x, row))?;
+                write!(stdout, "{}", Show)?;
+            }
+            None => {
+                write!(stdout, "{}", Hide)?;
+            }
+        }
+        stdout.flush()
+    }
+
     pub fn draw_bottom(
         &mut self,
         input_line: &str,
@@ -760,6 +1006,22 @@ impl Renderer {
         is_running: bool,
     ) -> io::Result<()> {
         let (cols, rows) = crossterm::terminal::size()?;
+        let snapshot =
+            self.bottom_snapshot(input_line, cursor_pos, statusline, is_running, cols, rows);
+        match Self::bottom_redraw_plan(
+            self.last_bottom_snapshot.as_ref(),
+            &snapshot,
+            self.bottom_dirty,
+        ) {
+            BottomRedrawPlan::Skip => return Ok(()),
+            BottomRedrawPlan::StatuslineOnly => {
+                self.draw_statusline(statusline, cols, snapshot.scroll_indicator)?;
+                self.restore_bottom_cursor()?;
+                self.record_bottom_drawn(snapshot);
+                return Ok(());
+            }
+            BottomRedrawPlan::Full => {}
+        }
         let reserve = self.statusline_reserve();
         let mut stdout = io::stdout();
 
@@ -800,6 +1062,8 @@ impl Renderer {
             self.draw_statusline(statusline, cols, false)?;
             write!(stdout, "{}", Hide)?;
             stdout.flush()?;
+            self.bottom_cursor = None;
+            self.record_bottom_drawn(snapshot);
             return Ok(());
         }
 
@@ -846,6 +1110,8 @@ impl Renderer {
             self.draw_statusline(statusline, cols, false)?;
             write!(stdout, "{}", Hide)?;
             stdout.flush()?;
+            self.bottom_cursor = None;
+            self.record_bottom_drawn(snapshot);
             return Ok(());
         }
 
@@ -1023,6 +1289,14 @@ impl Renderer {
         stdout.execute(MoveTo(cursor_x, cursor_row))?;
         write!(stdout, "{}", Show)?;
         stdout.flush()?;
+        self.bottom_cursor = Some((cursor_x, cursor_row));
+        // The draw itself settles `input_vscroll_offset` (cursor follow /
+        // clamping); record the settled value so the next identical frame is
+        // recognized as unchanged. `spinner_frame` deliberately keeps the
+        // pre-draw value so a running spinner still differs next frame.
+        let mut drawn = snapshot;
+        drawn.input_vscroll_offset = self.input_vscroll_offset;
+        self.record_bottom_drawn(drawn);
         Ok(())
     }
 }

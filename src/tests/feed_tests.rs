@@ -206,3 +206,48 @@ fn clear_empties_feed() {
     assert!(feed.is_empty());
     assert_eq!(feed.line_count(80), 0);
 }
+
+#[test]
+fn generation_starts_at_zero() {
+    let feed = Feed::new();
+    assert_eq!(feed.generation(), 0);
+}
+
+#[test]
+fn generation_bumps_on_each_mutator() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Plain, "one");
+    assert_eq!(feed.generation(), 1);
+    feed.push_line(BlockStyle::Plain, "two");
+    assert_eq!(feed.generation(), 2);
+    assert!(feed.append_to_last(" more"));
+    assert_eq!(feed.generation(), 3);
+    feed.replace_last(BlockStyle::Agent, "replaced");
+    assert_eq!(feed.generation(), 4);
+    feed.truncate_blocks(1);
+    assert_eq!(feed.generation(), 5);
+    feed.clear();
+    assert_eq!(feed.generation(), 6);
+}
+
+#[test]
+fn generation_not_bumped_by_failed_append() {
+    let mut feed = Feed::new();
+    assert!(!feed.append_to_last("orphan"));
+    assert_eq!(feed.generation(), 0);
+}
+
+#[test]
+fn generation_not_bumped_by_reads() {
+    let mut feed = Feed::new();
+    feed.push_line(BlockStyle::Plain, "one");
+    let before = feed.generation();
+    let _ = feed.lines(80);
+    let _ = feed.line_count(80);
+    let _ = feed.visible_range(80, 0, 10);
+    let _ = feed.line_at_visual_row(80, 0, 10, 0);
+    let _ = feed.selected_text(80, 0, 0);
+    let _ = feed.is_empty();
+    let _ = feed.block_count();
+    assert_eq!(feed.generation(), before);
+}

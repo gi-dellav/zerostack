@@ -83,6 +83,10 @@ impl Block {
 #[derive(Clone, Debug, Default)]
 pub struct Feed {
     blocks: Vec<Block>,
+    /// Bumped by every content mutation. The renderer compares generations to
+    /// know whether the chat viewport needs a redraw, which also catches
+    /// mutations made through `Renderer::feed_mut()`.
+    generation: u64,
 }
 
 // Several helpers exist primarily for unit testing layout/scroll math without
@@ -90,10 +94,19 @@ pub struct Feed {
 #[allow(dead_code)]
 impl Feed {
     pub fn new() -> Self {
-        Self { blocks: Vec::new() }
+        Self {
+            blocks: Vec::new(),
+            generation: 0,
+        }
+    }
+
+    /// Monotonic counter bumped on every content mutation.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn clear(&mut self) {
+        self.generation += 1;
         self.blocks.clear();
     }
 
@@ -106,6 +119,7 @@ impl Feed {
     }
 
     pub fn push_block(&mut self, style: BlockStyle, text: impl Into<String>) {
+        self.generation += 1;
         self.blocks.push(Block::new(style, text));
     }
 
@@ -117,6 +131,7 @@ impl Feed {
     /// empty and there is no block to append to.
     pub fn append_to_last(&mut self, text: impl AsRef<str>) -> bool {
         if let Some(last) = self.blocks.last_mut() {
+            self.generation += 1;
             last.text.push_str(text.as_ref());
             true
         } else {
@@ -126,15 +141,17 @@ impl Feed {
 
     /// Replace the last block, or push a new one if the feed is empty.
     pub fn replace_last(&mut self, style: BlockStyle, text: impl Into<String>) {
+        self.generation += 1;
         if let Some(last) = self.blocks.last_mut() {
             last.style = style;
             last.text = text.into();
         } else {
-            self.push_block(style, text);
+            self.blocks.push(Block::new(style, text));
         }
     }
 
     pub fn truncate_blocks(&mut self, len: usize) {
+        self.generation += 1;
         self.blocks.truncate(len);
     }
 
