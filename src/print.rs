@@ -67,6 +67,11 @@ pub(crate) fn print_config(cli: &cli::Cli, cfg: &config::Config) {
     let context_window = cfg.resolve_context_window(&provider, &model, &qm_map);
     let temperature = config::resolve_temperature(cli, cfg, &model);
     let no_tools = cli.resolve_no_tools(cfg);
+    let tools_allowlist = if cli.tools.is_empty() {
+        "all".to_string()
+    } else {
+        cli.tools.join(",")
+    };
     let no_context_files = cli.resolve_no_context_files(cfg);
     let sandbox = cli.resolve_sandbox(cfg);
     let shell = cli.resolve_shell(cfg);
@@ -171,6 +176,7 @@ pub(crate) fn print_config(cli: &cli::Cli, cfg: &config::Config) {
             ("edit-system", edit_system.to_string()),
             ("sandbox", sandbox.to_string()),
             ("no-tools", no_tools.to_string()),
+            ("tools", tools_allowlist),
             ("no-context-files", no_context_files.to_string()),
             ("compact", compact.to_string()),
         ],

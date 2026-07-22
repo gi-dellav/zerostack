@@ -83,6 +83,8 @@ mod subagents_tests;
 #[cfg(test)]
 mod todo_tests;
 #[cfg(test)]
+mod tools_filter_tests;
+#[cfg(test)]
 mod tools_mod_tests;
 #[cfg(all(test, feature = "git-worktree"))]
 mod worktree_tests;

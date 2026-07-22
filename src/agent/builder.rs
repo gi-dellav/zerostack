@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rig::agent::{Agent, AgentBuilder};
 use rig::completion::CompletionModel;
 use smallvec::SmallVec;
@@ -139,6 +141,28 @@ pub fn build_preamble(context: &ContextFiles, reasoning_enabled: bool) -> String
 /// the provider's first usage report folds those into the calibration anchor.
 pub fn estimate_overhead(context: &ContextFiles, reasoning_enabled: bool) -> u64 {
     crate::session::Session::estimate_tokens(&build_preamble(context, reasoning_enabled))
+}
+
+/// Retain only the tools whose names appear in `allowlist`. An empty
+/// allowlist passes everything through unchanged. Unrecognized names are
+/// logged as warnings and ignored.
+pub(crate) fn filter_tools_by_allowlist(
+    tools: Vec<Box<dyn rig::tool::ToolDyn>>,
+    allowlist: &[String],
+) -> Vec<Box<dyn rig::tool::ToolDyn>> {
+    if allowlist.is_empty() {
+        return tools;
+    }
+    let allowed: HashSet<&str> = allowlist.iter().map(|s| s.as_str()).collect();
+    for name in &allowed {
+        if !tools.iter().any(|t| t.name() == *name) {
+            tracing::warn!("--tools: unknown tool '{name}' (ignored)");
+        }
+    }
+    tools
+        .into_iter()
+        .filter(|t| allowed.contains(t.name().as_str()))
+        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -284,6 +308,8 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
             use crate::extras::advisor::AdvisorTool;
             all_tools.push(Box::new(AdvisorTool::new()));
         }
+
+        let all_tools = filter_tools_by_allowlist(all_tools, &cli.tools);
 
         #[cfg(feature = "hooks")]
         let all_tools = crate::extras::hooks::wrap_from_global(all_tools, permission.clone());

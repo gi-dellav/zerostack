@@ -67,7 +67,12 @@ pub struct Cli {
     #[arg(long = "temperature", help = "Model temperature (0.0 to 2.0)")]
     pub temperature: Option<f64>,
 
-    #[arg(short = 't', long = "tools", help = "Allowlist specific tools")]
+    #[arg(
+        short = 't',
+        long = "tools",
+        value_delimiter = ',',
+        help = "Allowlist specific tools"
+    )]
     pub tools: Vec<String>,
 
     #[arg(long = "no-tools", help = "Disable all tools")]
