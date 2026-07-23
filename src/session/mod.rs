@@ -1,4 +1,5 @@
 pub mod chat_history;
+pub mod export;
 pub mod storage;
 
 use std::path::Path;

@@ -61,6 +61,8 @@ mod provider_tests;
 #[cfg(test)]
 mod renderer_tests;
 #[cfg(test)]
+mod session_export_tests;
+#[cfg(test)]
 mod session_storage_tests;
 #[cfg(test)]
 mod session_tests;

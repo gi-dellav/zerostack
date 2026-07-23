@@ -19,6 +19,9 @@ All slash commands are available from the TUI input prompt.
 | `/sessions delete <id-or-name>` | Delete a session by its ID prefix or name. |
 | `/rename <name>` | Rename the current session. |
 | `/history` | Show global chat history (last 10 entries across sessions). |
+| `/export [file]` | Export the current session to a standalone HTML page (default `zerostack-session-<id>.html`), or to JSONL when the file ends in `.jsonl`. |
+| `/import <file>` | Import a session from a JSONL export (or a native session JSON file), save it, and load it. |
+| `/share` | Upload the HTML export as a secret GitHub gist and print the URL. Requires `GITHUB_TOKEN` or `GH_TOKEN`. |
 | `/queue` | List input queued while the agent is busy (same as `/queue ls`). |
 | `/queue clear` | Empty the queue. |
 | `/queue pop` | Remove the last queued input. |
