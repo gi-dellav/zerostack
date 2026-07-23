@@ -79,22 +79,22 @@ pub async fn handle_agent_event(
                 return Ok(());
             }
 
-            // Throttle markdown re-parsing: only re-parse when the buffer
-            // ends with a newline (markdown structure changes at line
-            // boundaries) or when the buffer is small. This avoids O(n²)
-            // re-parsing on every token. The final parse happens in
-            // handle_agent_done.
+            if run.response_start_block.is_none() {
+                renderer.feed_mut().push_streaming_block(BlockStyle::Agent);
+                run.response_start_block = Some(renderer.feed().block_count() - 1);
+            }
+            // Append the token to the running block: layout renders the
+            // unfinished tail line as plain text and parses markdown only for
+            // completed lines, instead of re-parsing the whole response.
+            renderer.feed_mut().append_to_last(&safe);
+
+            // Throttle repaints: redraw when a line completed (markdown
+            // structure changes at line boundaries) or while the buffer is
+            // small. The final full parse happens in handle_agent_done.
             if run.response_buf.len() >= 200 && !run.response_buf.ends_with('\n') {
                 return Ok(());
             }
 
-            if run.response_start_block.is_none() {
-                renderer.feed_mut().push_block(BlockStyle::Agent, "");
-                run.response_start_block = Some(renderer.feed().block_count() - 1);
-            }
-            renderer
-                .feed_mut()
-                .replace_last(BlockStyle::Agent, run.response_buf.as_str());
             renderer.render_viewport()?;
             run.agent_line_started = true;
         }
@@ -319,11 +319,16 @@ async fn handle_agent_done(
 
     if !run.response_buf.is_empty() {
         if let Some(start) = run.response_start_block {
+            // Drop anything interleaved after the streaming block, then
+            // finalize it: the full response (including the last line) is
+            // parsed as markdown once, here.
             renderer.feed_mut().truncate_blocks(start + 1);
+            renderer.feed_mut().finalize_last();
+        } else {
+            renderer
+                .feed_mut()
+                .push_block(BlockStyle::Agent, run.response_buf.as_str());
         }
-        renderer
-            .feed_mut()
-            .replace_last(BlockStyle::Agent, run.response_buf.as_str());
         renderer.render_viewport()?;
     } else if !run.agent_line_started {
         renderer.feed_mut().push_line(BlockStyle::Agent, "< ");

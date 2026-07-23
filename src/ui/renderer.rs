@@ -35,7 +35,7 @@ fn wrap_urls_osc8(text: &str) -> String {
     result
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LineEntry {
     pub text: CompactString,
     pub color: Color,

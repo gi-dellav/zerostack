@@ -251,3 +251,106 @@ fn generation_not_bumped_by_reads() {
     let _ = feed.block_count();
     assert_eq!(feed.generation(), before);
 }
+
+#[test]
+fn running_agent_block_renders_tail_as_plain_text() {
+    let mut feed = Feed::new();
+    feed.push_streaming_block(BlockStyle::Agent);
+    assert!(feed.append_to_last("hello **wor"));
+    let lines = feed.lines(80);
+    assert_eq!(lines.len(), 1);
+    // No markdown parsing while the line is unfinished: markers stay literal.
+    assert_eq!(lines[0].text, "< hello **wor");
+    assert_eq!(lines[0].color, Color::White);
+}
+
+#[test]
+fn running_agent_block_parses_only_completed_lines() {
+    let mut feed = Feed::new();
+    feed.push_streaming_block(BlockStyle::Agent);
+    assert!(feed.append_to_last("first **bold**\nsecond **par"));
+    let lines = feed.lines(80);
+    assert_eq!(lines.len(), 2);
+    // The completed line is parsed as markdown: bold markers are gone.
+    assert_eq!(lines[0].text, "< first bold");
+    // The unfinished tail line stays plain: markers remain literal.
+    assert_eq!(lines[1].text, "second **par");
+}
+
+#[test]
+fn running_agent_block_appends_grow_tail() {
+    let mut feed = Feed::new();
+    feed.push_streaming_block(BlockStyle::Agent);
+    assert!(feed.append_to_last("hello"));
+    assert!(feed.append_to_last(" world"));
+    let lines = feed.lines(80);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].text, "< hello world");
+}
+
+#[test]
+fn finalize_last_parses_full_text() {
+    let mut feed = Feed::new();
+    feed.push_streaming_block(BlockStyle::Agent);
+    assert!(feed.append_to_last("hello **world**"));
+    feed.finalize_last();
+    let lines = feed.lines(80);
+    assert_eq!(lines.len(), 1);
+    // After finalizing, the former tail line is parsed as markdown.
+    assert_eq!(lines[0].text, "< hello world");
+}
+
+#[test]
+fn finalize_last_bumps_generation_once() {
+    let mut feed = Feed::new();
+    feed.push_streaming_block(BlockStyle::Agent);
+    let before = feed.generation();
+    feed.finalize_last();
+    assert_eq!(feed.generation(), before + 1);
+    // Second call is a no-op: the block is no longer running.
+    feed.finalize_last();
+    assert_eq!(feed.generation(), before + 1);
+}
+
+#[test]
+fn finalize_last_on_complete_block_is_noop() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Agent, "done");
+    let before = feed.generation();
+    feed.finalize_last();
+    assert_eq!(feed.generation(), before);
+}
+
+#[test]
+fn replace_last_invalidates_cached_layout() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Agent, "aaaa **old**");
+    let _ = feed.lines(80); // populate the layout cache
+    // Same length, different content: the cached layout must not leak through.
+    feed.replace_last(BlockStyle::Agent, "bbbb **new**");
+    let lines = feed.lines(80);
+    let joined: String = lines
+        .iter()
+        .map(|l| l.text.as_str())
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(joined.contains("new"), "expected new content: {joined}");
+    assert!(!joined.contains("old"), "stale cached content: {joined}");
+}
+
+#[test]
+fn agent_layout_recomputes_on_width_change() {
+    let mut feed = Feed::new();
+    feed.push_block(
+        BlockStyle::Agent,
+        "one two three four five six seven eight nine ten eleven twelve",
+    );
+    let wide = feed.lines(120);
+    let narrow = feed.lines(20);
+    assert!(
+        narrow.len() > wide.len(),
+        "narrow width should wrap into more lines: {} vs {}",
+        narrow.len(),
+        wide.len()
+    );
+}

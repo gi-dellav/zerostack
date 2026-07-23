@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use compact_str::CompactString;
 use crossterm::style::Color;
 
@@ -67,6 +69,23 @@ pub fn style_from_color(color: Color) -> BlockStyle {
 pub struct Block {
     pub style: BlockStyle,
     pub text: String,
+    /// True while a producer is still appending to this block (e.g. streaming
+    /// agent tokens). A running agent block parses markdown only for its
+    /// completed lines and renders the unfinished tail line as plain text.
+    running: bool,
+    /// Memoized markdown layout. Interior mutability keeps `Feed::lines` a
+    /// `&self` read; `Feed` mutators that rewrite block text invalidate it.
+    md_cache: RefCell<Option<MdCache>>,
+}
+
+/// Memoized markdown layout of an agent block's completed text at a width.
+#[derive(Clone, Debug)]
+struct MdCache {
+    width: usize,
+    /// Byte length of the parsed prefix: up to the last completed line for
+    /// running blocks, the full text once finalized.
+    parsed_len: usize,
+    lines: Vec<LineEntry>,
 }
 
 impl Block {
@@ -74,6 +93,8 @@ impl Block {
         Self {
             style,
             text: text.into(),
+            running: false,
+            md_cache: RefCell::new(None),
         }
     }
 }
@@ -123,6 +144,31 @@ impl Feed {
         self.blocks.push(Block::new(style, text));
     }
 
+    /// Push an empty block that a producer will append to incrementally
+    /// (e.g. streaming agent tokens). While running, agent blocks parse
+    /// markdown only for completed lines and render the unfinished tail line
+    /// as plain text. Call `finalize_last` when the stream ends.
+    pub fn push_streaming_block(&mut self, style: BlockStyle) {
+        self.generation += 1;
+        let mut block = Block::new(style, "");
+        block.running = true;
+        self.blocks.push(block);
+    }
+
+    /// Mark the last block as complete: its full text (including the former
+    /// tail line) is parsed as markdown on the next layout. No-op when the
+    /// last block is not running.
+    pub fn finalize_last(&mut self) {
+        if let Some(last) = self.blocks.last_mut()
+            && last.running
+        {
+            self.generation += 1;
+            last.running = false;
+            // Force one full re-parse now that the text is complete.
+            *last.md_cache.borrow_mut() = None;
+        }
+    }
+
     pub fn push_line(&mut self, style: BlockStyle, text: impl Into<String>) {
         self.push_block(style, text);
     }
@@ -145,6 +191,8 @@ impl Feed {
         if let Some(last) = self.blocks.last_mut() {
             last.style = style;
             last.text = text.into();
+            last.running = false;
+            *last.md_cache.borrow_mut() = None;
         } else {
             self.blocks.push(Block::new(style, text));
         }
@@ -160,12 +208,15 @@ impl Feed {
     /// The result is a list of `LineEntry` values, one per visible row, that the
     /// renderer can draw directly. Markdown is parsed for agent blocks; all
     /// other blocks are word-wrapped and colored by their semantic role.
+    /// Running agent blocks parse markdown only for their completed lines and
+    /// render the unfinished tail line as plain text; parsed layouts are
+    /// memoized per block so repeated layouts at the same width don't re-parse.
     pub fn lines(&self, width: usize) -> Vec<LineEntry> {
         let mut result = Vec::new();
         for block in &self.blocks {
             match block.style {
                 BlockStyle::Agent => {
-                    let mut styled = markdown_to_styled(&block.text, width);
+                    let mut styled = agent_block_lines(block, width);
                     if !styled.is_empty() {
                         styled[0].text = CompactString::from(format!("< {}", styled[0].text));
                     }
@@ -290,5 +341,64 @@ impl Feed {
         } else {
             Some(result)
         }
+    }
+}
+
+/// Lay out an agent block: markdown for completed lines, plain text for the
+/// unfinished tail line of a still-streaming block.
+///
+/// The markdown parse of the completed prefix is memoized in the block's
+/// `MdCache`. The cache key is `(width, parsed_len)`; this is valid because
+/// block text grows by appends only while running, so an unchanged prefix
+/// length means an unchanged prefix. Mutators that rewrite text
+/// (`replace_last`, `finalize_last`) clear the cache explicitly.
+fn agent_block_lines(block: &Block, width: usize) -> Vec<LineEntry> {
+    // Text parsed as markdown: the whole block once finalized, or only the
+    // completed lines (up to the last newline) while streaming.
+    let completed_len = if block.running {
+        match block.text.rfind('\n') {
+            Some(idx) => idx + 1,
+            None => 0,
+        }
+    } else {
+        block.text.len()
+    };
+
+    let mut lines = match cached_agent_lines(block, width, completed_len) {
+        Some(lines) => lines,
+        None => {
+            let parsed = markdown_to_styled(&block.text[..completed_len], width);
+            *block.md_cache.borrow_mut() = Some(MdCache {
+                width,
+                parsed_len: completed_len,
+                lines: parsed.clone(),
+            });
+            parsed
+        }
+    };
+
+    // The unfinished tail line of a running block is rendered as plain text:
+    // its markdown markers are not parsed until the line completes. This
+    // avoids re-parsing the whole response on every streamed token.
+    if block.running && completed_len < block.text.len() {
+        let tail = block.text[completed_len..].trim_end_matches('\r');
+        if !tail.is_empty() {
+            let color = BlockStyle::Agent.color();
+            for chunk in word_wrap(tail, width) {
+                lines.push(LineEntry { text: chunk, color });
+            }
+        }
+    }
+    lines
+}
+
+/// Return the memoized markdown layout when it matches `(width, parsed_len)`.
+fn cached_agent_lines(block: &Block, width: usize, parsed_len: usize) -> Option<Vec<LineEntry>> {
+    let cache = block.md_cache.borrow();
+    let cache = cache.as_ref()?;
+    if cache.width == width && cache.parsed_len == parsed_len {
+        Some(cache.lines.clone())
+    } else {
+        None
     }
 }
