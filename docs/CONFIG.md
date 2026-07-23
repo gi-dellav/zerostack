@@ -12,6 +12,27 @@ at any priority, a default `config.toml` is created in the lowest-priority
 directory (`~/.local/share/zerostack/`). On macOS the XDG config path above
 resolves to `~/Library/Application Support/zerostack/`.
 
+**Project-local override**: if `.zerostack/config.toml` exists in the
+current working directory, it is merged over the global config at startup.
+Any subset of keys may be set — tables (e.g. `mcp_servers`, `quick_models`,
+`api_keys`) merge per key, scalars and arrays replace the global value, and
+keys absent from the local file keep their global values. A startup note is
+printed whenever an override is applied.
+
+```toml
+# .zerostack/config.toml
+model = "anthropic/claude-sonnet-4-5"
+show_reasoning = true
+
+[mcp_servers.local-fs]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+```
+
+The local file is trusted exactly like the global config — it can enable
+`yolo`/`accept-all`, add permission rules, or spawn MCP server processes —
+so review `.zerostack/config.toml` when working in untrusted checkouts.
+
 Prompts and themes are loaded from multiple sources, with later sources
 overriding earlier ones for same-named files:
 
@@ -696,7 +717,9 @@ permission-regex:
 ```
 
 When compiled with MCP support, `mcp_servers` accepts command-based and URL-based
-servers:
+servers. Servers can also be added per project via `.zerostack/config.toml`
+(see *Project-local override* above); project servers merge with — and can
+override — global ones by name.
 
 ```json
 {
