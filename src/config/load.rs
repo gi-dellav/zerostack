@@ -366,10 +366,88 @@ pub fn load() -> (Config, bool) {
         cfg.custom_providers.as_ref().map(|m| m.len()).unwrap_or(0),
     );
 
+    apply_local_override(&mut cfg);
+
     #[cfg(feature = "mcp")]
     inject_mcp_defaults(&mut cfg);
 
     (cfg, is_first_startup)
+}
+
+/// Project-local config override, resolved relative to the CWD at startup.
+pub const LOCAL_CONFIG_PATH: &str = ".zerostack/config.toml";
+
+/// Merge `.zerostack/config.toml` over the global config when it exists.
+/// The local file is trusted exactly like the global one — it can set any
+/// key, including `yolo` or permission rules — so a startup note is printed
+/// whenever an override is applied.
+fn apply_local_override(cfg: &mut Config) {
+    let path = std::path::Path::new(LOCAL_CONFIG_PATH);
+    if !path.exists() {
+        return;
+    }
+    let content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!(
+            "error: failed to read project config ({}): {}",
+            path.display(),
+            e,
+        );
+        std::process::exit(1);
+    });
+    match merge_config_override(cfg, &content) {
+        Ok(merged) => {
+            tracing::info!(
+                "applied project-local config override from {}",
+                path.display()
+            );
+            eprintln!(
+                "note: applied project-local config override from {}",
+                path.display()
+            );
+            *cfg = merged;
+        }
+        Err(e) => {
+            eprintln!(
+                "error: {} is not a valid config: {}\n\
+                 Fix the file or remove it to use defaults.",
+                path.display(),
+                e,
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Merge a project-local TOML config fragment over `base`: keys present in
+/// `local_toml` win, tables (`quick_models`, `mcp_servers`, ...) merge per
+/// key, scalars and arrays replace, and absent keys keep the base value.
+pub fn merge_config_override(base: &Config, local_toml: &str) -> Result<Config, String> {
+    let local: toml::Value = toml::from_str(local_toml).map_err(|e| e.to_string())?;
+    let local_json = serde_json::to_value(&local).map_err(|e| e.to_string())?;
+    // `Config` skips `None` fields when serializing, so the base JSON holds
+    // exactly the keys that are set and the local JSON exactly the keys the
+    // project file sets.
+    let mut base_json = serde_json::to_value(base).map_err(|e| e.to_string())?;
+    deep_merge_json(&mut base_json, local_json);
+    serde_json::from_value(base_json).map_err(|e| e.to_string())
+}
+
+/// Deep-merge `over` into `base`: objects merge recursively per key, any
+/// other value replaces.
+fn deep_merge_json(base: &mut serde_json::Value, over: serde_json::Value) {
+    match (base, over) {
+        (serde_json::Value::Object(b), serde_json::Value::Object(o)) => {
+            for (k, v) in o {
+                match b.get_mut(&k) {
+                    Some(existing) => deep_merge_json(existing, v),
+                    None => {
+                        b.insert(k, v);
+                    }
+                }
+            }
+        }
+        (slot, v) => *slot = v,
+    }
 }
 
 #[cfg(feature = "mcp")]

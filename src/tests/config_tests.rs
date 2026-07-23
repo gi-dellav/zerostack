@@ -409,3 +409,129 @@ fn config_candidate_priority_toml_yaml_yml_legacy_json() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+use crate::config::merge_config_override;
+
+#[test]
+fn local_override_replaces_scalar() {
+    let base = Config {
+        model: Some(CompactString::new("global-model")),
+        ..Config::default()
+    };
+    let merged = merge_config_override(&base, "model = \"local-model\"").unwrap();
+    assert_eq!(merged.model.as_deref(), Some("local-model"));
+}
+
+#[test]
+fn local_override_keeps_unset_keys() {
+    let base = Config {
+        model: Some(CompactString::new("global-model")),
+        temperature: Some(0.7),
+        ..Config::default()
+    };
+    let merged = merge_config_override(&base, "temperature = 0.2").unwrap();
+    assert_eq!(merged.model.as_deref(), Some("global-model"));
+    assert_eq!(merged.temperature, Some(0.2));
+}
+
+#[test]
+fn local_override_merges_maps_per_key() {
+    let mut keys = HashMap::new();
+    keys.insert("openai".to_string(), "sk-global".to_string());
+    keys.insert("gemini".to_string(), "gm-global".to_string());
+    let base = Config {
+        api_keys: Some(keys),
+        ..Config::default()
+    };
+    let local = r#"
+[api_keys]
+gemini = "gm-local"
+anthropic = "sk-ant-local"
+"#;
+    let merged = merge_config_override(&base, local).unwrap();
+    let keys = merged.api_keys.unwrap();
+    // Untouched key kept, existing key replaced, new key added.
+    assert_eq!(keys.get("openai").map(String::as_str), Some("sk-global"));
+    assert_eq!(keys.get("gemini").map(String::as_str), Some("gm-local"));
+    assert_eq!(
+        keys.get("anthropic").map(String::as_str),
+        Some("sk-ant-local")
+    );
+}
+
+#[test]
+fn local_override_arrays_replace() {
+    let base = Config {
+        permission_modes: Some(vec!["a".to_string(), "b".to_string()]),
+        ..Config::default()
+    };
+    let merged = merge_config_override(&base, "permission-modes = [\"c\"]").unwrap();
+    assert_eq!(merged.permission_modes, Some(vec!["c".to_string()]));
+}
+
+#[test]
+fn local_override_partial_retry() {
+    // `retry` is a non-Option struct: a local `[retry]` table must merge per
+    // key over the (default-filled) base rather than replace it wholesale.
+    let base = Config::default();
+    let merged = merge_config_override(&base, "[retry]\nmax_attempts = 9").unwrap();
+    assert_eq!(merged.retry.max_attempts, 9);
+    assert_eq!(merged.retry.initial_backoff_ms, 500);
+    assert_eq!(merged.retry.max_backoff_ms, 10_000);
+}
+
+#[test]
+fn local_override_empty_keeps_base() {
+    let base = Config {
+        model: Some(CompactString::new("global-model")),
+        ..Config::default()
+    };
+    let merged = merge_config_override(&base, "").unwrap();
+    assert_eq!(merged.model.as_deref(), Some("global-model"));
+}
+
+#[test]
+fn local_override_invalid_toml_errors() {
+    assert!(merge_config_override(&Config::default(), "not [valid").is_err());
+}
+
+#[test]
+fn local_override_wrong_type_errors() {
+    let err = merge_config_override(&Config::default(), "max_tokens = \"lots\"").unwrap_err();
+    assert!(!err.is_empty());
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn local_override_merges_mcp_servers() {
+    use crate::extras::mcp::config::McpServerConfig;
+    let mut servers = HashMap::new();
+    servers.insert(
+        "global-srv".to_string(),
+        McpServerConfig::Url {
+            url: "https://global.example.com/mcp".to_string(),
+            headers: HashMap::new(),
+            oauth: None,
+        },
+    );
+    let base = Config {
+        mcp_servers: Some(servers),
+        ..Config::default()
+    };
+    let local = r#"
+[mcp_servers.local-fs]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
+"#;
+    let merged = merge_config_override(&base, local).unwrap();
+    let servers = merged.mcp_servers.unwrap();
+    assert_eq!(servers.len(), 2);
+    assert!(matches!(
+        servers.get("global-srv"),
+        Some(McpServerConfig::Url { .. })
+    ));
+    assert!(matches!(
+        servers.get("local-fs"),
+        Some(McpServerConfig::Command { .. })
+    ));
+}
