@@ -76,20 +76,39 @@ pub fn parse_jsonl_import(content: &str) -> Result<Vec<SessionMessage>> {
     Ok(messages)
 }
 
+/// Page template for the HTML export. `{{title}}`, `{{meta}}`, and
+/// `{{messages}}` are substituted with `str::replace` (never `format!`), so
+/// the CSS braces in the template stay intact.
+const TEMPLATE: &str = include_str!("../../data/session_export.html");
+
 /// Export a session as a standalone, self-contained HTML page. Assistant
 /// messages are rendered from markdown; all other roles are shown verbatim.
 pub fn session_to_html(session: &Session) -> String {
-    let mut out = String::new();
-    out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
-    out.push_str("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
-    out.push_str("<title>");
-    escape_html_into(&mut out, &session_title(session));
-    out.push_str("</title>\n<style>\n");
-    out.push_str(CSS);
-    out.push_str("</style>\n</head>\n<body>\n<header>\n<h1>");
-    escape_html_into(&mut out, &session_title(session));
-    out.push_str("</h1>\n<p class=\"meta\">");
-    let meta = format!(
+    let mut messages = String::new();
+    for msg in &session.messages {
+        let (class, label) = role_class_label(msg, session);
+        messages.push_str(&format!(
+            "<section class=\"msg {}\">\n<p class=\"role\">{}</p>\n",
+            class, label
+        ));
+        match msg.role {
+            MessageRole::Assistant => {
+                messages.push_str("<div class=\"markdown\">");
+                let parser = pulldown_cmark::Parser::new(&msg.content);
+                pulldown_cmark::html::push_html(&mut messages, parser);
+                messages.push_str("</div>\n");
+            }
+            _ => {
+                messages.push_str("<pre>");
+                escape_html_into(&mut messages, &msg.content);
+                messages.push_str("</pre>\n");
+            }
+        }
+        messages.push_str("</section>\n");
+    }
+
+    let title = escape_html(&session_title(session));
+    let meta = escape_html(&format!(
         "{} / {} · {} · {} messages · {} in / {} out tokens · ${:.4}",
         session.provider,
         session.model,
@@ -98,34 +117,11 @@ pub fn session_to_html(session: &Session) -> String {
         session.total_input_tokens,
         session.total_output_tokens,
         session.total_cost,
-    );
-    escape_html_into(&mut out, &meta);
-    out.push_str("</p>\n</header>\n<main>\n");
-
-    for msg in &session.messages {
-        let (class, label) = role_class_label(msg, session);
-        out.push_str(&format!(
-            "<section class=\"msg {}\">\n<p class=\"role\">{}</p>\n",
-            class, label
-        ));
-        match msg.role {
-            MessageRole::Assistant => {
-                out.push_str("<div class=\"markdown\">");
-                let parser = pulldown_cmark::Parser::new(&msg.content);
-                pulldown_cmark::html::push_html(&mut out, parser);
-                out.push_str("</div>\n");
-            }
-            _ => {
-                out.push_str("<pre>");
-                escape_html_into(&mut out, &msg.content);
-                out.push_str("</pre>\n");
-            }
-        }
-        out.push_str("</section>\n");
-    }
-
-    out.push_str("</main>\n<footer>exported from zerostack</footer>\n</body>\n</html>\n");
-    out
+    ));
+    TEMPLATE
+        .replace("{{title}}", &title)
+        .replace("{{meta}}", &meta)
+        .replace("{{messages}}", &messages)
 }
 
 fn session_title(session: &Session) -> String {
@@ -162,23 +158,11 @@ fn escape_html_into(out: &mut String, text: &str) {
     }
 }
 
-const CSS: &str = "\
-body { background: #1a1b26; color: #c0caf5; font-family: ui-sans-serif, system-ui, sans-serif; \
-  max-width: 52rem; margin: 0 auto; padding: 2rem 1rem; line-height: 1.55; }
-header h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
-.meta { color: #565f89; font-size: 0.85rem; }
-.msg { border-top: 1px solid #292e42; padding: 0.8rem 0; }
-.role { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; \
-  color: #565f89; margin: 0 0 0.4rem; }
-.user .role { color: #9ece6a; }
-.assistant .role { color: #7aa2f7; }
-pre { white-space: pre-wrap; word-wrap: break-word; font-family: ui-monospace, monospace; \
-  font-size: 0.85rem; margin: 0; }
-.tool pre { color: #565f89; }
-.markdown pre { background: #16161e; padding: 0.6rem; border-radius: 4px; overflow-x: auto; }
-.markdown code { font-family: ui-monospace, monospace; font-size: 0.85rem; }
-footer { color: #565f89; font-size: 0.75rem; margin-top: 2rem; }
-";
+fn escape_html(text: &str) -> String {
+    let mut out = String::new();
+    escape_html_into(&mut out, text);
+    out
+}
 
 /// Upload `content` as a secret gist and return its URL. Requires
 /// `GITHUB_TOKEN` or `GH_TOKEN` in the environment.

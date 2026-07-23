@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}}</title>
+<style>
+body { background: #1a1b26; color: #c0caf5; font-family: ui-sans-serif, system-ui, sans-serif;
+  max-width: 52rem; margin: 0 auto; padding: 2rem 1rem; line-height: 1.55; }
+header h1 { font-size: 1.4rem; margin-bottom: 0.2rem; }
+.meta { color: #565f89; font-size: 0.85rem; }
+.msg { border-top: 1px solid #292e42; padding: 0.8rem 0; }
+.role { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+  color: #565f89; margin: 0 0 0.4rem; }
+.user .role { color: #9ece6a; }
+.assistant .role { color: #7aa2f7; }
+pre { white-space: pre-wrap; word-wrap: break-word; font-family: ui-monospace, monospace;
+  font-size: 0.85rem; margin: 0; }
+.tool pre { color: #565f89; }
+.markdown pre { background: #16161e; padding: 0.6rem; border-radius: 4px; overflow-x: auto; }
+.markdown code { font-family: ui-monospace, monospace; font-size: 0.85rem; }
+footer { color: #565f89; font-size: 0.75rem; margin-top: 2rem; }
+</style>
+</head>
+<body>
+<header>
+<h1>{{title}}</h1>
+<p class="meta">{{meta}}</p>
+</header>
+<main>
+{{messages}}
+</main>
+<footer>exported from zerostack</footer>
+</body>
+</html>
