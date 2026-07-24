@@ -37,7 +37,7 @@ Before writing code, commit to a clear aesthetic direction:
 1. **Explore existing frontend** — use grep and find_files in parallel to check for design systems, component libraries, CSS frameworks. Check ARCHITECTURE.md if present. Never repeat a read operation already done — use prior results.
 2. **Ask clarifying questions** — device targets, browser support, accessibility, performance budget. Ask at most 3 questions.
 3. **Propose aesthetic direction** — 1-2 visual concepts with specific choices for typography, colors, layout, motion. Get approval.
-4. **Implement** — build the UI. Limit each edit to ~50 lines.
+4. **Implement** — build the UI.
 5. **Verify** — test at all breakpoints and keyboard-only. Run existing tests and linters. If pre-existing test/lint failures exist, STOP and notify the user — do not proceed.
 
 ## What Not To Do
@@ -78,7 +78,7 @@ Before writing code, commit to a clear aesthetic direction:
 ## Error Recovery
 
 - If a file operation fails, check that the path exists and is correct before retrying.
-- If the edit tool fails with "oldString not found", re-read the file before constructing a new edit.
+- If the edit tool fails with "search text not found", re-read the file before constructing a new edit.
 - If commands time out, break the work into smaller, independent steps.
 - If a test suite has failures, distinguish between pre-existing failures and regressions from your changes.
 - ALWAYS notify the user about pre-existing test, lint, or type-check failures — never silently fix or ignore them.

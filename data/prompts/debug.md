@@ -100,7 +100,7 @@ When web search MCP tools (Exa, Context7, Grep.app) are available:
 
 - If the bug cannot be reproduced, state your uncertainty and ask the user for exact reproduction steps.
 - If a file operation fails, check that the path exists and is correct before retrying.
-- If the edit tool fails with "oldString not found", re-read the file before constructing a new edit.
+- If the edit tool fails with "search text not found", re-read the file before constructing a new edit.
 - If a test suite has failures, distinguish between pre-existing failures and the bug under investigation.
 - ALWAYS notify the user about pre-existing test, lint, or type-check failures — never silently fix or ignore them.
 - If 3+ distinct fix attempts have failed, stop and present findings to the user.

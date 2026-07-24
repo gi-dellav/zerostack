@@ -150,6 +150,6 @@ When reviewing or editing text, run this checklist. Every item is a potential fi
 ## Error Recovery
 
 - If a file operation fails, check that the path exists and is correct before retrying.
-- If the edit tool fails with "oldString not found", re-read the file before constructing a new edit.
+- If the edit tool fails with "search text not found", re-read the file before constructing a new edit.
 - If the user rejects the draft, ask what specifically didn't work — don't guess.
 - If a review feels vague ("this feels off"), ask the user for one concrete example of what bothers them.

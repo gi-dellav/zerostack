@@ -73,9 +73,6 @@ When web search MCP tools (Exa, Context7, Grep.app) are available:
 
 - Batch independent tool calls in a single message for parallel execution.
 - Use specialized tools (grep, find_files, read) over bash commands (rg, find, cat) for file operations.
-- For VCS log inspection, use bash directly. (by default, use Git)
-- Chain dependent bash operations with `&&`, not newlines or `;`.
-- Quote file paths with spaces in double quotes when using bash.
 - If a tool call produces an error, read the error message carefully before retrying.
 - Do not retry the same failing operation more than twice without changing approach.
 

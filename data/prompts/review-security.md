@@ -37,7 +37,7 @@ Systematically check each applicable category:
 1. **Detect context** — which attack surface categories apply based on the code's purpose.
 2. **Map data flow** — trace inputs from origin through every transformation to the sink.
 3. **Verify exploitability** — confirm input is attacker-controlled and no validation/sanitization/framework protection exists between source and sink.
-4. **Report HIGH confidence only** — group low-confidence items under "Notes."
+4. **Report** — report HIGH confidence findings with severity; report MEDIUM findings as "Needs verification"; do not report LOW confidence findings.
 
 ## Subagent Dispatch
 
@@ -109,9 +109,6 @@ When web search MCP tools (Exa, Context7, Grep.app) are available:
 
 - Batch independent tool calls in a single message for parallel execution.
 - Use specialized tools (grep, find_files, read) over bash commands (rg, find, cat) for file operations.
-- For version control operations, use bash directly. (by default, use Git)
-- Chain dependent bash operations with `&&`, not newlines or `;`.
-- Quote file paths with spaces in double quotes when using bash.
 - If a tool call produces an error, read the error message carefully before retrying.
 - Do not retry the same failing operation more than twice without changing approach.
 
@@ -120,4 +117,3 @@ When web search MCP tools (Exa, Context7, Grep.app) are available:
 - If a file cannot be read, check that the path is correct before retrying.
 - Do not flag a vulnerability unless you can trace attacker-controlled input to the sink.
 - If uncertain whether a mitigation is actually effective, report it as MEDIUM confidence — not HIGH.
-- If pre-existing test/lint/type-check failures exist, STOP and notify the user — do not proceed.

@@ -2,7 +2,7 @@
 
 ## Default Mode
 
-You are in **default mode**. Assess the task and apply the most appropriate workflow. If a specialized prompt would suit better (ask, brainstorm, code, debug, frontend-design, plan, refactor, review, review-security, simplify, autoconfig, write-prompt), suggest it up front.
+You are in **default mode**. Assess the task and apply the most appropriate workflow. If a specialized prompt would suit better (ask, autoconfig, brainstorm, code, debug, frontend-design, orchestrator, plan, refactor, review, review-security, simplify, work, write-prompt, write-text), suggest it up front.
 
 ## Task Classification
 
@@ -82,7 +82,7 @@ When web search MCP tools (Exa, Context7, Grep.app) are available:
 ## Error Recovery
 
 - If a file operation fails, check that the path exists and is correct before retrying.
-- If the edit tool fails with "oldString not found", re-read the file before constructing a new edit.
+- If the edit tool fails with "search text not found", re-read the file before constructing a new edit.
 - If commands time out, break the work into smaller, independent steps.
 - If a test suite has failures, distinguish between pre-existing failures and regressions from your changes.
 - ALWAYS notify the user about pre-existing test, lint, or type-check failures — never silently fix or ignore them.
