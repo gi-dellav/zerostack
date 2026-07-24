@@ -823,7 +823,10 @@ impl Startup {
                 &self.cfg,
                 &self.context,
                 self.permission,
-                self.ask_tx,
+                // Non-interactive dispatch never keeps the ask channel: with
+                // no one draining it, an `Ask` verdict must fail closed as a
+                // denial rather than block forever. See `handle_ask_inner`.
+                None,
                 self.sandbox.clone(),
                 true,
                 temperature,
@@ -915,7 +918,9 @@ impl Startup {
             &self.cfg,
             &self.context,
             self.permission,
-            self.ask_tx,
+            // Non-interactive dispatch never keeps the ask channel; see the
+            // matching note in `dispatch_print`.
+            None,
             self.sandbox.clone(),
             true,
             temperature,
