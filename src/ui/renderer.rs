@@ -1301,26 +1301,64 @@ impl Renderer {
     }
 }
 
-pub fn open_url(url: &str) {
+/// Validate that a URL is safe to hand to the OS opener: an absolute
+/// http(s) URL with a non-empty host, no whitespace or control characters,
+/// and a sane length. Anything else (file:, javascript:, bare paths, ...)
+/// is rejected so a malicious or malformed link cannot reach the shell.
+pub(crate) fn is_safe_url(url: &str) -> bool {
+    let url = url.trim();
+    if url.is_empty() || url.len() > 2048 {
+        return false;
+    }
+    if url.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        return false;
+    }
+    let Some(rest) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
+    !host.is_empty()
+}
+
+/// Open `url` in the system browser. The URL is validated first; the error
+/// describes why nothing was opened (rejected URL or no working opener), so
+/// callers can surface it instead of failing silently.
+pub fn open_url(url: &str) -> anyhow::Result<()> {
+    if !is_safe_url(url) {
+        let preview: String = url.chars().take(80).collect();
+        anyhow::bail!("refusing to open invalid or non-http(s) URL: {}", preview);
+    }
     let openers: &[(&str, &[&str])] = &[
         ("xdg-open", &[url]),
         ("open", &[url]),               // macOS
         ("cmd", &["/c", "start", url]), // Windows
     ];
     for &(cmd, args) in openers {
-        if std::process::Command::new(cmd)
+        let Ok(mut child) = std::process::Command::new(cmd)
             .args(args)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn()
-            .is_ok()
-        {
-            return;
+        else {
+            continue; // opener not installed
+        };
+        // A spawned opener can still fail (e.g. xdg-open without a display);
+        // honor its exit status and fall through to the next one.
+        if matches!(child.wait(), Ok(status) if status.success()) {
+            return Ok(());
         }
     }
+    anyhow::bail!("no working opener found (tried xdg-open, open, cmd)")
 }
 
-pub fn copy_to_clipboard(text: &str) {
+/// Copy `text` to the system clipboard. Tries external tools (checking
+/// their exit status, so a tool that starts but fails — e.g. xclip without
+/// an X display — falls through) and finally the OSC 52 terminal escape.
+/// Errors only when even the escape cannot be written.
+pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     let cmds: &[(&str, &[&str])] = &[
         ("wl-copy", &[]),
         ("xclip", &["-selection", "clipboard"]),
@@ -1328,17 +1366,25 @@ pub fn copy_to_clipboard(text: &str) {
         ("clip.exe", &[]),
     ];
     for &(cmd, args) in cmds {
-        if let Ok(mut child) = std::process::Command::new(cmd)
+        let Ok(mut child) = std::process::Command::new(cmd)
             .args(args)
             .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
             .spawn()
-        {
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-                let _ = stdin.flush();
+        else {
+            continue; // tool not installed
+        };
+        let wrote = match child.stdin.take() {
+            Some(mut stdin) => {
+                let ok = stdin.write_all(text.as_bytes()).is_ok();
+                drop(stdin); // close stdin so the tool sees EOF
+                ok
             }
-            let _ = child.wait();
-            return;
+            None => false,
+        };
+        if wrote && matches!(child.wait(), Ok(status) if status.success()) {
+            return Ok(());
         }
     }
 
@@ -1347,8 +1393,9 @@ pub fn copy_to_clipboard(text: &str) {
     // and most other modern terminals. No external tools needed.
     let encoded = base64_encode(text.as_bytes());
     let mut stdout = std::io::stdout().lock();
-    let _ = write!(stdout, "\x1b]52;c;{encoded}\x07");
-    let _ = stdout.flush();
+    write!(stdout, "\x1b]52;c;{encoded}\x07")?;
+    stdout.flush()?;
+    Ok(())
 }
 
 /// Minimal base64 encoder — avoids pulling in a crate just for clipboard support.
