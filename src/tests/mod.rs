@@ -21,13 +21,19 @@ mod checker_tests;
 #[cfg(test)]
 mod config_tests;
 #[cfg(test)]
+mod convert_history_tests;
+#[cfg(test)]
 mod crc_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
+mod fake_model;
+#[cfg(test)]
 mod feed_tests;
 #[cfg(test)]
 mod grep_tests;
+#[cfg(test)]
+mod headless_ask_tests;
 #[cfg(all(test, feature = "hooks"))]
 mod hooks;
 #[cfg(test)]
@@ -60,6 +66,8 @@ mod prompt_mode_tests;
 mod provider_tests;
 #[cfg(test)]
 mod renderer_tests;
+#[cfg(test)]
+mod resumed_history_tests;
 #[cfg(test)]
 mod session_storage_tests;
 #[cfg(test)]

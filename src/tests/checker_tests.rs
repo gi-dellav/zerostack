@@ -1506,3 +1506,25 @@ fn standard_respects_config_allow_over_cwd_auto_allow() {
         CheckResult::Allowed,
     ));
 }
+
+// --- check_perm non-interactive Ask denial (guards headless dispatch) ---
+
+#[tokio::test]
+async fn check_perm_denies_non_interactively_when_ask_tx_is_none_and_verdict_is_ask() {
+    // Guarded mode with no matching rule asks for non-read tools (see
+    // guarded_asks_for_write_and_bash above), so this checker's verdict for
+    // "write" is CheckResult::Ask.
+    let checker = make_checker(SecurityMode::Guarded);
+    let perm: Option<crate::permission::checker::PermCheck> =
+        Some(std::sync::Arc::new(std::sync::Mutex::new(checker)));
+    let ask_tx: Option<crate::permission::ask::AskSender> = None;
+
+    let result = crate::agent::tools::check_perm(&perm, &ask_tx, "write", "/etc/passwd").await;
+
+    match result {
+        Err(crate::agent::tools::ToolError::Msg(msg)) => {
+            assert_eq!(msg, "Permission denied (non-interactive mode)");
+        }
+        other => panic!("expected non-interactive Ask denial error, got {:?}", other),
+    }
+}
