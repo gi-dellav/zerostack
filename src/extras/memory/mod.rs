@@ -959,7 +959,9 @@ pub fn compaction_heading(count: Option<usize>) -> String {
 /// rather than depending on the model to write it. `count` is the number of
 /// messages this compaction summarized (Session's `first_kept_index`).
 pub fn flush_compaction_summary(mem: &Mem, summary: &str, count: Option<usize>) {
-    let _ = mem.append_daily(&compaction_heading(count), summary);
+    if let Err(e) = mem.append_daily(&compaction_heading(count), summary) {
+        tracing::warn!("memory: failed to persist compaction summary: {e}");
+    }
 }
 
 /// Effective compaction reserve including the injected memory block, which the

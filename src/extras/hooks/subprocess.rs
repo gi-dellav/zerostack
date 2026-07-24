@@ -75,7 +75,9 @@ pub(crate) async fn run_hook(
     };
 
     if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(stdin_json).await;
+        if let Err(e) = stdin.write_all(stdin_json).await {
+            tracing::warn!("hooks: failed to write hook stdin: {e}");
+        }
         drop(stdin);
     }
 
@@ -87,11 +89,15 @@ pub(crate) async fn run_hook(
     let run = async {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
-        if let Some(pipe) = stdout_pipe.as_mut() {
-            let _ = pipe.read_to_end(&mut stdout).await;
+        if let Some(pipe) = stdout_pipe.as_mut()
+            && let Err(e) = pipe.read_to_end(&mut stdout).await
+        {
+            tracing::warn!("hooks: failed to read hook stdout (output may be truncated): {e}");
         }
-        if let Some(pipe) = stderr_pipe.as_mut() {
-            let _ = pipe.read_to_end(&mut stderr).await;
+        if let Some(pipe) = stderr_pipe.as_mut()
+            && let Err(e) = pipe.read_to_end(&mut stderr).await
+        {
+            tracing::warn!("hooks: failed to read hook stderr (output may be truncated): {e}");
         }
         let status = child.wait().await;
         (status, stdout, stderr)

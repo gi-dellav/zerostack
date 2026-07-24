@@ -41,10 +41,15 @@ pub(crate) fn save_trust_store(path: &Path, trusted: &HashSet<String>) {
     let Ok(json) = serde_json::to_string_pretty(trusted) else {
         return;
     };
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if let Some(parent) = path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        tracing::warn!("hooks: failed to create trust store directory: {e}");
+        return;
     }
-    let _ = std::fs::write(path, json);
+    if let Err(e) = std::fs::write(path, json) {
+        tracing::warn!("hooks: failed to save trust store (trust decisions won't persist): {e}");
+    }
 }
 
 fn global_settings_path() -> PathBuf {

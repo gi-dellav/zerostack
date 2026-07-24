@@ -192,10 +192,19 @@ fn handle_write(parts: &[&str], ctx: &mut SlashCtx<'_>) {
 fn handle_editor(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let mem = Mem::open();
     let path = mem.memory_md();
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if let Some(parent) = path.parent()
+        && let Err(e) = std::fs::create_dir_all(parent)
+    {
+        write_error(ctx.renderer, format!("cannot create memory dir: {e}"));
+        return Ok(());
     }
-    let _ = std::fs::write(&path, "");
+    if let Err(e) = std::fs::write(&path, "") {
+        write_error(
+            ctx.renderer,
+            format!("cannot prepare {}: {e}", path.display()),
+        );
+        return Ok(());
+    }
     write_ok(
         ctx.renderer,
         format!("opening {} in editor...", path.display()),

@@ -5,7 +5,9 @@ const DIRS_ASKED_FILE: &str = "dirs_asked_architecture.txt";
 
 fn dirs_asked_path() -> PathBuf {
     let dir = crate::session::storage::data_dir();
-    let _ = std::fs::create_dir_all(&dir);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("archmd: failed to create data dir: {e}");
+    }
     dir.join(DIRS_ASKED_FILE)
 }
 

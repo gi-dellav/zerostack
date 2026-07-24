@@ -97,7 +97,9 @@ impl FileCredentialStore {
 #[cfg(unix)]
 fn set_owner_only(f: &std::fs::File) {
     use std::os::unix::fs::PermissionsExt;
-    let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
+    if let Err(e) = f.set_permissions(std::fs::Permissions::from_mode(0o600)) {
+        tracing::warn!("mcp oauth: failed to set 0600 permissions on token file: {e}");
+    }
 }
 
 #[cfg(not(unix))]
