@@ -563,13 +563,15 @@ pub(crate) async fn start_main_run(
     run.pending_send = Some(text.to_string());
     #[cfg(feature = "advisor")]
     crate::extras::advisor::set_session_messages(ui.session.messages.clone());
-    if !ui.cli.no_session {
-        let _ = crate::session::chat_history::append_entry(
+    if !ui.cli.no_session
+        && let Err(e) = crate::session::chat_history::append_entry(
             &crate::session::chat_history::ChatHistoryEntry {
                 content: text.to_string(),
                 timestamp: ui.session.updated_at.clone(),
             },
-        );
+        )
+    {
+        tracing::warn!("failed to append chat history entry: {e}");
     }
 }
 

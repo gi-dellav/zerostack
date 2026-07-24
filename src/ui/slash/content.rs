@@ -125,7 +125,12 @@ async fn handle_theme(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
             write_ok(ctx.renderer, "no active theme to clear");
         } else {
             ctx.context.current_theme_name = None;
-            let _ = storage::save_theme_name(None);
+            if let Err(e) = storage::save_theme_name(None) {
+                write_error(
+                    ctx.renderer,
+                    format!("warning: theme choice not saved: {}", e),
+                );
+            }
             if let Some(colors) = &ctx.cfg.colors {
                 let chat_bg = colors
                     .chat_background
@@ -148,7 +153,12 @@ async fn handle_theme(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
         let name = parts[1].trim();
         if let Some(content) = ctx.context.themes.get(name) {
             ctx.context.current_theme_name = Some(name.to_string());
-            let _ = storage::save_theme_name(Some(name));
+            if let Err(e) = storage::save_theme_name(Some(name)) {
+                write_error(
+                    ctx.renderer,
+                    format!("warning: theme choice not saved: {}", e),
+                );
+            }
             crate::context::themes::apply(content, ctx.renderer);
             write_ok(ctx.renderer, format!("active theme: {}", name));
         } else {

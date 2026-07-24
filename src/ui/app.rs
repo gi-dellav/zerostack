@@ -154,10 +154,14 @@ impl<'a> App<'a> {
         if ui.cfg.resolve_always_show_welcome() || !marker_path.exists() {
             crate::ui::events::show_welcome(&mut renderer)?;
             if !ui.cfg.resolve_always_show_welcome() {
-                if let Some(dir) = marker_path.parent() {
-                    let _ = std::fs::create_dir_all(dir);
+                if let Some(dir) = marker_path.parent()
+                    && let Err(e) = std::fs::create_dir_all(dir)
+                {
+                    tracing::warn!("failed to create data dir for welcome marker: {e}");
                 }
-                let _ = std::fs::write(&marker_path, "");
+                if let Err(e) = std::fs::write(&marker_path, "") {
+                    tracing::warn!("failed to write welcome marker (welcome will show again): {e}");
+                }
             }
         }
         refresh_display(
@@ -196,7 +200,11 @@ impl<'a> App<'a> {
                             .rebuild_agent(&ui.session.model, slash.reasoning_enabled)
                             .await,
                     );
-                    let _ = render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context);
+                    if let Err(e) =
+                        render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context)
+                    {
+                        tracing::warn!("failed to re-render session after worktree switch: {e}");
+                    }
                 }
                 Err(e) => {
                     let _ = renderer.write_line(&format!("worktree failed: {}", e), C_ERROR);
@@ -225,7 +233,11 @@ impl<'a> App<'a> {
                             .rebuild_agent(&ui.session.model, slash.reasoning_enabled)
                             .await,
                     );
-                    let _ = render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context);
+                    if let Err(e) =
+                        render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context)
+                    {
+                        tracing::warn!("failed to re-render session after worktree switch: {e}");
+                    }
                 }
                 Err(e) => {
                     let _ = renderer.write_line(&format!("worktree failed: {}", e), C_ERROR);
@@ -600,8 +612,13 @@ impl<'a> App<'a> {
                     if let Some(text) = text {
                         self.input.load_text(&text);
                     }
-                    if !self.ui.cli.no_session {
-                        let _ = crate::session::storage::save_session(self.ui.session);
+                    if !self.ui.cli.no_session
+                        && let Err(e) = crate::session::storage::save_session(self.ui.session)
+                    {
+                        self.renderer.write_line(
+                            &format!("warning: failed to save session: {}", e),
+                            C_ERROR,
+                        )?;
                     }
                     render_session(
                         &mut self.renderer,

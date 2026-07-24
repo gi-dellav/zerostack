@@ -453,14 +453,19 @@ async fn handle_agent_done(
         };
         ls.last_run_output = validation_output.clone();
 
-        let _ = crate::extras::r#loop::transcript::save_iteration(
+        if let Err(e) = crate::extras::r#loop::transcript::save_iteration(
             &ui.session.id,
             ls.iteration,
             &ls.build_prompt(),
             &response,
             validation_output.as_deref(),
             &summary,
-        );
+        ) {
+            renderer.write_line(
+                &format!("warning: failed to save loop transcript: {}", e),
+                C_ERROR,
+            )?;
+        }
 
         ls.iteration += 1;
 

@@ -92,8 +92,12 @@ impl ContextFiles {
 }
 
 pub fn load(no_context_files: bool) -> ContextFiles {
-    let _ = prompts::ensure_global();
-    let _ = themes::ensure_global();
+    if let Err(e) = prompts::ensure_global() {
+        tracing::warn!("failed to install default prompts: {e}");
+    }
+    if let Err(e) = themes::ensure_global() {
+        tracing::warn!("failed to install default themes: {e}");
+    }
     let (agents, arch_candidate) = if no_context_files {
         (None, None)
     } else {

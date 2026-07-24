@@ -6,7 +6,7 @@ use crate::ui::renderer::Renderer;
 use crate::ui::state::{AgentRunState, UiContext};
 use crate::ui::utils::suggest_pattern;
 
-use super::C_PERM;
+use super::{C_ERROR, C_PERM};
 
 pub async fn handle_permission_request(
     ask_req: crate::permission::ask::AskRequest,
@@ -78,8 +78,10 @@ pub async fn handle_permission_request(
                 tool: ask_req.tool.clone(),
                 pattern: pattern.into(),
             });
-        if !ui.cli.no_session {
-            let _ = crate::session::storage::save_session(ui.session);
+        if !ui.cli.no_session
+            && let Err(e) = crate::session::storage::save_session(ui.session)
+        {
+            renderer.write_line(&format!("warning: failed to save session: {}", e), C_ERROR)?;
         }
     }
 
