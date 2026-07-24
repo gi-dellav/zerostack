@@ -39,13 +39,17 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
         "/retry" => handle_retry(ctx).await,
         "/quit" | "/exit" => handle_quit(ctx).await,
         "/history" => handle_history(ctx).await,
+        #[cfg(feature = "export")]
         "/export" => handle_export(parts, ctx).await,
+        #[cfg(feature = "export")]
         "/import" => handle_import(parts, ctx).await,
+        #[cfg(feature = "export")]
         "/share" => handle_share(ctx).await,
         _ => Ok(()),
     }
 }
 
+#[cfg(feature = "export")]
 async fn handle_export(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let default_name = format!(
         "zerostack-session-{}.html",
@@ -58,11 +62,11 @@ async fn handle_export(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
         .unwrap_or(&default_name);
     let (content, kind) = if path.ends_with(".jsonl") {
         (
-            crate::session::export::session_to_jsonl(ctx.session),
+            crate::extras::export::session_to_jsonl(ctx.session),
             "JSONL",
         )
     } else {
-        (crate::session::export::session_to_html(ctx.session), "HTML")
+        (crate::extras::export::session_to_html(ctx.session), "HTML")
     };
     match std::fs::write(path, content) {
         Ok(()) => write_ok(ctx.renderer, format!("exported {} to {}", kind, path)),
@@ -71,6 +75,7 @@ async fn handle_export(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
     Ok(())
 }
 
+#[cfg(feature = "export")]
 async fn handle_import(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let Some(path) = parts.get(1).map(|p| p.trim()).filter(|p| !p.is_empty()) else {
         write_error(ctx.renderer, "usage: /import <file.jsonl|session.json>");
@@ -95,7 +100,7 @@ async fn handle_import(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
             }
         }
     } else {
-        let messages = match crate::session::export::parse_jsonl_import(&content) {
+        let messages = match crate::extras::export::parse_jsonl_import(&content) {
             Ok(m) => m,
             Err(e) => {
                 write_error(ctx.renderer, format!("invalid JSONL session: {}", e));
@@ -135,18 +140,19 @@ async fn handle_import(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
     Ok(())
 }
 
+#[cfg(feature = "export")]
 async fn handle_share(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let filename = format!(
         "zerostack-session-{}.html",
         &ctx.session.id[..8.min(ctx.session.id.len())]
     );
-    let html = crate::session::export::session_to_html(ctx.session);
+    let html = crate::extras::export::session_to_html(ctx.session);
     let description = if ctx.session.name.is_empty() {
         "zerostack session".to_string()
     } else {
         format!("zerostack session: {}", ctx.session.name)
     };
-    match crate::session::export::share_gist(&filename, &html, &description).await {
+    match crate::extras::export::share_gist(&filename, &html, &description).await {
         Ok(url) => write_ok(ctx.renderer, format!("shared as secret gist: {}", url)),
         Err(e) => write_error(ctx.renderer, format!("share failed: {}", e)),
     }

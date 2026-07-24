@@ -68,7 +68,7 @@ mod provider_tests;
 mod renderer_tests;
 #[cfg(test)]
 mod resumed_history_tests;
-#[cfg(test)]
+#[cfg(all(test, feature = "export"))]
 mod session_export_tests;
 #[cfg(test)]
 mod session_storage_tests;

@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use compact_str::CompactString;
 use serde::Deserialize;
 
-use super::{MessageRole, Session, SessionMessage};
+use crate::session::{MessageRole, Session, SessionMessage};
 
 /// Export a session as JSONL: one metadata header line, then one message per
 /// line. This is the format `parse_jsonl_import` accepts back.

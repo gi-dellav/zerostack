@@ -15,10 +15,8 @@ const BASE_COMMANDS: &[&str] = &[
     "/drop-all",
     "/editsys",
     "/exit",
-    "/export",
     "/help",
     "/history",
-    "/import",
     "/init",
     "/mode",
     "/model",
@@ -38,7 +36,6 @@ const BASE_COMMANDS: &[&str] = &[
     "/review",
     "/rewind",
     "/sessions",
-    "/share",
     "/theme",
     "/thinking",
     "/toggle",
@@ -63,6 +60,13 @@ fn available_commands() -> Vec<&'static str> {
 
     #[cfg(feature = "advisor")]
     cmds.push("/advisor");
+
+    #[cfg(feature = "export")]
+    {
+        cmds.push("/export");
+        cmds.push("/import");
+        cmds.push("/share");
+    }
 
     #[cfg(feature = "git-worktree")]
     {

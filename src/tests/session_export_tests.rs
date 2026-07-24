@@ -1,4 +1,4 @@
-use crate::session::export::{parse_jsonl_import, session_to_html, session_to_jsonl};
+use crate::extras::export::{parse_jsonl_import, session_to_html, session_to_jsonl};
 use crate::session::{MessageRole, Session};
 
 fn sample_session() -> Session {

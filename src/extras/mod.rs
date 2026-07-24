@@ -19,6 +19,9 @@ pub mod subagents;
 #[cfg(feature = "archmd")]
 pub mod archmd;
 
+#[cfg(feature = "export")]
+pub mod export;
+
 #[cfg(feature = "advisor")]
 pub mod advisor;
 

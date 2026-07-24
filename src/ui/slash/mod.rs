@@ -438,9 +438,9 @@ pub async fn handle_slash(
             settings::handle(&parts, &mut ctx).await
         }
         "/sessions" | "/rename" | "/clear" | "/new" | "/undo" | "/redo" | "/rewind" | "/retry"
-        | "/quit" | "/exit" | "/history" | "/export" | "/import" | "/share" => {
-            session::handle(&parts, &mut ctx).await
-        }
+        | "/quit" | "/exit" | "/history" => session::handle(&parts, &mut ctx).await,
+        #[cfg(feature = "export")]
+        "/export" | "/import" | "/share" => session::handle(&parts, &mut ctx).await,
         "/help" => {
             help::handle(&parts, &mut ctx);
             Ok(())
