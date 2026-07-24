@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, mpsc};
 
 use crossterm::ExecutableCommand;
 use crossterm::cursor::MoveTo;
@@ -10,16 +10,24 @@ use crossterm::terminal::Clear;
 
 use super::super::utils::resolve_color;
 
+/// Paths per batch sent from the background walk to the picker. Small
+/// batches keep the first matches visible quickly on large trees.
+const WALK_BATCH_SIZE: usize = 25;
+
+/// Hard cap on walked paths, same bound the picker always had.
+const MAX_WALK_FILES: usize = 200;
+
 pub struct FilePicker {
     pub active: bool,
     pub query: String,
     pub cursor: usize,
     pub matches: Vec<PathBuf>,
     pub selected: usize,
-    file_cache: Arc<Mutex<Vec<PathBuf>>>,
+    file_cache: Vec<PathBuf>,
     monochrome: bool,
     loading: bool,
-    walk_done: Arc<AtomicBool>,
+    walk_rx: Option<mpsc::Receiver<Vec<PathBuf>>>,
+    walk_cancel: Arc<AtomicBool>,
 }
 
 impl FilePicker {
@@ -30,10 +38,11 @@ impl FilePicker {
             cursor: 0,
             matches: Vec::new(),
             selected: 0,
-            file_cache: Arc::new(Mutex::new(Vec::new())),
+            file_cache: Vec::new(),
             monochrome: false,
             loading: false,
-            walk_done: Arc::new(AtomicBool::new(false)),
+            walk_rx: None,
+            walk_cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -46,21 +55,26 @@ impl FilePicker {
     }
 
     pub fn activate(&mut self) {
+        // Cancel any walk still running from a previous activation before
+        // arming a fresh flag for the new one.
+        self.walk_cancel.store(true, Ordering::Relaxed);
+        self.walk_rx = None;
+
         self.active = true;
         self.query.clear();
         self.cursor = 0;
         self.matches.clear();
         self.selected = 0;
+        self.file_cache.clear();
 
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             self.loading = true;
-            self.walk_done.store(false, Ordering::Relaxed);
-            let cache = self.file_cache.clone();
-            let done = self.walk_done.clone();
+            self.walk_cancel = Arc::new(AtomicBool::new(false));
+            let cancel = self.walk_cancel.clone();
+            let (tx, rx) = mpsc::channel();
+            self.walk_rx = Some(rx);
             handle.spawn_blocking(move || {
-                let files = walk_files(".");
-                *cache.lock().unwrap_or_else(|e| e.into_inner()) = files;
-                done.store(true, Ordering::Relaxed);
+                walk_files_streaming(".", &cancel, |batch| tx.send(batch).is_ok());
             });
         } else {
             self.load_files_sync();
@@ -68,23 +82,50 @@ impl FilePicker {
     }
 
     fn load_files_sync(&mut self) {
-        let files = walk_files(".");
-        *self.file_cache.lock().unwrap_or_else(|e| e.into_inner()) = files;
+        self.file_cache = walk_files(".");
         self.filter();
     }
 
     pub fn deactivate(&mut self) {
         self.active = false;
+        // Stop the background walk (if any): the flag makes it exit early,
+        // and dropping the receiver makes its next batch send fail.
+        self.walk_cancel.store(true, Ordering::Relaxed);
+        self.walk_rx = None;
+        self.loading = false;
     }
 
+    /// Drain walk batches that arrived since the last call. Returns true
+    /// when new files arrived or the walk just finished.
     pub fn try_finish_loading(&mut self) -> bool {
-        if self.loading && self.walk_done.load(Ordering::Relaxed) {
-            self.loading = false;
-            self.filter();
-            true
-        } else {
-            false
+        if !self.loading {
+            return false;
         }
+        let mut changed = false;
+        let mut done = false;
+        if let Some(rx) = &self.walk_rx {
+            loop {
+                match rx.try_recv() {
+                    Ok(batch) => {
+                        self.file_cache.extend(batch);
+                        changed = true;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        done = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if done {
+            self.loading = false;
+            self.walk_rx = None;
+        }
+        if changed || done {
+            self.filter();
+        }
+        changed || done
     }
 
     pub fn char_input(&mut self, c: char) {
@@ -96,9 +137,8 @@ impl FilePicker {
             .unwrap_or(self.query.len());
         self.query.insert(byte_pos, c);
         self.cursor += 1;
-        if !self.loading {
-            self.filter();
-        }
+        // Filter even while the walk is streaming so matches update live.
+        self.filter();
     }
 
     pub fn backspace(&mut self) {
@@ -111,20 +151,18 @@ impl FilePicker {
                 .map(|(i, _)| i)
                 .unwrap_or(self.query.len());
             self.query.remove(byte_pos);
-            if !self.loading {
-                self.filter();
-            }
+            self.filter();
         }
     }
 
     fn filter(&mut self) {
-        let cache = self.file_cache.lock().unwrap_or_else(|e| e.into_inner());
-        if cache.is_empty() {
+        if self.file_cache.is_empty() {
             self.matches.clear();
             return;
         }
         let query_lower = self.query.to_lowercase();
-        self.matches = cache
+        self.matches = self
+            .file_cache
             .iter()
             .filter(|p| {
                 let lower = p.to_string_lossy().to_lowercase();
@@ -158,7 +196,7 @@ impl FilePicker {
 
     #[cfg(test)]
     pub fn test_set_cache(&mut self, files: Vec<PathBuf>) {
-        *self.file_cache.lock().unwrap_or_else(|e| e.into_inner()) = files;
+        self.file_cache = files;
         self.loading = false;
     }
 
@@ -174,7 +212,7 @@ impl FilePicker {
 
         let max_items = (rows.saturating_sub(4)).min(10) as usize;
 
-        if self.loading {
+        if self.loading && self.matches.is_empty() {
             let r = rows.saturating_sub(3);
             stdout.execute(MoveTo(0, r))?;
             write!(
@@ -248,8 +286,14 @@ impl FilePicker {
     }
 }
 
-pub(crate) fn walk_files(root: &str) -> Vec<PathBuf> {
-    let mut files = Vec::new();
+/// Walk `root`, invoking `emit` with batches of paths as they are found so
+/// the picker can show matches incrementally. Stops early when `cancel` is
+/// set (Esc/deactivate) or when `emit` returns false (receiver dropped).
+pub(crate) fn walk_files_streaming(
+    root: &str,
+    cancel: &AtomicBool,
+    mut emit: impl FnMut(Vec<PathBuf>) -> bool,
+) {
     let walker = ignore::WalkBuilder::new(root)
         .hidden(false)
         .git_ignore(true)
@@ -257,7 +301,12 @@ pub(crate) fn walk_files(root: &str) -> Vec<PathBuf> {
         .sort_by_file_name(|a, b| a.cmp(b))
         .build();
 
+    let mut batch = Vec::with_capacity(WALK_BATCH_SIZE);
+    let mut total = 0usize;
     for entry in walker.flatten() {
+        if cancel.load(Ordering::Relaxed) {
+            return;
+        }
         let path = entry.path();
         if !path.is_file() && !path.is_dir() {
             continue;
@@ -274,10 +323,27 @@ pub(crate) fn walk_files(root: &str) -> Vec<PathBuf> {
             .to_string_lossy()
             .to_string();
         let rel = rel.trim_start_matches('/').to_string();
-        files.push(PathBuf::from(rel));
-        if files.len() >= 200 {
+        batch.push(PathBuf::from(rel));
+        total += 1;
+        if batch.len() >= WALK_BATCH_SIZE && !emit(std::mem::take(&mut batch)) {
+            return;
+        }
+        if total >= MAX_WALK_FILES {
             break;
         }
     }
+    if !batch.is_empty() {
+        let _ = emit(batch);
+    }
+}
+
+/// Collect the full walk into a `Vec` (used by the synchronous fallback and
+/// tests).
+pub(crate) fn walk_files(root: &str) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    walk_files_streaming(root, &AtomicBool::new(false), |batch| {
+        files.extend(batch);
+        true
+    });
     files
 }
