@@ -88,6 +88,13 @@ pub(crate) fn get_dispatcher() -> Option<std::sync::Arc<dispatcher::HookDispatch
     DISPATCHER.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
+/// Test-only: clears the process-global dispatcher so a test that installed one
+/// via [`init_dispatcher`] can't leak it into other tests sharing the binary.
+#[cfg(test)]
+pub(crate) fn reset_dispatcher() {
+    *DISPATCHER.lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// Wraps `tools` with the process-global dispatcher's guard rail, or returns
 /// them unchanged when no hooks are configured. The single weave point shared
 /// by the main-agent and subagent builders (design D5).

@@ -25,6 +25,8 @@ mod crc_tests;
 #[cfg(test)]
 mod edit_tests;
 #[cfg(test)]
+mod fake_model;
+#[cfg(test)]
 mod feed_tests;
 #[cfg(test)]
 mod grep_tests;
