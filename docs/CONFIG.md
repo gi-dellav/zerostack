@@ -54,6 +54,8 @@ data files.
 
 All config keys are optional. CLI flags and their environment-backed values
 (such as `ZS_PROVIDER` and `ZS_MODEL`) take precedence where both exist.
+Unknown top-level keys (typos, or keys gated behind a cargo feature that is
+not compiled in) produce a warning at startup — they are otherwise ignored.
 
 Example (YAML):
 

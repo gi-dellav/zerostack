@@ -411,6 +411,43 @@ fn config_candidate_priority_toml_yaml_yml_legacy_json() {
 }
 
 use crate::config::merge_config_override;
+use crate::config::unknown_keys;
+
+#[test]
+fn unknown_keys_flags_typo() {
+    let file = serde_json::json!({"model": "m", "modle": "typo"});
+    let cfg: Config = serde_json::from_value(file.clone()).unwrap();
+    assert_eq!(unknown_keys(&file, &cfg), vec!["modle"]);
+}
+
+#[test]
+fn unknown_keys_accepts_valid_keys() {
+    let file = serde_json::json!({
+        "model": "m",
+        "temperature": 0.5,
+        "reserve_tokens": 1024,
+        "retry": {"max_attempts": 5}
+    });
+    let cfg: Config = serde_json::from_value(file.clone()).unwrap();
+    assert!(unknown_keys(&file, &cfg).is_empty());
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn unknown_keys_accepts_renamed_keys() {
+    let file = serde_json::json!({
+        "enable-exa-mcp": false,
+        "permission-allow": {"bash": ["ls"]}
+    });
+    let cfg: Config = serde_json::from_value(file.clone()).unwrap();
+    assert!(unknown_keys(&file, &cfg).is_empty());
+}
+
+#[test]
+fn unknown_keys_non_object_file_is_empty() {
+    let file = serde_json::json!(["not", "a", "table"]);
+    assert!(unknown_keys(&file, &Config::default()).is_empty());
+}
 
 #[test]
 fn local_override_replaces_scalar() {
