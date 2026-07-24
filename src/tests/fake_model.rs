@@ -96,6 +96,7 @@ async fn run_print_returns_scripted_text() {
         "hi",
         false,
         &crate::retry::RetryConfig::default(),
+        Vec::new(),
         #[cfg(feature = "hooks")]
         None,
     )

@@ -595,6 +595,9 @@ impl AnyAgent {
         prompt: &str,
         pure_stdout: bool,
         retry_config: &RetryConfig,
+        // Prior turns from a resumed session; see `runner::run_print`. Empty
+        // for a fresh session.
+        history: Vec<Message>,
         // `--loop` iteration/active state; see `runner::run_print`. `None`
         // for plain `-p` one-shot runs.
         #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
@@ -606,6 +609,7 @@ impl AnyAgent {
                     prompt,
                     pure_stdout,
                     retry_config,
+                    history,
                     #[cfg(feature = "hooks")]
                     loop_info,
                 )
@@ -618,6 +622,7 @@ impl AnyAgent {
                         prompt,
                         pure_stdout,
                         retry_config,
+                        history,
                         #[cfg(feature = "hooks")]
                         loop_info,
                     )
@@ -629,6 +634,7 @@ impl AnyAgent {
                         prompt,
                         pure_stdout,
                         retry_config,
+                        history,
                         #[cfg(feature = "hooks")]
                         loop_info,
                     )
@@ -641,6 +647,7 @@ impl AnyAgent {
                     prompt,
                     pure_stdout,
                     retry_config,
+                    history,
                     #[cfg(feature = "hooks")]
                     loop_info,
                 )
@@ -652,6 +659,7 @@ impl AnyAgent {
                     prompt,
                     pure_stdout,
                     retry_config,
+                    history,
                     #[cfg(feature = "hooks")]
                     loop_info,
                 )
@@ -663,6 +671,7 @@ impl AnyAgent {
                     prompt,
                     pure_stdout,
                     retry_config,
+                    history,
                     #[cfg(feature = "hooks")]
                     loop_info,
                 )

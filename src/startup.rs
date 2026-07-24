@@ -845,11 +845,13 @@ impl Startup {
             if let Some(ss) = self.status_signals.as_ref() {
                 ss.send_start();
             }
+            let history = crate::agent::runner::convert_history(&self.session);
             let response_result = agent
                 .run_print(
                     &msg,
                     self.cli.pure_stdout,
                     &self.cfg.retry,
+                    history,
                     #[cfg(feature = "hooks")]
                     None,
                 )
