@@ -823,7 +823,10 @@ impl Startup {
                 &self.cfg,
                 &self.context,
                 self.permission,
-                self.ask_tx,
+                // Non-interactive dispatch never keeps the ask channel: with
+                // no one draining it, an `Ask` verdict must fail closed as a
+                // denial rather than block forever. See `handle_ask_inner`.
+                None,
                 self.sandbox.clone(),
                 true,
                 temperature,
@@ -845,11 +848,13 @@ impl Startup {
             if let Some(ss) = self.status_signals.as_ref() {
                 ss.send_start();
             }
+            let history = crate::agent::runner::convert_history(&self.session);
             let response_result = agent
                 .run_print(
                     &msg,
                     self.cli.pure_stdout,
                     &self.cfg.retry,
+                    history,
                     #[cfg(feature = "hooks")]
                     None,
                 )
@@ -913,7 +918,9 @@ impl Startup {
             &self.cfg,
             &self.context,
             self.permission,
-            self.ask_tx,
+            // Non-interactive dispatch never keeps the ask channel; see the
+            // matching note in `dispatch_print`.
+            None,
             self.sandbox.clone(),
             true,
             temperature,

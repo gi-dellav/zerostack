@@ -108,6 +108,23 @@ pub struct Feed {
     /// know whether the chat viewport needs a redraw, which also catches
     /// mutations made through `Renderer::feed_mut()`.
     generation: u64,
+    /// Pre-wrapped visual rows for the last requested width. Scroll and
+    /// selection queries reuse these rows instead of re-laying out the whole
+    /// feed each time; invalidated by any content mutation (generation bump)
+    /// or a width change.
+    layout_cache: RefCell<Option<LayoutCache>>,
+    /// Number of full layout passes; test-only proof that queries reuse the
+    /// pre-wrapped rows.
+    #[cfg(test)]
+    layout_computes: std::cell::Cell<usize>,
+}
+
+/// Memoized layout of the whole feed at a viewport width and generation.
+#[derive(Clone, Debug)]
+struct LayoutCache {
+    width: usize,
+    generation: u64,
+    lines: Vec<LineEntry>,
 }
 
 // Several helpers exist primarily for unit testing layout/scroll math without
@@ -118,6 +135,9 @@ impl Feed {
         Self {
             blocks: Vec::new(),
             generation: 0,
+            layout_cache: RefCell::new(None),
+            #[cfg(test)]
+            layout_computes: std::cell::Cell::new(0),
         }
     }
 
@@ -211,7 +231,40 @@ impl Feed {
     /// Running agent blocks parse markdown only for their completed lines and
     /// render the unfinished tail line as plain text; parsed layouts are
     /// memoized per block so repeated layouts at the same width don't re-parse.
+    ///
+    /// The laid-out rows are pre-wrapped and memoized per `(width,
+    /// generation)`, so scroll and selection queries (`line_count`,
+    /// `visible_range`, `line_at_visual_row`, `selected_text`) operate on the
+    /// cached visual rows instead of re-laying out the feed on every call.
     pub fn lines(&self, width: usize) -> Vec<LineEntry> {
+        {
+            let cache = self.layout_cache.borrow();
+            if let Some(c) = cache.as_ref()
+                && c.width == width
+                && c.generation == self.generation
+            {
+                return c.lines.clone();
+            }
+        }
+        let lines = self.compute_lines(width);
+        #[cfg(test)]
+        self.layout_computes.set(self.layout_computes.get() + 1);
+        *self.layout_cache.borrow_mut() = Some(LayoutCache {
+            width,
+            generation: self.generation,
+            lines: lines.clone(),
+        });
+        lines
+    }
+
+    /// Number of full layout passes so far (test-only).
+    #[cfg(test)]
+    pub(crate) fn layout_computes(&self) -> usize {
+        self.layout_computes.get()
+    }
+
+    /// Lay out every block at `width`. Called by `lines` on a cache miss.
+    fn compute_lines(&self, width: usize) -> Vec<LineEntry> {
         let mut result = Vec::new();
         for block in &self.blocks {
             match block.style {

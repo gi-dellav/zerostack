@@ -354,3 +354,32 @@ fn agent_layout_recomputes_on_width_change() {
         wide.len()
     );
 }
+
+#[test]
+fn scroll_and_selection_queries_reuse_prewrapped_rows() {
+    let mut feed = Feed::new();
+    feed.push_line(BlockStyle::Plain, "hello");
+    let _ = feed.lines(80);
+    let _ = feed.line_count(80);
+    let _ = feed.visible_range(80, 0, 10);
+    let _ = feed.selected_text(80, 0, 0);
+    let _ = feed.line_at_visual_row(80, 0, 10, 9);
+    assert_eq!(
+        feed.layout_computes(),
+        1,
+        "scroll/selection queries should reuse the pre-wrapped rows"
+    );
+
+    feed.push_line(BlockStyle::Plain, "world");
+    let _ = feed.lines(80);
+    assert_eq!(feed.layout_computes(), 2, "mutation should invalidate");
+
+    let _ = feed.lines(40);
+    assert_eq!(feed.layout_computes(), 3, "resize should invalidate");
+
+    // Alternating back to a previously seen width still re-lays out once
+    // (single-slot cache), then reuses.
+    let _ = feed.lines(80);
+    let _ = feed.lines(80);
+    assert_eq!(feed.layout_computes(), 4);
+}

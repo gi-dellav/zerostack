@@ -74,6 +74,18 @@ agent-client-protocol = { version = "1.0.1", optional = true }
 blocking = { version = "1", optional = true }
 mimalloc = { version = "0.1", default-features = false }
 
+[dev-dependencies]
+# Adds rig-core's `test_utils` module (scripted `CompletionModel` test
+# doubles) for the fake-model carrier under `src/tests/fake_model.rs`. The
+# edition-2024 resolver keeps dev-dependency features out of non-test builds,
+# so the release binary never compiles `test-utils`. Tradeoff: the normal dep
+# above requests `rmcp` and this one adds `test-utils`, so `cargo build`
+# (rig[rmcp]) and a following `cargo test` (rig[rmcp+test-utils]) ask for
+# different feature sets and rig is recompiled between them. That is the
+# accepted cost of a test-only feature; folding `test-utils` into the release
+# dep to skip the rebuild would instead ship dead test code in the binary.
+rig = { version = "0.40", features = ["test-utils"] }
+
 [profile.dev]
 opt-level = 1
 debug = false
