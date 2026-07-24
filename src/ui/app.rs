@@ -477,7 +477,10 @@ impl<'a> App<'a> {
                     && let Some(idx) = self.renderer.buffer_line_at_row(row)
                 {
                     if let Some(url) = self.renderer.link_url_at(idx, col) {
-                        renderer_mod::open_url(&url);
+                        if let Err(e) = renderer_mod::open_url(&url) {
+                            self.renderer
+                                .write_line(&format!("cannot open link: {}", e), C_ERROR)?;
+                        }
                     } else {
                         self.renderer.selection_active = true;
                         self.renderer.selection_start = Some(idx);
@@ -497,8 +500,11 @@ impl<'a> App<'a> {
                     if let Some(idx) = self.renderer.buffer_line_at_row(row) {
                         self.renderer.selection_end = Some(idx);
                     }
-                    if let Some(text) = self.renderer.selected_text() {
-                        copy_to_clipboard(&text);
+                    if let Some(text) = self.renderer.selected_text()
+                        && let Err(e) = copy_to_clipboard(&text)
+                    {
+                        self.renderer
+                            .write_line(&format!("copy to clipboard failed: {}", e), C_ERROR)?;
                     }
                     self.renderer.clear_selection();
                 }
@@ -549,8 +555,15 @@ impl<'a> App<'a> {
     async fn handle_key_event(&mut self, key: KeyEvent) -> anyhow::Result<()> {
         if self.renderer.selection_active && key.code == KeyCode::Char('y') {
             if let Some(text) = self.renderer.selected_text() {
-                copy_to_clipboard(&text);
-                self.renderer.write_line("copied selection", Color::Green)?;
+                match copy_to_clipboard(&text) {
+                    Ok(()) => {
+                        self.renderer.write_line("copied selection", Color::Green)?;
+                    }
+                    Err(e) => {
+                        self.renderer
+                            .write_line(&format!("copy to clipboard failed: {}", e), C_ERROR)?;
+                    }
+                }
             }
             self.renderer.clear_selection();
             return Ok(());
@@ -1288,9 +1301,13 @@ impl<'a> App<'a> {
                         match crate::extras::mcp::oauth::begin_login(&server, &url, &settings).await
                         {
                             Ok(login) => {
-                                copy_to_clipboard(&login.auth_url);
+                                let copied = copy_to_clipboard(&login.auth_url).is_ok();
                                 self.renderer.write_line(
-                                    "open this URL to authorize (copied to clipboard):",
+                                    if copied {
+                                        "open this URL to authorize (copied to clipboard):"
+                                    } else {
+                                        "open this URL to authorize (could not copy to clipboard):"
+                                    },
                                     C_AGENT,
                                 )?;
                                 self.renderer.write_line(&login.auth_url, Color::Cyan)?;

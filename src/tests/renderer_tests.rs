@@ -1,4 +1,4 @@
-use crate::ui::renderer::{base64_encode, copy_to_clipboard};
+use crate::ui::renderer::{base64_encode, copy_to_clipboard, is_safe_url};
 
 #[test]
 fn base64_encode_empty() {
@@ -39,12 +39,48 @@ fn base64_encode_long_input() {
 
 #[test]
 fn copy_to_clipboard_does_not_panic() {
-    copy_to_clipboard("test text");
+    // Succeeds via an external tool or the OSC 52 fallback.
+    copy_to_clipboard("test text").expect("copy should succeed");
 }
 
 #[test]
 fn copy_to_clipboard_empty_string() {
-    copy_to_clipboard("");
+    copy_to_clipboard("").expect("copy should succeed");
+}
+
+#[test]
+fn safe_url_accepts_http_and_https() {
+    assert!(is_safe_url("https://example.com"));
+    assert!(is_safe_url("http://example.com/path?q=1#frag"));
+    assert!(is_safe_url("https://user@example.com:8080/x"));
+}
+
+#[test]
+fn safe_url_rejects_non_http_schemes() {
+    assert!(!is_safe_url("file:///etc/passwd"));
+    assert!(!is_safe_url("javascript:alert(1)"));
+    assert!(!is_safe_url("ftp://example.com"));
+    assert!(!is_safe_url("example.com/no-scheme"));
+    assert!(!is_safe_url(""));
+}
+
+#[test]
+fn safe_url_rejects_missing_host() {
+    assert!(!is_safe_url("https://"));
+    assert!(!is_safe_url("http:///path"));
+}
+
+#[test]
+fn safe_url_rejects_whitespace_and_control_chars() {
+    assert!(!is_safe_url("https://example.com/a b"));
+    assert!(!is_safe_url("https://example.com/\nevil"));
+    assert!(!is_safe_url("https://example.com/\x07"));
+}
+
+#[test]
+fn safe_url_rejects_overlong_urls() {
+    let long = format!("https://example.com/{}", "a".repeat(2100));
+    assert!(!is_safe_url(&long));
 }
 
 #[test]
