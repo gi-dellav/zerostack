@@ -22,15 +22,11 @@ use crate::session::SessionMessage;
 fn regen_resource(regen: fn() -> anyhow::Result<()>, what: &str, suffix: &str) -> bool {
     match regen() {
         Ok(()) => {
-            eprintln!("{} regenerated{}.", what, suffix);
+            eprintln!("{} updated{}.", what, suffix);
             true
         }
         Err(e) => {
-            eprintln!(
-                "warning: failed to regenerate {}: {}",
-                what.to_lowercase(),
-                e
-            );
+            eprintln!("warning: failed to update {}: {}", what.to_lowercase(), e);
             false
         }
     }
@@ -506,43 +502,59 @@ impl Startup {
             let themes_dir = context::themes::global_dir();
             let mut regenerated = false;
 
-            match self.cfg.resolve_auto_update_prompts() {
-                Some(true) => {
-                    regenerated |= regen_resource(context::prompts::regen, "Prompts", "");
-                }
-                Some(false) => { /* skip: user explicitly denied */ }
-                None => {
-                    if !prompts_dir.exists() {
-                        regenerated |=
-                            regen_resource(context::prompts::regen, "Prompts", " (first launch)");
-                    } else {
-                        let mut input = String::new();
-                        eprint!("Regenerate prompts? [y/N] ");
-                        let _ = std::io::Write::flush(&mut std::io::stderr());
-                        std::io::stdin().read_line(&mut input)?;
-                        if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
-                            regenerated |= regen_resource(context::prompts::regen, "Prompts", "");
+            // Only offer regeneration when the embedded defaults actually
+            // differ from the installed copies — version bumps that don't
+            // touch prompts/themes stay silent.
+            let prompts_changed = context::prompts::changed_files(&prompts_dir);
+            if !prompts_changed.is_empty() {
+                let suffix = format!(" ({} files changed)", prompts_changed.len());
+                match self.cfg.resolve_auto_update_prompts() {
+                    Some(true) => {
+                        regenerated |= regen_resource(context::prompts::regen, "Prompts", &suffix);
+                    }
+                    Some(false) => { /* skip: user explicitly denied */ }
+                    None => {
+                        if !prompts_dir.exists() {
+                            regenerated |= regen_resource(
+                                context::prompts::regen,
+                                "Prompts",
+                                " (first launch)",
+                            );
+                        } else {
+                            let mut input = String::new();
+                            eprint!("Update prompts{}? [y/N] ", suffix);
+                            let _ = std::io::Write::flush(&mut std::io::stderr());
+                            std::io::stdin().read_line(&mut input)?;
+                            if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+                                regenerated |=
+                                    regen_resource(context::prompts::regen, "Prompts", &suffix);
+                            }
                         }
                     }
                 }
             }
 
-            match self.cfg.resolve_auto_update_themes() {
-                Some(true) => {
-                    regenerated |= regen_resource(context::themes::regen, "Themes", "");
-                }
-                Some(false) => { /* skip: user explicitly denied */ }
-                None => {
-                    if !themes_dir.exists() {
-                        regenerated |=
-                            regen_resource(context::themes::regen, "Themes", " (first launch)");
-                    } else {
-                        let mut input = String::new();
-                        eprint!("Regenerate themes? [y/N] ");
-                        let _ = std::io::Write::flush(&mut std::io::stderr());
-                        std::io::stdin().read_line(&mut input)?;
-                        if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
-                            regenerated |= regen_resource(context::themes::regen, "Themes", "");
+            let themes_changed = context::themes::changed_files(&themes_dir);
+            if !themes_changed.is_empty() {
+                let suffix = format!(" ({} files changed)", themes_changed.len());
+                match self.cfg.resolve_auto_update_themes() {
+                    Some(true) => {
+                        regenerated |= regen_resource(context::themes::regen, "Themes", &suffix);
+                    }
+                    Some(false) => { /* skip: user explicitly denied */ }
+                    None => {
+                        if !themes_dir.exists() {
+                            regenerated |=
+                                regen_resource(context::themes::regen, "Themes", " (first launch)");
+                        } else {
+                            let mut input = String::new();
+                            eprint!("Update themes{}? [y/N] ", suffix);
+                            let _ = std::io::Write::flush(&mut std::io::stderr());
+                            std::io::stdin().read_line(&mut input)?;
+                            if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+                                regenerated |=
+                                    regen_resource(context::themes::regen, "Themes", &suffix);
+                            }
                         }
                     }
                 }

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use include_dir::{Dir, include_dir};
 
@@ -39,7 +39,13 @@ pub fn ensure_global() -> anyhow::Result<()> {
 
 pub fn regen() -> anyhow::Result<()> {
     let dir = global_dir();
-    crate::context::copy_embedded_to(&EMBEDDED, &dir)
+    crate::context::copy_embedded_to(&EMBEDDED, &dir)?;
+    Ok(())
+}
+
+/// Names of embedded theme files that are missing or modified in `dir`.
+pub fn changed_files(dir: &Path) -> Vec<String> {
+    crate::context::embedded_changed_files(&EMBEDDED, dir)
 }
 
 pub fn apply(content: &str, renderer: &mut Renderer) {
