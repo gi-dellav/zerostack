@@ -61,6 +61,13 @@ fn available_commands() -> Vec<&'static str> {
     #[cfg(feature = "advisor")]
     cmds.push("/advisor");
 
+    #[cfg(feature = "export")]
+    {
+        cmds.push("/export");
+        cmds.push("/import");
+        cmds.push("/share");
+    }
+
     #[cfg(feature = "git-worktree")]
     {
         cmds.push("/worktree");

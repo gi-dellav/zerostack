@@ -78,6 +78,21 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
         "  /sessions <id>         load a session (by ID prefix)",
     );
     write_result(ctx.renderer, "  /sessions delete <id>  delete a session");
+    #[cfg(feature = "export")]
+    {
+        write_result(
+            ctx.renderer,
+            "  /export [file]         export session to HTML (or .jsonl)",
+        );
+        write_result(
+            ctx.renderer,
+            "  /import <file>         import a session from JSONL or JSON",
+        );
+        write_result(
+            ctx.renderer,
+            "  /share                 share session as a secret GitHub gist",
+        );
+    }
     write_result(
         ctx.renderer,
         "  /reasoning             toggle LLM reasoning ability",
