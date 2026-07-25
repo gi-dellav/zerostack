@@ -208,6 +208,8 @@ pub struct Config {
     #[cfg(feature = "lsp")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lsp: Option<types::LspConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rtk: Option<types::RtkConfig>,
     #[cfg(feature = "advisor")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisor: Option<types::AdvisorConfig>,
@@ -388,6 +390,12 @@ impl Config {
     #[cfg(feature = "lsp")]
     pub fn resolve_lsp(&self) -> Option<&types::LspConfig> {
         self.lsp.as_ref().filter(|l| l.enabled)
+    }
+
+    /// rtk output-filtering configuration, `Some` only when an `[rtk]` table
+    /// exists with `enabled = true`.
+    pub fn resolve_rtk(&self) -> Option<&types::RtkConfig> {
+        self.rtk.as_ref().filter(|r| r.enabled)
     }
 
     pub fn resolve_max_grep_results(&self) -> u64 {

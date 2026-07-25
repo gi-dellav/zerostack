@@ -198,6 +198,26 @@ pub struct LspServerConfig {
     pub disabled: bool,
 }
 
+/// Configuration for the rtk (https://github.com/rtk-ai/rtk) output-filtering
+/// proxy. When enabled, bash commands are passed through `rtk rewrite` before
+/// execution so supported commands return compact output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct RtkConfig {
+    pub enabled: bool,
+    /// Path to the rtk binary. Defaults to `rtk` (resolved via PATH).
+    pub path: Option<CompactString>,
+}
+
+impl Default for RtkConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            path: None,
+        }
+    }
+}
+
 #[cfg(feature = "advisor")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

@@ -191,11 +191,20 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
         })
     };
 
+    let rtk = if cli.resolve_no_tools(cfg) {
+        None
+    } else {
+        crate::extras::rtk::Rtk::detect(cfg.resolve_rtk()).await
+    };
+
     #[cfg_attr(not(feature = "lsp"), allow(unused_mut))]
     let mut preamble = build_preamble(context, reasoning_enabled);
     #[cfg(feature = "lsp")]
     if lsp_manager.is_some() {
         preamble.push_str(crate::agent::prompt::LSP_PROMPT);
+    }
+    if rtk.is_some() {
+        preamble.push_str(crate::agent::prompt::RTK_PROMPT);
     }
 
     let mut builder = AgentBuilder::new(model).preamble(&preamble);
@@ -244,6 +253,7 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
                 ask_tx.clone(),
                 sandbox.clone(),
                 max_bash_output_lines,
+                rtk,
             )),
             Box::new(tools::GrepTool::new(
                 permission.clone(),

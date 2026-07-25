@@ -37,4 +37,6 @@ pub mod status_signals;
 #[cfg(feature = "lsp")]
 pub mod lsp;
 
+pub mod rtk;
+
 pub(crate) mod truncate;
