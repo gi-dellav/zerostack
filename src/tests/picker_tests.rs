@@ -1,4 +1,4 @@
-use crate::ui::pickers::file::{FilePicker, walk_files};
+use crate::ui::pickers::file::{FilePicker, walk_files, walk_files_streaming};
 use crate::ui::pickers::list::ListPicker;
 use crate::ui::pickers::models::ModelsPicker;
 use std::path::PathBuf;
@@ -429,5 +429,84 @@ fn test_walk_files_empty_directory() {
 
         assert_eq!(names.len(), 1, "only root entry expected in empty dir");
         assert!(names.contains(&""), "root entry should be present");
+    });
+}
+
+// ── walk_files_streaming tests ───────────────────────────────────────
+
+#[test]
+fn test_walk_files_streaming_batches_match_walk_files() {
+    with_temp_dir(|root| {
+        for i in 0..30 {
+            fs::write(root.join(format!("file{:02}.txt", i)), b"x").unwrap();
+        }
+
+        let mut batches: Vec<Vec<std::path::PathBuf>> = Vec::new();
+        walk_files_streaming(
+            &root.to_string_lossy(),
+            &std::sync::atomic::AtomicBool::new(false),
+            |batch| {
+                batches.push(batch);
+                true
+            },
+        );
+
+        assert!(
+            batches.len() > 1,
+            "31 entries should arrive in multiple batches"
+        );
+        assert!(batches.iter().all(|b| b.len() <= 25));
+
+        let streamed: Vec<&std::path::PathBuf> = batches.iter().flatten().collect();
+        let full = walk_files(&root.to_string_lossy());
+        assert_eq!(
+            streamed,
+            full.iter().collect::<Vec<_>>(),
+            "streamed batches should equal the full walk, in order"
+        );
+    });
+}
+
+#[test]
+fn test_walk_files_streaming_cancel_stops_immediately() {
+    with_temp_dir(|root| {
+        for i in 0..10 {
+            fs::write(root.join(format!("file{}.txt", i)), b"x").unwrap();
+        }
+
+        let cancel = std::sync::atomic::AtomicBool::new(true);
+        let mut files = Vec::new();
+        walk_files_streaming(&root.to_string_lossy(), &cancel, |batch| {
+            files.extend(batch);
+            true
+        });
+        assert!(
+            files.is_empty(),
+            "a pre-set cancel flag should prevent any results"
+        );
+    });
+}
+
+#[test]
+fn test_walk_files_streaming_emit_false_stops_early() {
+    with_temp_dir(|root| {
+        for i in 0..60 {
+            fs::write(root.join(format!("file{:02}.txt", i)), b"x").unwrap();
+        }
+
+        let mut files = Vec::new();
+        walk_files_streaming(
+            &root.to_string_lossy(),
+            &std::sync::atomic::AtomicBool::new(false),
+            |batch| {
+                files.extend(batch);
+                false // refuse every batch: stop after the first one
+            },
+        );
+        assert!(
+            files.len() <= 25,
+            "refusing the first batch should stop the walk, got {} files",
+            files.len()
+        );
     });
 }
