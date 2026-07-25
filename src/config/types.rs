@@ -202,22 +202,12 @@ pub struct LspServerConfig {
 /// proxy. When enabled, bash commands are passed through `rtk rewrite` before
 /// execution so supported commands return compact output.
 #[cfg(feature = "rtk")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RtkConfig {
     pub enabled: bool,
     /// Path to the rtk binary. Defaults to `rtk` (resolved via PATH).
     pub path: Option<CompactString>,
-}
-
-#[cfg(feature = "rtk")]
-impl Default for RtkConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            path: None,
-        }
-    }
 }
 
 #[cfg(feature = "advisor")]
