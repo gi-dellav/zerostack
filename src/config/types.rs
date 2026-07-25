@@ -169,6 +169,35 @@ impl Default for ChainConfig {
     }
 }
 
+/// Configuration for LSP (Language Server Protocol) integration. When
+/// enabled, language servers are spawned lazily for edited files and
+/// diagnostics are fed back to the agent after edits.
+#[cfg(feature = "lsp")]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LspConfig {
+    pub enabled: bool,
+    /// Per-server overrides or custom servers, keyed by name. An entry with
+    /// the same name as a built-in default replaces it.
+    pub servers: HashMap<String, LspServerConfig>,
+}
+
+#[cfg(feature = "lsp")]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LspServerConfig {
+    /// Server binary, resolved via PATH. Empty when the entry only disables
+    /// a built-in server.
+    pub command: CompactString,
+    pub args: Vec<CompactString>,
+    /// File extensions this server handles, e.g. [".rs"].
+    pub extensions: Vec<CompactString>,
+    pub env: HashMap<String, String>,
+    /// Server-specific `initializationOptions` sent during `initialize`.
+    pub initialization: Option<serde_json::Value>,
+    pub disabled: bool,
+}
+
 #[cfg(feature = "advisor")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
