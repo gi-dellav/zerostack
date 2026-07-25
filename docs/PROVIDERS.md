@@ -1,3 +1,7 @@
+---
+description: "Configure LLM providers in zerostack: OpenRouter, OpenAI-compatible endpoints, Anthropic, Gemini, Ollama, custom headers, and prompt caching."
+---
+
 # Providers
 
 zerostack supports five built-in providers and allows custom provider

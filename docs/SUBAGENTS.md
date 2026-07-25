@@ -1,3 +1,7 @@
+---
+description: "Parallel read-only subagents in zerostack: the task tool, model and provider overrides, and per-agent tool limits."
+---
+
 # Subagents (read-only codebase exploration)
 
 ## Overview

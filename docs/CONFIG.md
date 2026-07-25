@@ -1,3 +1,7 @@
+---
+description: "Full zerostack configuration reference: config file locations, providers, permissions, hooks, MCP, themes, and every available option."
+---
+
 # Configuration
 
 zerostack reads an optional config file. It supports TOML, YAML and JSON

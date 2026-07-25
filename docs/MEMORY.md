@@ -1,3 +1,7 @@
+---
+description: "Persistent markdown memory in zerostack: global notes, project scratchpads, daily logs, and the agent's memory tools."
+---
+
 # Memory System
 
 ## Overview
