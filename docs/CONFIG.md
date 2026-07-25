@@ -1152,6 +1152,9 @@ reaches the model context (e.g. tests report failures only, `git status`
 returns a compact summary). rtk claims up to 90% reduction of bash output
 tokens.
 
+This integration is behind the non-default `rtk` Cargo feature — build with
+`--features rtk` to enable it.
+
 When enabled, every `bash` tool command is passed through `rtk rewrite` before
 execution. rtk decides which commands have a compact equivalent — unsupported
 commands run unchanged. Permission checks always run against the original

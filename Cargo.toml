@@ -33,6 +33,7 @@ pdf = ["multimodal", "rig/pdf"]
 advisor = []
 hooks = []
 lsp = ["dep:lsp-types"]
+rtk = []
 
 [dependencies]
 rig = { version = "0.40", features = ["rmcp"] }

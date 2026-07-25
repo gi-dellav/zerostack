@@ -201,6 +201,7 @@ pub struct LspServerConfig {
 /// Configuration for the rtk (https://github.com/rtk-ai/rtk) output-filtering
 /// proxy. When enabled, bash commands are passed through `rtk rewrite` before
 /// execution so supported commands return compact output.
+#[cfg(feature = "rtk")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RtkConfig {
@@ -209,6 +210,7 @@ pub struct RtkConfig {
     pub path: Option<CompactString>,
 }
 
+#[cfg(feature = "rtk")]
 impl Default for RtkConfig {
     fn default() -> Self {
         Self {

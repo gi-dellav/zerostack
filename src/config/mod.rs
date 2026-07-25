@@ -208,6 +208,7 @@ pub struct Config {
     #[cfg(feature = "lsp")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lsp: Option<types::LspConfig>,
+    #[cfg(feature = "rtk")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rtk: Option<types::RtkConfig>,
     #[cfg(feature = "advisor")]
@@ -394,6 +395,7 @@ impl Config {
 
     /// rtk output-filtering configuration, `Some` only when an `[rtk]` table
     /// exists with `enabled = true`.
+    #[cfg(feature = "rtk")]
     pub fn resolve_rtk(&self) -> Option<&types::RtkConfig> {
         self.rtk.as_ref().filter(|r| r.enabled)
     }

@@ -53,6 +53,7 @@ Files with no server configured simply return no diagnostics.";
 /// Appended to the preamble when the rtk output-filtering proxy is active
 /// (`[rtk] enabled = true` and the binary detected). Tells the model why bash
 /// output looks compact and where the full output goes on failure.
+#[cfg(feature = "rtk")]
 pub const RTK_PROMPT: &str = "\n\n## rtk output filtering\n\
 Bash commands are automatically rewritten through rtk, an output-filtering proxy: \
 supported commands (git, cargo, test runners, ls, grep, ...) return compact output \
