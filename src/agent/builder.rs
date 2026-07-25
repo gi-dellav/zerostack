@@ -182,7 +182,21 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     additional_params: Option<serde_json::Value>,
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> Agent<M> {
-    let preamble = build_preamble(context, reasoning_enabled);
+    #[cfg(feature = "lsp")]
+    let lsp_manager = if cli.resolve_no_tools(cfg) {
+        None
+    } else {
+        cfg.resolve_lsp().map(|c| {
+            crate::extras::lsp::LspManager::new(c, std::env::current_dir().unwrap_or_default())
+        })
+    };
+
+    #[cfg_attr(not(feature = "lsp"), allow(unused_mut))]
+    let mut preamble = build_preamble(context, reasoning_enabled);
+    #[cfg(feature = "lsp")]
+    if lsp_manager.is_some() {
+        preamble.push_str(crate::agent::prompt::LSP_PROMPT);
+    }
 
     let mut builder = AgentBuilder::new(model).preamble(&preamble);
 
@@ -209,6 +223,13 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
         let max_grep_results = cfg.resolve_max_grep_results();
         let max_find_results = cfg.resolve_max_find_results();
         let max_list_dir_entries = cfg.resolve_max_list_dir_entries();
+        let write_tool =
+            tools::WriteTool::new(permission.clone(), ask_tx.clone(), max_text_file_size);
+        #[cfg(feature = "lsp")]
+        let write_tool = write_tool.with_lsp(lsp_manager.clone());
+        let edit_tool = tools::EditTool::new(permission.clone(), ask_tx.clone());
+        #[cfg(feature = "lsp")]
+        let edit_tool = edit_tool.with_lsp(lsp_manager.clone());
         let base_tools: SmallVec<[Box<dyn rig::tool::ToolDyn>; 8]> = SmallVec::from_buf([
             Box::new(tools::ReadTool::new(
                 permission.clone(),
@@ -216,12 +237,8 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
                 max_text_file_size,
                 max_read_lines,
             )),
-            Box::new(tools::WriteTool::new(
-                permission.clone(),
-                ask_tx.clone(),
-                max_text_file_size,
-            )),
-            Box::new(tools::EditTool::new(permission.clone(), ask_tx.clone())),
+            Box::new(write_tool),
+            Box::new(edit_tool),
             Box::new(tools::BashTool::new(
                 permission.clone(),
                 ask_tx.clone(),
@@ -254,7 +271,8 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
                 feature = "subagents",
                 feature = "memory",
                 feature = "mcp",
-                feature = "advisor"
+                feature = "advisor",
+                feature = "lsp"
             )),
             allow(unused_mut)
         )]
@@ -307,6 +325,11 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
         if crate::extras::advisor::with_config(|c| c.enabled) {
             use crate::extras::advisor::AdvisorTool;
             all_tools.push(Box::new(AdvisorTool::new()));
+        }
+
+        #[cfg(feature = "lsp")]
+        if let Some(lsp) = &lsp_manager {
+            all_tools.push(Box::new(tools::lsp::LspTool::new(lsp.clone())));
         }
 
         let all_tools = filter_tools_by_allowlist(all_tools, &cli.tools);

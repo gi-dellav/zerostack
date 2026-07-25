@@ -32,6 +32,7 @@ multimodal = ["rig/image"]
 pdf = ["multimodal", "rig/pdf"]   
 advisor = []
 hooks = []
+lsp = ["dep:lsp-types"]
 
 [dependencies]
 rig = { version = "0.40", features = ["rmcp"] }
@@ -73,6 +74,7 @@ include_dir = "0.7"
 http = "1"
 agent-client-protocol = { version = "1.0.1", optional = true }
 blocking = { version = "1", optional = true }
+lsp-types = { version = "0.97", optional = true }
 mimalloc = { version = "0.1", default-features = false }
 
 [dev-dependencies]

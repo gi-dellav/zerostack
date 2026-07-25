@@ -3,6 +3,8 @@ use std::path::Path;
 use rig::tool::Tool;
 
 use crate::agent::tools::{AskSender, PermCheck, ToolError, WriteArgs, check_perm_path};
+#[cfg(feature = "lsp")]
+use crate::extras::lsp::LspManager;
 
 const DEFAULT_MAX_TEXT_SIZE: u64 = 1024 * 1024;
 
@@ -10,6 +12,10 @@ pub struct WriteTool {
     pub permission: Option<PermCheck>,
     pub ask_tx: Option<AskSender>,
     pub max_text_file_size: u64,
+    /// When `Some`, written files are synced to their language server and
+    /// fresh diagnostics are appended to the tool result.
+    #[cfg(feature = "lsp")]
+    pub lsp: Option<LspManager>,
 }
 
 impl WriteTool {
@@ -22,7 +28,15 @@ impl WriteTool {
             permission,
             ask_tx,
             max_text_file_size: max_text_file_size.unwrap_or(DEFAULT_MAX_TEXT_SIZE),
+            #[cfg(feature = "lsp")]
+            lsp: None,
         }
+    }
+
+    #[cfg(feature = "lsp")]
+    pub fn with_lsp(mut self, lsp: Option<LspManager>) -> Self {
+        self.lsp = lsp;
+        self
     }
 }
 
@@ -88,6 +102,15 @@ impl Tool for WriteTool {
         if let Some(msg) = coaching {
             result = format!("{}\n\n{}", msg, result);
         }
+
+        #[cfg(feature = "lsp")]
+        if let Some(lsp) = &self.lsp {
+            lsp.notify_changed(path).await;
+            if let Some(block) = lsp.diagnostics_block_for_edit(path).await {
+                result.push_str(&block);
+            }
+        }
+
         Ok(result)
     }
 }

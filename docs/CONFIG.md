@@ -1088,6 +1088,62 @@ The `/advisor` slash command provides runtime control:
 /advisor context-limit <n>  Set max kilobytes of conversation context
 ```
 
+## LSP
+
+zerostack can run language servers for the files the agent edits and feed
+diagnostics (errors/warnings) back into `edit`/`write` tool results — the
+agent sees type errors immediately instead of discovering them on the next
+build. An `lsp_diagnostics` tool also lets the agent query one file or the
+whole project on demand.
+
+This integration is behind the non-default `lsp` Cargo feature — build with
+`--features lsp` to enable it.
+
+### TOML
+
+```toml
+[lsp]
+enabled = true
+
+[lsp.servers.rust]          # override a built-in default
+command = "rust-analyzer"
+extensions = [".rs"]
+
+[lsp.servers.myserver]      # fully custom server
+command = "my-ls"
+args = ["--stdio"]
+extensions = [".my"]
+# env = { RUST_LOG = "debug" }
+# initialization = { ... }   # server-specific initializationOptions
+# disabled = false           # true removes a same-named built-in
+```
+
+### YAML
+
+```yaml
+lsp:
+  enabled: true
+  servers:
+    rust:
+      command: rust-analyzer
+      extensions: [".rs"]
+```
+
+Built-in server defaults (used only when the binary is on PATH):
+rust-analyzer, gopls, typescript-language-server, pyright-langserver,
+clangd, bash-language-server, lua-language-server.
+
+Behavior notes:
+
+- Servers are **PATH binaries only** — zerostack never auto-installs a
+  language server. A missing binary is skipped with a debug log.
+- Servers start lazily on the first edit touching one of their extensions
+  (workspace root = session cwd) and stop when zerostack exits.
+- Everything is fail-open: a hung or crashed server only means "no
+  diagnostics", never a failed edit.
+- Post-edit diagnostics are capped (errors first, ~20 lines); nothing is
+  appended when the file is clean.
+
 ## Logging
 
 zerostack uses the `tracing` framework for structured logging. By default, only

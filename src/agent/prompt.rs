@@ -38,6 +38,18 @@ You are an expert coding assistant. Read, write, edit files and run commands. Re
 
 pub const TODO_TOOLS_PROMPT: &str = "";
 
+/// Appended to the preamble when LSP integration is active (`[lsp]
+/// enabled = true`). Tells the model that diagnostics arrive automatically
+/// after edits and that it can query them on demand.
+#[cfg(feature = "lsp")]
+pub const LSP_PROMPT: &str = "\n\n## LSP diagnostics\n\
+Language servers are running for this project: after every successful edit or \
+write, fresh diagnostics (errors/warnings) are appended to the tool result \
+automatically. Trust them and fix what they report before moving on — no need \
+to run a manual typecheck just to confirm. Use the lsp_diagnostics tool to \
+query a file before editing it, or to list diagnostics across the project. \
+Files with no server configured simply return no diagnostics.";
+
 pub const COMPACTION_PROMPT: &str = "\
 You are a conversation summarizer for a coding session. Distill the following conversation into a concise summary.
 

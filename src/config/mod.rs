@@ -205,6 +205,9 @@ pub struct Config {
     pub colors: Option<types::ColorsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain: Option<types::ChainConfig>,
+    #[cfg(feature = "lsp")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lsp: Option<types::LspConfig>,
     #[cfg(feature = "advisor")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisor: Option<types::AdvisorConfig>,
@@ -378,6 +381,13 @@ impl Config {
     /// "no bash output truncation" behaviour.
     pub fn resolve_max_bash_output_lines(&self) -> Option<u64> {
         self.max_bash_output_lines
+    }
+
+    /// LSP configuration, `Some` only when an `[lsp]` table exists with
+    /// `enabled = true`.
+    #[cfg(feature = "lsp")]
+    pub fn resolve_lsp(&self) -> Option<&types::LspConfig> {
+        self.lsp.as_ref().filter(|l| l.enabled)
     }
 
     pub fn resolve_max_grep_results(&self) -> u64 {
