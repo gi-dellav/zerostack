@@ -1,3 +1,7 @@
+---
+description: "Use MiniMax models with zerostack through an OpenAI-compatible custom provider."
+---
+
 # MiniMax
 
 MiniMax is available in zerostack through custom provider definitions. The

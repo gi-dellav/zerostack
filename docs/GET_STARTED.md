@@ -1,3 +1,7 @@
+---
+description: "Get started with zerostack: install the minimal Rust coding agent, configure an LLM provider, and run your first session."
+---
+
 # Part 1. Get Started
 
 Thanks for picking up zerostack, here you can find a easy guide on installing zerostack, setting up a model, and getting to know the basic commands.
@@ -124,7 +128,7 @@ Prompts change *how* the agent behaves. Type `.` at the start of a message to on
 | `refactor` | Restructuring existing code |
 
 This is the short list; run `/prompt` in the agent (or see the root
-[README](../README.md#prompts-system)) for the full set of built-in prompts,
+[README](https://github.com/gi-dellav/zerostack#prompts-system)) for the full set of built-in prompts,
 including `frontend-design`, `review-security`, `simplify`, `write-prompt`,
 `autoconfig`, `orchestrator`, and `write-text`.
 
@@ -169,7 +173,7 @@ Everything above ships in the default build. A few extras are compiled in
 only when you ask for them: lifecycle hooks (`--features hooks`), a
 second-model advisor (`--features advisor`), image/PDF message attachments
 (`--features multimodal,pdf`), and ACP editor integration
-(`--features acp`). See the root [README](../README.md) for what each one
+(`--features acp`). See the root [README](https://github.com/gi-dellav/zerostack) for what each one
 does and how to enable it.
 
 # Conclusions

@@ -28,15 +28,36 @@ jobs:
       - name: Convert markdown to HTML
         run: |
           cd docs
-          for md in *.md; do
+          # Internal .md links must point at the built .html pages.
+          sed -i -e 's/\.md#/.html#/g' -e 's/\.md)/.html)/g' *.md providers/*.md
+          for md in *.md providers/*.md; do
             name="${md%.md}"
-            title="$(head -1 "$md" | sed 's/^# //')"
+            title="$(grep -m1 '^# ' "$md" | sed 's/^# //')"
             pandoc "$md" \
               --template=template.html \
+              --wrap=none \
               --metadata title="$title" \
               --metadata pagetitle="$title — zerostack" \
+              --metadata name="$(basename "$name")" \
               -o "${name}.html"
           done
+
+      - name: Generate sitemap.xml
+        run: |
+          cd docs
+          base="https://gi-dellav.github.io/zerostack"
+          today="$(date +%F)"
+          {
+            echo '<?xml version="1.0" encoding="UTF-8"?>'
+            echo '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+            find . -name '*.html' ! -name 'template.html' | sort | while read -r html; do
+              path="${html#./}"
+              loc="$base/$path"
+              [ "$path" = "index.html" ] && loc="$base/"
+              printf '  <url><loc>%s</loc><lastmod>%s</lastmod></url>\n' "$loc" "$today"
+            done
+            echo '</urlset>'
+          } > sitemap.xml
 
       - name: Setup Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

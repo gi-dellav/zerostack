@@ -1,3 +1,7 @@
+---
+description: "HashEdit — zerostack's CRC-tagged file editing system for token-efficient, conflict-safe agent edits: algorithm specification."
+---
+
 # Hash-Anchored Edits: Algorithm Specification
 
 ## Overview

@@ -1,3 +1,7 @@
+---
+description: "How ARCHITECTURE.md files give the zerostack agent and its subagents high-level design context about your project."
+---
+
 # ARCHITECTURE.md
 
 zerostack supports an optional `ARCHITECTURE.md` file that gives both the main

@@ -1,3 +1,7 @@
+---
+description: "Complete reference of zerostack slash commands, keyboard shortcuts, and input prefixes for the terminal UI."
+---
+
 # Slash Commands
 
 All slash commands are available from the TUI input prompt.
