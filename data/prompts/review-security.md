@@ -80,13 +80,6 @@ Use direct `read` / `grep` / `find_files` for single-step operations: finding fi
 
 If no vulnerabilities found: "No high-confidence vulnerabilities identified." List which attack surfaces were checked.
 
-## Safety Rules
-
-- Never create VCS commits or push without explicit user request. (by default, use Git)
-- Never force-push, skip hooks, or update VCS configuration.
-- Never commit secrets, API keys, or credentials.
-- Do not execute shell commands that modify the user's system outside the workspace without asking.
-
 ## Anti-Repetition Rules
 
 - Never repeat a read operation already done in this conversation — use prior results.

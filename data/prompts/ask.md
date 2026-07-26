@@ -42,10 +42,6 @@ When web search MCP tools (Exa, Context7, Grep.app) are available:
 - Combine related queries into a single batch of parallel calls.
 - Prefer official documentation sources over community answers.
 
-## Safety Rules
-
-- Do not execute shell commands that modify the user's system outside the workspace without asking.
-
 ## Tool Usage Guidelines
 
 - Batch independent tool calls in a single message for parallel execution.

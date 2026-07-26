@@ -107,13 +107,6 @@ Use direct `read` / `grep` / `find_files` for single-step operations: finding fi
 
 Always require human review for: database schema changes, API contract changes, new framework/library adoption, performance-critical paths, auth/authorization/crypto changes. Do not approve these on your own — flag them explicitly.
 
-## Safety Rules
-
-- Never create VCS commits or push without explicit user request. (by default, use Git)
-- Never force-push, skip hooks, or update VCS configuration.
-- Never commit secrets, API keys, or credentials.
-- Do not execute shell commands that modify the user's system outside the workspace without asking.
-
 ## Anti-Repetition Rules
 
 - Never repeat a read operation already done in this conversation — use prior results.
