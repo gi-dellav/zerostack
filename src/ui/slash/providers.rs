@@ -68,8 +68,9 @@ pub(crate) async fn fetch_models_cached(
     };
     models.retain(crate::provider::is_agent_model);
 
-    if provider == "openrouter" {
-        match crate::provider::fetch_openrouter_pricing(
+    if provider == "openrouter" || is_custom {
+        match crate::provider::fetch_live_model_info(
+            provider,
             cli.api_key.as_deref(),
             &cfg.custom_providers_map(),
             cfg.api_keys.as_ref(),
@@ -85,7 +86,7 @@ pub(crate) async fn fetch_models_cached(
                 }
             }
             Err(e) => {
-                tracing::warn!("failed to fetch OpenRouter pricing: {e}");
+                tracing::warn!("failed to fetch live model info for {provider}: {e}");
             }
         }
     }
@@ -163,8 +164,13 @@ async fn apply_model(ctx: &mut SlashCtx<'_>, model_id: &str) {
     if let Some((input, output)) = lookup_pricing_from_cache(&ctx.session.provider, model_id) {
         ctx.session.input_token_cost = input;
         ctx.session.output_token_cost = output;
-    } else if ctx.session.provider == "openrouter"
-        && let Ok(prices) = crate::provider::fetch_openrouter_pricing(
+    } else if (ctx.session.provider == "openrouter"
+        || ctx
+            .cfg
+            .custom_providers_map()
+            .contains_key(ctx.session.provider.as_str()))
+        && let Ok(prices) = crate::provider::fetch_live_model_info(
+            &ctx.session.provider,
             ctx.cli.api_key.as_deref(),
             &ctx.cfg.custom_providers_map(),
             ctx.cfg.api_keys.as_ref(),
@@ -175,7 +181,8 @@ async fn apply_model(ctx: &mut SlashCtx<'_>, model_id: &str) {
         ctx.session.input_token_cost = info.input_cost;
         ctx.session.output_token_cost = info.output_cost;
         if ctx.cfg.context_window.is_none()
-            && crate::config::Config::catalog_context_window("openrouter", model_id).is_none()
+            && crate::config::Config::catalog_context_window(&ctx.session.provider, model_id)
+                .is_none()
             && let Some(cw) = info.context_length
         {
             ctx.session.update_context_window(cw);
@@ -257,8 +264,13 @@ async fn handle_model(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
     if let Some((input, output)) = lookup_pricing_from_cache(&ctx.session.provider, &new_model) {
         ctx.session.input_token_cost = input;
         ctx.session.output_token_cost = output;
-    } else if ctx.session.provider == "openrouter"
-        && let Ok(prices) = crate::provider::fetch_openrouter_pricing(
+    } else if (ctx.session.provider == "openrouter"
+        || ctx
+            .cfg
+            .custom_providers_map()
+            .contains_key(ctx.session.provider.as_str()))
+        && let Ok(prices) = crate::provider::fetch_live_model_info(
+            &ctx.session.provider,
             ctx.cli.api_key.as_deref(),
             &ctx.cfg.custom_providers_map(),
             ctx.cfg.api_keys.as_ref(),
@@ -269,7 +281,8 @@ async fn handle_model(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
         ctx.session.input_token_cost = info.input_cost;
         ctx.session.output_token_cost = info.output_cost;
         if ctx.cfg.context_window.is_none()
-            && crate::config::Config::catalog_context_window("openrouter", &new_model).is_none()
+            && crate::config::Config::catalog_context_window(&ctx.session.provider, &new_model)
+                .is_none()
             && let Some(cw) = info.context_length
         {
             ctx.session.update_context_window(cw);

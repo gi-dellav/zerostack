@@ -381,15 +381,23 @@ impl Startup {
             );
         }
 
-        // Fetch OpenRouter pricing and context window at startup so cost tracking
-        // and the context meter work from the first turn.
-        if self.provider == "openrouter" {
+        // Fetch pricing and context window live at startup so cost tracking
+        // and the context meter work from the first turn. Applies to the
+        // built-in openrouter and to any custom provider exposing an
+        // OpenRouter-style `GET {base_url}/models` (e.g. laroute).
+        let live_info_provider = self.provider == "openrouter"
+            || self
+                .cfg
+                .custom_providers_map()
+                .contains_key(self.provider.as_str());
+        if live_info_provider {
             let need_pricing =
                 self.session.input_token_cost == 0.0 && self.session.output_token_cost == 0.0;
             let need_ctx = self.cfg.context_window.is_none()
-                && Config::catalog_context_window("openrouter", self.model.as_str()).is_none();
+                && Config::catalog_context_window(&self.provider, self.model.as_str()).is_none();
             if (need_pricing || need_ctx)
-                && let Ok(infos) = provider::fetch_openrouter_pricing(
+                && let Ok(infos) = provider::fetch_live_model_info(
+                    &self.provider,
                     self.cli.api_key.as_deref(),
                     &self.cfg.custom_providers_map(),
                     self.cfg.api_keys.as_ref(),
