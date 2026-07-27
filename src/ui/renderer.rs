@@ -1221,8 +1221,10 @@ impl Renderer {
             .skip(first_visible)
             .take(visible_line_count)
         {
-            let render_row = (rows.saturating_sub(reserve) - visible_line_count as u16 + 1)
-                + (i - first_visible) as u16;
+            // input_top already holds this base row, computed with saturating
+            // math; recompute-and-subtract here underflowed u16 on tiny
+            // terminals (rows < reserve + visible rows).
+            let render_row = input_top + (i - first_visible) as u16;
             stdout.execute(MoveTo(0, render_row))?;
 
             if let Some(bg) = self.input_bg {
@@ -1283,8 +1285,8 @@ impl Renderer {
         let cursor_render_idx = cursor_line
             .saturating_sub(first_visible)
             .min(visible_line_count.saturating_sub(1));
-        let cursor_row = (rows.saturating_sub(reserve) - visible_line_count as u16 + 1)
-            + cursor_render_idx as u16;
+        // Same saturating base row as the input lines above (input_top).
+        let cursor_row = input_top + cursor_render_idx as u16;
         let cursor_x = (prompt_width + cursor_display_col.saturating_sub(h_scroll)) as u16;
         stdout.execute(MoveTo(cursor_x, cursor_row))?;
         write!(stdout, "{}", Show)?;

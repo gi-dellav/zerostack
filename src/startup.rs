@@ -172,9 +172,55 @@ impl Startup {
         is_first_startup: bool,
         version_changed: bool,
         is_interactive: bool,
+        boot: &mut crate::ui::boot::Boot,
     ) -> anyhow::Result<Self> {
         // Load context first so prompts/themes are available early.
         let context = context::load(cli.resolve_no_context_files(&cfg));
+
+        // Report each source separately, calling out project-local files:
+        // prompts additionally load from `.zerostack/prompts` (highest
+        // priority), themes only from the global dir.
+        let local_prompts =
+            crate::context::load_dir_files(&context::prompts::zerostack_dir(), "md").len();
+        let mut prompts_detail = format!(
+            "{} · {}",
+            context.prompts.len(),
+            crate::ui::boot::abbreviate_home(&context::prompts::global_dir())
+        );
+        if local_prompts > 0 {
+            prompts_detail.push_str(&format!(
+                " + {} local ({})",
+                local_prompts,
+                context::prompts::zerostack_dir().display()
+            ));
+        }
+        boot.loaded("Prompts", &prompts_detail);
+        boot.loaded(
+            "Themes",
+            &format!(
+                "{} · {}",
+                context.themes.len(),
+                crate::ui::boot::abbreviate_home(&context::themes::global_dir())
+            ),
+        );
+        let mut context_docs: Vec<&str> = Vec::new();
+        if context.agents.is_some() {
+            context_docs.push("AGENTS.md");
+        }
+        #[cfg(feature = "archmd")]
+        if context.architecture.is_some() {
+            context_docs.push("ARCHITECTURE.md");
+        }
+        if !context_docs.is_empty() {
+            boot.loaded("Context files", &context_docs.join(", "));
+        }
+
+        let features = crate::ui::boot::active_features();
+        if features.is_empty() {
+            boot.loaded("Features", "minimal build");
+        } else {
+            boot.loaded("Features", &features.join(", "));
+        }
 
         let mut provider = cli.resolve_provider(&cfg);
         let mut model = cli.resolve_model(&cfg);
@@ -214,6 +260,10 @@ impl Startup {
 
         #[cfg(feature = "hooks")]
         let mut session_resumed = false;
+
+        if cli.continue_session || cli.session.is_some() {
+            boot.step("Session");
+        }
 
         if cli.continue_session
             && cli.session.is_none()
@@ -294,6 +344,19 @@ impl Startup {
             &cfg.custom_providers_map(),
             cfg.api_keys.as_ref(),
         )?;
+        if cli.continue_session || cli.session.is_some() {
+            let session_detail = if session.messages.is_empty() && session.name.is_empty() {
+                "new session".to_string()
+            } else {
+                let label = if session.name.is_empty() {
+                    session.id.chars().take(8).collect::<String>()
+                } else {
+                    session.name.to_string()
+                };
+                format!("restored {} · {} messages", label, session.messages.len())
+            };
+            boot.loaded("Session", &session_detail);
+        }
 
         Ok(Self {
             cli,
@@ -321,9 +384,13 @@ impl Startup {
 
     /// Phase 2: subagents, OpenRouter pricing, sandbox, tools config,
     /// permission checker, advisor.
-    pub(crate) async fn init_features(&mut self) -> anyhow::Result<()> {
+    pub(crate) async fn init_features(
+        &mut self,
+        boot: &mut crate::ui::boot::Boot,
+    ) -> anyhow::Result<()> {
         #[cfg(feature = "subagents")]
         {
+            boot.step("Subagents");
             let task_max_turns = self.cfg.task_max_turns.unwrap_or(20);
             let qm = config::quick_models_map(&self.cfg);
 
@@ -345,6 +412,7 @@ impl Startup {
                 (self.provider.clone(), self.model.clone())
             };
 
+            let mut subagent_warning: Option<String> = None;
             let sub_client = if sub_provider.as_str() == self.provider.as_str() {
                 self.client.clone()
             } else {
@@ -365,6 +433,8 @@ impl Startup {
                             e,
                             self.provider
                         );
+                        subagent_warning =
+                            Some(format!("provider '{sub_provider}' unavailable, using main"));
                         sub_model = self.model.clone();
                         self.client.clone()
                     }
@@ -379,6 +449,10 @@ impl Startup {
                 #[cfg(feature = "archmd")]
                 self.context.architecture.clone(),
             );
+            match subagent_warning {
+                Some(msg) => boot.warn("Subagents", &msg),
+                None => boot.done("Subagents"),
+            }
         }
 
         // Fetch OpenRouter pricing and context window at startup so cost tracking
@@ -388,36 +462,49 @@ impl Startup {
                 self.session.input_token_cost == 0.0 && self.session.output_token_cost == 0.0;
             let need_ctx = self.cfg.context_window.is_none()
                 && Config::catalog_context_window("openrouter", self.model.as_str()).is_none();
-            if (need_pricing || need_ctx)
-                && let Ok(infos) = provider::fetch_openrouter_pricing(
+            if need_pricing || need_ctx {
+                boot.step("Model pricing");
+                match provider::fetch_openrouter_pricing(
                     self.cli.api_key.as_deref(),
                     &self.cfg.custom_providers_map(),
                     self.cfg.api_keys.as_ref(),
                 )
                 .await
-                && let Some(info) = infos.get(self.model.as_str())
-            {
-                if need_pricing {
-                    self.session.input_token_cost = info.input_cost;
-                    self.session.output_token_cost = info.output_cost;
-                }
-                if need_ctx && let Some(cw) = info.context_length {
-                    self.session.update_context_window(cw);
+                {
+                    Ok(infos) => {
+                        if let Some(info) = infos.get(self.model.as_str()) {
+                            if need_pricing {
+                                self.session.input_token_cost = info.input_cost;
+                                self.session.output_token_cost = info.output_cost;
+                            }
+                            if need_ctx && let Some(cw) = info.context_length {
+                                self.session.update_context_window(cw);
+                            }
+                        }
+                        boot.done("Model pricing");
+                    }
+                    Err(_) => boot.warn("Model pricing", "unavailable"),
                 }
             }
         }
 
         // Sandbox, tools config, status signals, permission checker
+        boot.step("Tools & permissions");
         self.sandbox = Sandbox::new(
             self.cli.resolve_sandbox(&self.cfg),
             &self.cli.resolve_sandbox_backend(&self.cfg),
         )
         .with_shell(&self.cli.resolve_shell(&self.cfg));
+        let mut tools_warning: Option<String> = None;
         if self.cli.resolve_sandbox(&self.cfg) && !self.sandbox.is_effectively_sandboxed() {
             tracing::warn!(
                 "sandbox is enabled but backend '{}' was not found — commands will run unsandboxed",
                 self.cli.resolve_sandbox_backend(&self.cfg)
             );
+            tools_warning = Some(format!(
+                "sandbox backend '{}' not found — unsandboxed",
+                self.cli.resolve_sandbox_backend(&self.cfg)
+            ));
         }
         let edit_system = self.cli.resolve_edit_system(&self.cfg);
         tools::set_edit_system(edit_system);
@@ -432,10 +519,15 @@ impl Startup {
         self.permission = permission;
         self.ask_tx = ask_tx;
         self.ask_rx = ask_rx;
+        match tools_warning {
+            Some(msg) => boot.warn("Tools & permissions", &msg),
+            None => boot.done("Tools & permissions"),
+        }
 
         // Advisor setup
         #[cfg(feature = "advisor")]
         {
+            boot.step("Advisor");
             let enabled = self.cli.resolve_advisor_enabled(&self.cfg);
             let human_handoff = self.cli.resolve_advisor_human_handoff(&self.cfg);
             let advisor_model_name = self.cli.resolve_advisor_model(&self.cfg);
@@ -450,6 +542,7 @@ impl Startup {
                     (self.provider.to_string(), advisor_model_name)
                 };
 
+            let mut advisor_warning: Option<String> = None;
             let advisor_client = if advisor_provider == self.provider.as_str() {
                 Some(self.client.clone())
             } else {
@@ -467,6 +560,9 @@ impl Startup {
                             advisor_provider,
                             e
                         );
+                        advisor_warning = Some(format!(
+                            "provider '{advisor_provider}' unavailable, disabled"
+                        ));
                         None
                     }
                 }
@@ -491,6 +587,10 @@ impl Startup {
             crate::extras::advisor::init_config(config);
 
             self.handoff_rx = handoff_rx;
+            match advisor_warning {
+                Some(msg) => boot.warn("Advisor", &msg),
+                None => boot.done("Advisor"),
+            }
         }
 
         Ok(())
@@ -771,7 +871,7 @@ impl Startup {
     }
 
     /// Phase 4: mode dispatch — print, loop, or interactive.
-    pub(crate) async fn dispatch(self) -> anyhow::Result<()> {
+    pub(crate) async fn dispatch(self, boot: crate::ui::boot::Boot) -> anyhow::Result<()> {
         if self.cli.print {
             self.dispatch_print().await
         } else {
@@ -780,7 +880,7 @@ impl Startup {
                 return self.dispatch_loop().await;
             }
 
-            self.dispatch_interactive().await
+            self.dispatch_interactive(boot).await
         }
     }
 
@@ -953,7 +1053,7 @@ impl Startup {
         result
     }
 
-    async fn dispatch_interactive(self) -> anyhow::Result<()> {
+    async fn dispatch_interactive(self, boot: crate::ui::boot::Boot) -> anyhow::Result<()> {
         let Startup {
             cli,
             cfg,
@@ -976,6 +1076,10 @@ impl Startup {
             session.add_message(MessageRole::User, &initial_msg);
         }
 
+        // The startup log is replayed into the chat feed by the TUI, so the
+        // boot steps stay visible as history instead of a separate screen.
+        let boot_log = boot.into_state();
+
         crate::ui::run_interactive(
             crate::ui::state::UiContext::new(
                 &cli,
@@ -993,6 +1097,7 @@ impl Startup {
             arch_msg,
             #[cfg(feature = "advisor")]
             handoff_rx,
+            boot_log,
         )
         .await?;
 

@@ -35,9 +35,9 @@ use super::handle_human_handoff;
 #[cfg(feature = "git-worktree")]
 use super::spawn_merge_agent;
 use super::{
-    C_AGENT, C_BTW, C_ERROR, C_TOOL, PrebuildPayload, apply_prompt_mode, classify_submission,
-    mid_turn_compact_and_respawn, refresh_display, spawn_event_thread, start_main_run,
-    stop_turn_context_exhausted,
+    C_AGENT, C_BTW, C_ERROR, C_TOOL, PrebuildEvent, PrebuildPayload, apply_prompt_mode,
+    classify_submission, mid_turn_compact_and_respawn, refresh_display, spawn_event_thread,
+    start_main_run, stop_turn_context_exhausted,
 };
 #[cfg(feature = "git-worktree")]
 use super::{C_PERM, apply_current_prompt_mode};
@@ -70,7 +70,11 @@ pub(crate) struct App<'a> {
     user_rx: mpsc::Receiver<UserEvent>,
     running: Arc<AtomicBool>,
     event_handle: Option<std::thread::JoinHandle<()>>,
-    prebuild_rx: Option<mpsc::Receiver<PrebuildPayload>>,
+    prebuild_rx: Option<mpsc::Receiver<PrebuildEvent>>,
+    /// Fresh session with a startup log: the banner's "ready" lines are
+    /// pushed once the prebuild (MCP, agent) completes, so they land at the
+    /// very end of the startup block instead of before the MCP lines.
+    ready_lines_pending: bool,
     _terminal_guard: TerminalGuard,
 }
 
@@ -81,6 +85,7 @@ impl<'a> App<'a> {
         ask_rx: Option<mpsc::Receiver<crate::permission::ask::AskRequest>>,
         auto_trigger_msg: Option<String>,
         #[cfg(feature = "advisor")] handoff_rx: Option<crate::extras::advisor::HandoffReceiver>,
+        boot_log: Option<crate::ui::boot::BootState>,
     ) -> anyhow::Result<Self> {
         let _terminal_guard = TerminalGuard::new()?;
 
@@ -149,7 +154,15 @@ impl<'a> App<'a> {
         ui.session.overhead_tokens =
             crate::agent::builder::estimate_overhead(ui.context, slash.reasoning_enabled);
 
-        render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context)?;
+        crate::ui::events::render_session_with_boot(
+            &mut renderer,
+            ui.session,
+            ui.cli,
+            ui.cfg,
+            ui.context,
+            boot_log.as_ref(),
+        )?;
+        let mut ready_lines_pending = boot_log.is_some() && ui.session.messages.is_empty();
         let marker_path = crate::session::storage::data_dir().join("shown_welcome_msg");
         if ui.cfg.resolve_always_show_welcome() || !marker_path.exists() {
             crate::ui::events::show_welcome(&mut renderer)?;
@@ -282,7 +295,7 @@ impl<'a> App<'a> {
         let running = Arc::new(AtomicBool::new(true));
         let event_handle = Some(spawn_event_thread(user_tx.clone(), running.clone()));
 
-        let (prebuild_tx, prebuild_rx_raw) = mpsc::channel::<PrebuildPayload>(1);
+        let (prebuild_tx, prebuild_rx_raw) = mpsc::channel::<PrebuildEvent>(16);
         let prebuild_rx = Some(prebuild_rx_raw);
         if auto_trigger_msg.is_none() && run.agent.is_none() {
             let client_clone = ui.client.clone();
@@ -295,10 +308,44 @@ impl<'a> App<'a> {
             let sandbox_clone = ui.sandbox.clone();
             let reasoning_enabled = slash.reasoning_enabled;
             tokio::spawn(async move {
+                // MCP servers connect here, in the open chat UI: a header
+                // line announces how many are loading, then each server
+                // reports its result as a feed line as it lands, so the user
+                // watches tools load one by one and the lines stay as history.
                 #[cfg(feature = "mcp")]
                 let mcp = if let Some(ref servers) = cfg_clone.mcp_servers {
                     if !servers.is_empty() {
-                        Some(McpClientManager::connect_all(servers).await)
+                        let _ = prebuild_tx.try_send(PrebuildEvent::McpProgress(
+                            format!("… Loading {} MCP server(s)", servers.len()),
+                            Color::Yellow,
+                        ));
+                        Some(
+                            McpClientManager::connect_all_with_progress(servers, |ev| {
+                                let (line, color) = match ev {
+                                    crate::extras::mcp::ConnectProgress::Connected(
+                                        name,
+                                        elapsed,
+                                        tool_count,
+                                    ) => (
+                                        format!(
+                                            "✓ MCP {name} — {tool_count} tools ({})",
+                                            crate::ui::boot::fmt_duration(elapsed)
+                                        ),
+                                        Color::Green,
+                                    ),
+                                    crate::extras::mcp::ConnectProgress::Failed(name, e) => (
+                                        format!(
+                                            "! MCP {name}: {}",
+                                            crate::ui::boot::truncate(&e, 80)
+                                        ),
+                                        Color::Red,
+                                    ),
+                                };
+                                let _ =
+                                    prebuild_tx.try_send(PrebuildEvent::McpProgress(line, color));
+                            })
+                            .await,
+                        )
                     } else {
                         None
                     }
@@ -321,10 +368,17 @@ impl<'a> App<'a> {
                 .await;
 
                 #[cfg(feature = "mcp")]
-                let _ = prebuild_tx.send((a, mcp)).await;
+                let _ = prebuild_tx.send(PrebuildEvent::Done((a, mcp))).await;
                 #[cfg(not(feature = "mcp"))]
-                let _ = prebuild_tx.send(a).await;
+                let _ = prebuild_tx.send(PrebuildEvent::Done(a)).await;
             });
+        }
+
+        // No prebuild spawned (auto-trigger or an already-built agent): the
+        // deferred ready lines would never arrive, push them now.
+        if ready_lines_pending && (auto_trigger_msg.is_some() || run.agent.is_some()) {
+            Self::push_ready_lines(&mut renderer);
+            ready_lines_pending = false;
         }
 
         let (btw_tx, btw_rx) = mpsc::channel::<BtwEvent>(32);
@@ -353,8 +407,20 @@ impl<'a> App<'a> {
             running,
             event_handle,
             prebuild_rx,
+            ready_lines_pending,
             _terminal_guard,
         })
+    }
+
+    /// Append the banner's closing "ready" lines to the feed, set off from
+    /// the startup block above by a blank line.
+    fn push_ready_lines(renderer: &mut Renderer) {
+        let feed = renderer.feed_mut();
+        feed.push_line(crate::ui::feed::BlockStyle::Plain, "");
+        for line in crate::ui::events::READY_LINES {
+            feed.push_line(crate::ui::feed::BlockStyle::Welcome, line);
+        }
+        feed.push_line(crate::ui::feed::BlockStyle::Plain, "");
     }
 
     pub(crate) async fn run(&mut self) -> anyhow::Result<()> {
@@ -375,8 +441,16 @@ impl<'a> App<'a> {
                         ControlFlow::Continue(()) => {}
                     }
                 }
-                Some(prebuilt) = async { self.prebuild_rx.as_mut()?.recv().await }, if self.run.agent.is_none() => {
-                    self.take_prebuild(prebuilt, true)?;
+                Some(ev) = async { self.prebuild_rx.as_mut()?.recv().await }, if self.run.agent.is_none() => {
+                    match ev {
+                        #[cfg(feature = "mcp")]
+                        PrebuildEvent::McpProgress(line, color) => {
+                            self.renderer.write_line(&line, color)?;
+                        }
+                        PrebuildEvent::Done(prebuilt) => {
+                            self.take_prebuild(prebuilt, true)?;
+                        }
+                    }
                     self.refresh()?;
                 }
                 Some(event) = async { self.run.agent_rx.as_mut()?.recv().await } => {
@@ -402,9 +476,17 @@ impl<'a> App<'a> {
                 else => {
                     if let Some(rx) = self.prebuild_rx.as_mut()
                         && self.run.agent.is_none()
-                        && let Ok(payload) = rx.try_recv()
+                        && let Ok(ev) = rx.try_recv()
                     {
-                        self.take_prebuild(payload, false)?;
+                        match ev {
+                            #[cfg(feature = "mcp")]
+                            PrebuildEvent::McpProgress(line, color) => {
+                                self.renderer.write_line(&line, color)?;
+                            }
+                            PrebuildEvent::Done(payload) => {
+                                self.take_prebuild(payload, false)?;
+                            }
+                        }
                     }
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
@@ -1698,18 +1780,40 @@ impl<'a> App<'a> {
             let (built_agent, built_mcp) = prebuilt;
             self.run.agent = Some(built_agent);
             self.ui.mcp_manager = built_mcp;
-            if notify && let Some(m) = self.ui.mcp_manager.as_mut() {
-                for notice in m.take_notices() {
-                    self.renderer.write_line(&notice, C_ERROR)?;
+            if notify {
+                match self.ui.mcp_manager.as_mut() {
+                    Some(m) => {
+                        let servers = m.handles.len();
+                        let tools: usize = m.tool_counts.iter().map(|(_, c)| c).sum();
+                        for notice in m.take_notices() {
+                            self.renderer.write_line(&notice, C_ERROR)?;
+                        }
+                        self.renderer.write_line(
+                            &format!(
+                                "✓ agent ready — {} MCP server(s), {} tools connected",
+                                servers, tools
+                            ),
+                            Color::Green,
+                        )?;
+                    }
+                    None => {
+                        self.renderer.write_line("✓ agent ready", Color::Green)?;
+                    }
                 }
             }
         }
         #[cfg(not(feature = "mcp"))]
         {
-            let _ = notify;
+            if notify {
+                self.renderer.write_line("✓ agent ready", Color::Green)?;
+            }
             self.run.agent = Some(prebuilt);
         }
         self.prebuild_rx = None;
+        if self.ready_lines_pending {
+            self.ready_lines_pending = false;
+            Self::push_ready_lines(&mut self.renderer);
+        }
         Ok(())
     }
 

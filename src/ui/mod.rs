@@ -1,4 +1,5 @@
 mod app;
+pub(crate) mod boot;
 mod event_handler;
 pub(crate) mod events;
 pub(crate) mod feed;
@@ -473,20 +474,36 @@ pub(crate) type PrebuildPayload = (AnyAgent, Option<McpClientManager>);
 #[cfg(not(feature = "mcp"))]
 pub(crate) type PrebuildPayload = AnyAgent;
 
+/// Events from the background agent prebuild: live MCP connection results
+/// (rendered into the feed as they arrive, so tools visibly load one by one
+/// and stay as history), then the final payload.
+pub(crate) enum PrebuildEvent {
+    #[cfg(feature = "mcp")]
+    McpProgress(String, Color),
+    Done(PrebuildPayload),
+}
+
 /// If the background prebuild hasn't delivered yet, block until it does.
 #[cfg(feature = "mcp")]
 pub(crate) async fn resolve_prebuild<'a>(
     agent: &'a mut Option<AnyAgent>,
     mcp_manager: &'a mut Option<McpClientManager>,
-    prebuild_rx: &'a mut Option<mpsc::Receiver<PrebuildPayload>>,
+    prebuild_rx: &'a mut Option<mpsc::Receiver<PrebuildEvent>>,
 ) {
     if agent.is_some() {
         return;
     }
     if let Some(rx) = prebuild_rx.as_mut() {
-        if let Some((a, mcp)) = rx.recv().await {
-            *agent = Some(a);
-            *mcp_manager = mcp;
+        // Skip progress events here: the user submitted before the prebuild
+        // finished, so the main loop arm isn't draining anymore. The lines
+        // already rendered stay in the feed; the ready line lands via
+        // take_prebuild.
+        while let Some(ev) = rx.recv().await {
+            if let PrebuildEvent::Done((a, mcp)) = ev {
+                *agent = Some(a);
+                *mcp_manager = mcp;
+                break;
+            }
         }
         *prebuild_rx = None;
     }
@@ -495,14 +512,17 @@ pub(crate) async fn resolve_prebuild<'a>(
 #[cfg(not(feature = "mcp"))]
 pub(crate) async fn resolve_prebuild<'a>(
     agent: &'a mut Option<AnyAgent>,
-    prebuild_rx: &'a mut Option<mpsc::Receiver<PrebuildPayload>>,
+    prebuild_rx: &'a mut Option<mpsc::Receiver<PrebuildEvent>>,
 ) {
     if agent.is_some() {
         return;
     }
     if let Some(rx) = prebuild_rx.as_mut() {
-        if let Some(a) = rx.recv().await {
-            *agent = Some(a);
+        while let Some(ev) = rx.recv().await {
+            if let PrebuildEvent::Done(a) = ev {
+                *agent = Some(a);
+                break;
+            }
         }
         *prebuild_rx = None;
     }
@@ -517,7 +537,7 @@ pub(crate) async fn start_main_run(
     run: &mut AgentRunState,
     ui: &mut UiContext<'_>,
     slash: &SlashState,
-    prebuild_rx: &mut Option<mpsc::Receiver<PrebuildPayload>>,
+    prebuild_rx: &mut Option<mpsc::Receiver<PrebuildEvent>>,
 ) {
     // Wait for the background prebuild if it hasn't completed yet.
     #[cfg(feature = "mcp")]
@@ -791,6 +811,7 @@ pub async fn run_interactive(
     ask_rx: Option<AskReceiver>,
     auto_trigger_msg: Option<String>,
     #[cfg(feature = "advisor")] handoff_rx: Option<crate::extras::advisor::HandoffReceiver>,
+    boot_log: Option<boot::BootState>,
 ) -> anyhow::Result<()> {
     let mut app = app::App::new(
         ui,
@@ -799,6 +820,7 @@ pub async fn run_interactive(
         auto_trigger_msg,
         #[cfg(feature = "advisor")]
         handoff_rx,
+        boot_log,
     )
     .await?;
     app.run().await?;

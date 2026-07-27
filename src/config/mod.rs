@@ -86,6 +86,10 @@ pub struct Config {
     pub mid_turn_compact_threshold: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub always_show_welcome: Option<bool>,
+    /// Show the boot screen (logo + startup progress) on interactive launch.
+    /// Defaults to true; set to false for a quiet startup.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub show_boot_screen: Option<bool>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         rename = "auto-update-prompts"
@@ -414,6 +418,10 @@ impl Config {
 
     pub fn resolve_always_show_welcome(&self) -> bool {
         self.always_show_welcome.unwrap_or(false)
+    }
+
+    pub fn resolve_show_boot_screen(&self) -> bool {
+        self.show_boot_screen.unwrap_or(true)
     }
 
     pub fn resolve_show_reasoning(&self) -> bool {
