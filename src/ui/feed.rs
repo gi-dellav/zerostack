@@ -5,13 +5,13 @@ use crossterm::style::Color;
 
 use super::markdown::{markdown_to_styled, word_wrap};
 use super::renderer::LineEntry;
-use super::{C_AGENT, C_ERROR, C_PERM, C_TOOL};
 
 /// Semantic role of a conversation block in the feed.
 ///
 /// Roles are independent of terminal colors; `BlockStyle::color()` maps each
-/// role to the color used by the custom renderer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// role to a color, honoring `[colors.roles]` overrides from the active
+/// theme or config (see `ui::roles`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum BlockStyle {
     User,
     Agent,
@@ -26,19 +26,10 @@ pub enum BlockStyle {
 }
 
 impl BlockStyle {
+    /// The color this role renders in, honoring `[colors.roles]` overrides
+    /// from the active theme or config (see `ui::roles`).
     pub fn color(self) -> Color {
-        match self {
-            BlockStyle::User => Color::Green,
-            BlockStyle::Agent => C_AGENT,
-            BlockStyle::Reasoning => Color::DarkMagenta,
-            BlockStyle::Tool => C_TOOL,
-            BlockStyle::ToolResult => Color::DarkGrey,
-            BlockStyle::Error => C_ERROR,
-            BlockStyle::System => Color::DarkGrey,
-            BlockStyle::Welcome => Color::Cyan,
-            BlockStyle::Permission => C_PERM,
-            BlockStyle::Plain => Color::White,
-        }
+        super::roles::color(self)
     }
 }
 
