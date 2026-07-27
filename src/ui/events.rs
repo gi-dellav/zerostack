@@ -1,6 +1,5 @@
 use chrono::Datelike;
 use compact_str::CompactString;
-use crossterm::style::Color;
 
 use crate::cli::Cli;
 use crate::config::{Config, ResolvedShowToolDetails};
@@ -129,23 +128,13 @@ pub fn render_session_with_boot(
         feed.push_line(BlockStyle::Plain, "");
     }
     if session.messages.is_empty() {
-        // Logo lines keep their gradient, the version line below renders
-        // white. On terminals too narrow for the logo the banner falls back
-        // to a compact text form so word-wrap can't mangle it.
-        let logo_width = crate::ui::boot::LOGO[0].chars().count();
-        let show_logo = crossterm::terminal::size()
-            .map(|(cols, _)| cols as usize >= logo_width + 2)
-            .unwrap_or(true);
-        let logo_len = crate::ui::boot::LOGO.len();
-        for (i, line) in banner_lines(show_logo).into_iter().enumerate() {
-            if show_logo && i < logo_len {
-                feed.push_colored_line(crate::ui::boot::LOGO_COLORS[i], line);
-            } else if line.is_empty() {
-                feed.push_line(BlockStyle::Plain, "");
-            } else {
-                feed.push_colored_line(Color::White, line);
-            }
-        }
+        // Minimal banner: name + version only. Model, context window,
+        // prompt, branch and cwd all live in the statusline, so repeating
+        // them here would be noise.
+        feed.push_line(
+            BlockStyle::Welcome,
+            format!("zerostack v{}", env!("CARGO_PKG_VERSION")),
+        );
         if let Some(log) = boot_log {
             feed.push_line(BlockStyle::Plain, "");
             feed.push_line(BlockStyle::Welcome, "Startup");
@@ -163,31 +152,6 @@ pub fn render_session_with_boot(
         feed.push_line(BlockStyle::Plain, "");
     }
     Ok(())
-}
-
-/// The launch banner shown at the top of a fresh session's feed: the ASCII
-/// logo and the version — nothing more. Model, context window, prompt,
-/// branch and cwd all live in the statusline, so repeating them here would
-/// be noise. With `show_logo` false (terminal narrower than the logo) the
-/// logo is replaced by a `zerostack v…` text prefix. Pure builder so it can
-/// be unit-tested without a TTY.
-pub(crate) fn banner_lines(show_logo: bool) -> Vec<String> {
-    let mut lines: Vec<String> = if show_logo {
-        let mut l: Vec<String> = crate::ui::boot::LOGO
-            .iter()
-            .map(|s| s.to_string())
-            .collect();
-        l.push(String::new());
-        l
-    } else {
-        Vec::new()
-    };
-    lines.push(format!(
-        "{}v{}",
-        if show_logo { "" } else { "zerostack " },
-        env!("CARGO_PKG_VERSION")
-    ));
-    lines
 }
 
 fn render_tool_result_to_feed(
@@ -361,28 +325,6 @@ mod tests {
     }
 
     #[test]
-    fn banner_is_logo_and_version_only() {
-        let lines = banner_lines(true);
-
-        assert_eq!(lines[0], crate::ui::boot::LOGO[0]);
-        // Logo, blank, version — model/prompt/branch/cwd live in the
-        // statusline and must not be repeated here.
-        assert_eq!(lines.len(), crate::ui::boot::LOGO.len() + 2);
-        let version = lines.last().unwrap();
-        assert!(version.starts_with('v'));
-        assert!(!version.contains('·'));
-    }
-
-    #[test]
-    fn compact_banner_replaces_logo_with_text_prefix() {
-        let lines = banner_lines(false);
-
-        assert_eq!(lines.len(), 1);
-        assert!(!lines[0].contains('█'));
-        assert!(lines[0].starts_with("zerostack v"));
-    }
-
-    #[test]
     fn ready_lines_deferred_when_boot_log_present() {
         use crate::ui::boot::BootState;
         use crate::ui::renderer::Renderer;
@@ -403,6 +345,7 @@ mod tests {
             .map(|l| l.text.to_string())
             .collect();
         assert!(texts.iter().any(|l| l.contains("Ready to code")));
+        assert!(texts[0].starts_with("zerostack v"));
 
         // With one, they are deferred (the TUI appends them after the
         // prebuild's MCP/agent-ready lines).
@@ -418,12 +361,13 @@ mod tests {
             .map(|l| l.text.to_string())
             .collect();
         assert!(!texts.iter().any(|l| l.contains("Ready to code")));
-        // Logo first, then the startup checklist.
-        assert_eq!(texts[0], crate::ui::boot::LOGO[0]);
+        // Banner first, then the startup checklist.
+        assert!(texts[0].starts_with("zerostack v"));
+        let banner_pos = 0;
         let checklist_pos = texts
             .iter()
             .position(|l| l.contains("✓ Configuration"))
             .expect("checklist line present");
-        assert!(checklist_pos > crate::ui::boot::LOGO.len());
+        assert!(checklist_pos > banner_pos);
     }
 }

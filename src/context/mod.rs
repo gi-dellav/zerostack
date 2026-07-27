@@ -40,17 +40,53 @@ pub(crate) fn load_dir_files(dir: &Path, ext: &str) -> Vec<(String, String)> {
     results
 }
 
-pub(crate) fn copy_embedded_to(embedded: &Dir, dest: &Path) -> anyhow::Result<()> {
+/// Names of embedded files whose counterpart in `dest` is missing or has
+/// different content. Sorted for stable output.
+pub(crate) fn embedded_changed_files(embedded: &Dir, dest: &Path) -> Vec<String> {
+    let mut changed = Vec::new();
+    for file in embedded.files() {
+        if let Some(name) = file.path().file_name().and_then(|s| s.to_str()) {
+            let differs = match (
+                std::fs::read_to_string(dest.join(name)),
+                file.contents_utf8(),
+            ) {
+                (Ok(existing), Some(content)) => existing != content,
+                // Unreadable on-disk file or non-UTF8 embedded file: treat as
+                // changed so a regen rewrites it.
+                _ => true,
+            };
+            if differs {
+                changed.push(name.to_string());
+            }
+        }
+    }
+    changed.sort();
+    changed
+}
+
+/// Copy embedded files into `dest`, writing only files whose content
+/// actually differs (missing or changed). Returns the number of files
+/// written. Files in `dest` that are not part of the embedded set (user
+/// customizations) are left untouched.
+pub(crate) fn copy_embedded_to(embedded: &Dir, dest: &Path) -> anyhow::Result<usize> {
     std::fs::create_dir_all(dest)?;
+    let mut written = 0;
     for file in embedded.files() {
         if let Some(name) = file.path().file_name().and_then(|s| s.to_str()) {
             let dest_path = dest.join(name);
             if let Some(content) = file.contents_utf8() {
+                if std::fs::read_to_string(&dest_path)
+                    .map(|existing| existing == content)
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
                 std::fs::write(&dest_path, content)?;
+                written += 1;
             }
         }
     }
-    Ok(())
+    Ok(written)
 }
 
 #[derive(Clone)]

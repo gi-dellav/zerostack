@@ -22,15 +22,11 @@ use crate::session::SessionMessage;
 fn regen_resource(regen: fn() -> anyhow::Result<()>, what: &str, suffix: &str) -> bool {
     match regen() {
         Ok(()) => {
-            eprintln!("{} regenerated{}.", what, suffix);
+            eprintln!("{} updated{}.", what, suffix);
             true
         }
         Err(e) => {
-            eprintln!(
-                "warning: failed to regenerate {}: {}",
-                what.to_lowercase(),
-                e
-            );
+            eprintln!("warning: failed to update {}: {}", what.to_lowercase(), e);
             false
         }
     }
@@ -455,16 +451,24 @@ impl Startup {
             }
         }
 
-        // Fetch OpenRouter pricing and context window at startup so cost tracking
-        // and the context meter work from the first turn.
-        if self.provider == "openrouter" {
+        // Fetch pricing and context window live at startup so cost tracking
+        // and the context meter work from the first turn. Applies to the
+        // built-in openrouter and to any custom provider exposing an
+        // OpenRouter-style `GET {base_url}/models` (e.g. laroute).
+        let live_info_provider = self.provider == "openrouter"
+            || self
+                .cfg
+                .custom_providers_map()
+                .contains_key(self.provider.as_str());
+        if live_info_provider {
             let need_pricing =
                 self.session.input_token_cost == 0.0 && self.session.output_token_cost == 0.0;
             let need_ctx = self.cfg.context_window.is_none()
-                && Config::catalog_context_window("openrouter", self.model.as_str()).is_none();
+                && Config::catalog_context_window(&self.provider, self.model.as_str()).is_none();
             if need_pricing || need_ctx {
-                boot.step("Model pricing");
-                match provider::fetch_openrouter_pricing(
+                boot.step("Model info");
+                match provider::fetch_live_model_info(
+                    &self.provider,
                     self.cli.api_key.as_deref(),
                     &self.cfg.custom_providers_map(),
                     self.cfg.api_keys.as_ref(),
@@ -481,9 +485,9 @@ impl Startup {
                                 self.session.update_context_window(cw);
                             }
                         }
-                        boot.done("Model pricing");
+                        boot.done("Model info");
                     }
-                    Err(_) => boot.warn("Model pricing", "unavailable"),
+                    Err(_) => boot.warn("Model info", "unavailable"),
                 }
             }
         }
@@ -606,43 +610,59 @@ impl Startup {
             let themes_dir = context::themes::global_dir();
             let mut regenerated = false;
 
-            match self.cfg.resolve_auto_update_prompts() {
-                Some(true) => {
-                    regenerated |= regen_resource(context::prompts::regen, "Prompts", "");
-                }
-                Some(false) => { /* skip: user explicitly denied */ }
-                None => {
-                    if !prompts_dir.exists() {
-                        regenerated |=
-                            regen_resource(context::prompts::regen, "Prompts", " (first launch)");
-                    } else {
-                        let mut input = String::new();
-                        eprint!("Regenerate prompts? [y/N] ");
-                        let _ = std::io::Write::flush(&mut std::io::stderr());
-                        std::io::stdin().read_line(&mut input)?;
-                        if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
-                            regenerated |= regen_resource(context::prompts::regen, "Prompts", "");
+            // Only offer regeneration when the embedded defaults actually
+            // differ from the installed copies — version bumps that don't
+            // touch prompts/themes stay silent.
+            let prompts_changed = context::prompts::changed_files(&prompts_dir);
+            if !prompts_changed.is_empty() {
+                let suffix = format!(" ({} files changed)", prompts_changed.len());
+                match self.cfg.resolve_auto_update_prompts() {
+                    Some(true) => {
+                        regenerated |= regen_resource(context::prompts::regen, "Prompts", &suffix);
+                    }
+                    Some(false) => { /* skip: user explicitly denied */ }
+                    None => {
+                        if !prompts_dir.exists() {
+                            regenerated |= regen_resource(
+                                context::prompts::regen,
+                                "Prompts",
+                                " (first launch)",
+                            );
+                        } else {
+                            let mut input = String::new();
+                            eprint!("Update prompts{}? [y/N] ", suffix);
+                            let _ = std::io::Write::flush(&mut std::io::stderr());
+                            std::io::stdin().read_line(&mut input)?;
+                            if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+                                regenerated |=
+                                    regen_resource(context::prompts::regen, "Prompts", &suffix);
+                            }
                         }
                     }
                 }
             }
 
-            match self.cfg.resolve_auto_update_themes() {
-                Some(true) => {
-                    regenerated |= regen_resource(context::themes::regen, "Themes", "");
-                }
-                Some(false) => { /* skip: user explicitly denied */ }
-                None => {
-                    if !themes_dir.exists() {
-                        regenerated |=
-                            regen_resource(context::themes::regen, "Themes", " (first launch)");
-                    } else {
-                        let mut input = String::new();
-                        eprint!("Regenerate themes? [y/N] ");
-                        let _ = std::io::Write::flush(&mut std::io::stderr());
-                        std::io::stdin().read_line(&mut input)?;
-                        if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
-                            regenerated |= regen_resource(context::themes::regen, "Themes", "");
+            let themes_changed = context::themes::changed_files(&themes_dir);
+            if !themes_changed.is_empty() {
+                let suffix = format!(" ({} files changed)", themes_changed.len());
+                match self.cfg.resolve_auto_update_themes() {
+                    Some(true) => {
+                        regenerated |= regen_resource(context::themes::regen, "Themes", &suffix);
+                    }
+                    Some(false) => { /* skip: user explicitly denied */ }
+                    None => {
+                        if !themes_dir.exists() {
+                            regenerated |=
+                                regen_resource(context::themes::regen, "Themes", " (first launch)");
+                        } else {
+                            let mut input = String::new();
+                            eprint!("Update themes{}? [y/N] ", suffix);
+                            let _ = std::io::Write::flush(&mut std::io::stderr());
+                            std::io::stdin().read_line(&mut input)?;
+                            if matches!(input.trim().to_lowercase().as_str(), "y" | "yes") {
+                                regenerated |=
+                                    regen_resource(context::themes::regen, "Themes", &suffix);
+                            }
                         }
                     }
                 }
@@ -698,7 +718,13 @@ impl Startup {
             } else {
                 "startup"
             };
+            let hooks_start = std::time::Instant::now();
             crate::extras::hooks::dispatch_session_start(source).await;
+            tracing::debug!(
+                "startup: SessionStart hooks ({}) took {:?}",
+                source,
+                hooks_start.elapsed()
+            );
         }
 
         // ARCHITECTURE.md prompt
@@ -953,6 +979,7 @@ impl Startup {
                     role: MessageRole::User,
                     content: CompactString::new(&msg),
                     estimated_tokens: Session::estimate_tokens(&msg),
+                    tool: None,
                 });
                 crate::extras::advisor::set_session_messages(msgs);
             }
@@ -973,10 +1000,25 @@ impl Startup {
             if let Some(ss) = self.status_signals.as_ref() {
                 ss.send_stop();
             }
-            let (response, usage) = response_result?;
+            let response_outcome = response_result?;
+            let response = response_outcome.response;
+            let usage = response_outcome.usage;
             if !self.cli.no_session {
                 let mut session = self.session;
                 session.add_message(MessageRole::User, &msg);
+                for interaction in &response_outcome.tool_interactions {
+                    let call_id = session.add_tool_call(&interaction.name, &interaction.args);
+                    // Between the call and its result, where they happened.
+                    #[cfg(feature = "subagents")]
+                    for subagent_call in &interaction.subagent_calls {
+                        session.add_subagent_tool_call(
+                            Some(call_id),
+                            &subagent_call.name,
+                            &subagent_call.args,
+                        );
+                    }
+                    session.add_tool_result(call_id, &interaction.name, &interaction.output);
+                }
                 session.add_message(MessageRole::Assistant, &response);
                 session.total_input_tokens = session
                     .total_input_tokens

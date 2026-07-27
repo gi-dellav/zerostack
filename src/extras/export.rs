@@ -68,6 +68,7 @@ pub fn parse_jsonl_import(content: &str) -> Result<Vec<SessionMessage>> {
             role: msg.role,
             content: msg.content,
             estimated_tokens: msg.estimated_tokens,
+            tool: None,
         });
     }
     if messages.is_empty() {

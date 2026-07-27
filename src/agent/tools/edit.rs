@@ -6,15 +6,32 @@ use crate::agent::tools::{
     levenshtein_similarity, normalize_whitespace,
 };
 use crate::config::types::EditSystem;
+#[cfg(feature = "lsp")]
+use crate::extras::lsp::LspManager;
 
 pub struct EditTool {
     pub permission: Option<PermCheck>,
     pub ask_tx: Option<AskSender>,
+    /// When `Some`, edited files are synced to their language server and
+    /// fresh diagnostics are appended to the tool result.
+    #[cfg(feature = "lsp")]
+    pub lsp: Option<LspManager>,
 }
 
 impl EditTool {
     pub fn new(permission: Option<PermCheck>, ask_tx: Option<AskSender>) -> Self {
-        EditTool { permission, ask_tx }
+        EditTool {
+            permission,
+            ask_tx,
+            #[cfg(feature = "lsp")]
+            lsp: None,
+        }
+    }
+
+    #[cfg(feature = "lsp")]
+    pub fn with_lsp(mut self, lsp: Option<LspManager>) -> Self {
+        self.lsp = lsp;
+        self
     }
 }
 
@@ -605,6 +622,15 @@ impl Tool for EditTool {
         }
         if let Some(msg) = coaching {
             result = format!("{}\n\n{}", msg, result);
+        }
+
+        #[cfg(feature = "lsp")]
+        if let Some(lsp) = &self.lsp {
+            let file = std::path::Path::new(&path);
+            lsp.notify_changed(file).await;
+            if let Some(block) = lsp.diagnostics_block_for_edit(file).await {
+                result.push_str(&block);
+            }
         }
 
         Ok(result)

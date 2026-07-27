@@ -55,7 +55,11 @@ impl McpClientManager {
             let started = std::time::Instant::now();
             match client::McpClientHandle::connect(CompactString::new(name.clone()), cfg).await {
                 Ok(handle) => {
-                    tracing::info!("Connected to MCP server '{}'", name);
+                    tracing::info!(
+                        "Connected to MCP server '{}' in {:?}",
+                        name,
+                        started.elapsed()
+                    );
                     let tool_count = handle.list_tools().await.map(|t| t.len()).unwrap_or(0);
                     progress(ConnectProgress::Connected(
                         name,
@@ -66,7 +70,11 @@ impl McpClientManager {
                     handles.push(handle);
                 }
                 Err(e) => {
-                    tracing::debug!("Failed to connect to MCP server '{}': {e}", name);
+                    tracing::debug!(
+                        "Failed to connect to MCP server '{}' after {:?}: {e}",
+                        name,
+                        started.elapsed()
+                    );
                     progress(ConnectProgress::Failed(
                         name,
                         CompactString::new(format!("{e}")),

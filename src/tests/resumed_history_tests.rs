@@ -31,14 +31,14 @@ async fn resumed_session_history_reaches_model_initial_turn() {
     let model = text_chunks(["got it"]);
     let agent = AgentBuilder::new(model.clone()).build();
 
-    // Under `--features hooks`, `run_print` consults the process-global Stop
-    // dispatcher; serialize against the test that installs one. No-op otherwise.
-    #[cfg(feature = "hooks")]
-    let _dispatcher_guard = crate::tests::fake_model::dispatcher_guard::acquire();
+    // `run_print` reaches process-global wiring (the hooks Stop dispatcher,
+    // the subagent event sender); serialize against every other `run_print`
+    // test so none of them clobber each other's.
+    let _run_print_guard = crate::tests::fake_model::run_print_guard::acquire();
 
     // Mirrors `dispatch_print`'s own `convert_history(&self.session)` call:
     // this is the `-p --continue` code path being exercised end to end.
-    let (_response, _usage) = run_print(
+    let _outcome = run_print(
         &agent,
         "continue",
         false,
@@ -55,6 +55,60 @@ async fn resumed_session_history_reaches_model_initial_turn() {
         observed_history, expected_history,
         "run_print must forward the resumed session's prior messages to the \
          model as history on the initial stream_chat call"
+    );
+}
+
+// 2.7: now that headless sessions can contain tool call/result messages
+// (this section's addition), `-p --continue` must replay them through the
+// same `convert_history` interactive resume already uses. `convert_history`
+// itself is untouched (design.md decision 7, "replay alignment is accepted,
+// not worked around"); this proves the existing `[ToolCall]:`/`[ToolResult]:`
+// tagging actually reaches the model at the `run_print` boundary once a
+// resumed session has tool messages to replay, not just in isolation.
+#[tokio::test]
+async fn resumed_session_tool_messages_replay_as_tagged_history_entries() {
+    let mut session = resumed_session();
+    let call_id = session.add_tool_call("read", &serde_json::json!({ "path": "src/main.rs" }));
+    session.add_tool_result(call_id, "read", "file contents");
+    let expected_history = convert_history(&session);
+
+    let model = text_chunks(["got it"]);
+    let agent = AgentBuilder::new(model.clone()).build();
+
+    // `run_print` reaches process-global wiring (the hooks Stop dispatcher,
+    // the subagent event sender); serialize against every other `run_print`
+    // test so none of them clobber each other's.
+    let _run_print_guard = crate::tests::fake_model::run_print_guard::acquire();
+
+    let _outcome = run_print(
+        &agent,
+        "continue",
+        false,
+        &RetryConfig::default(),
+        expected_history.clone(),
+        #[cfg(feature = "hooks")]
+        None,
+    )
+    .await
+    .expect("run_print should succeed against the fake model");
+
+    let observed_history = history_at(&model, 0);
+    assert_eq!(
+        observed_history, expected_history,
+        "run_print must forward the resumed session's tool messages to the \
+         model as history, exactly as it does for plain user/assistant turns"
+    );
+
+    let rendered = format!("{observed_history:?}");
+    assert!(
+        rendered.contains("[ToolCall]:"),
+        "resumed history must carry a [ToolCall] entry for the replayed tool \
+         call, rendered: {rendered}"
+    );
+    assert!(
+        rendered.contains("[ToolResult]:"),
+        "resumed history must carry a [ToolResult] entry for the replayed \
+         tool result, rendered: {rendered}"
     );
 }
 
@@ -75,7 +129,7 @@ async fn resumed_session_history_survives_stop_hook_continuation() {
     // Installs a process-global Stop hook below; the guard serializes against
     // other `run_print` tests and clears the dispatcher when it drops, so the
     // hook can't leak into them.
-    let _dispatcher_guard = crate::tests::fake_model::dispatcher_guard::acquire();
+    let _run_print_guard = crate::tests::fake_model::run_print_guard::acquire();
 
     let session = resumed_session();
     let expected_history = convert_history(&session);
@@ -112,7 +166,7 @@ async fn resumed_session_history_survives_stop_hook_continuation() {
     );
     init_dispatcher(HookDispatcher::from_config(&config).unwrap());
 
-    let (response, _usage) = run_print(
+    let outcome = run_print(
         &agent,
         "continue",
         false,
@@ -124,7 +178,7 @@ async fn resumed_session_history_survives_stop_hook_continuation() {
     .expect("run_print should succeed against the fake model");
 
     assert_eq!(
-        response, "partial answerfinal answer",
+        outcome.response, "partial answerfinal answer",
         "the Stop-forced continuation must run to completion and the returned \
          response must keep both turns' text (the first turn was already \
          streamed to stdout), not just the second turn's"

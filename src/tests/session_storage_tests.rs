@@ -1,5 +1,6 @@
 use crate::session::MessageRole;
 use crate::session::Session;
+use crate::session::ToolRecord;
 use crate::session::storage::{
     delete_session, find_sessions_by_prefix, load_suffix, save_session, suffix_path,
 };
@@ -93,9 +94,13 @@ fn save_session_preserves_tool_messages() {
     let env = setup_test_env();
     let mut s = Session::new("anthropic", "claude", 200000, "");
     s.add_message(MessageRole::User, "question");
-    s.add_tool_call("read", &serde_json::json!({ "path": "src/main.rs" }));
-    s.add_tool_result("read", "file contents");
-    s.add_subagent_tool_call("task", &serde_json::json!({ "prompts": ["find x"] }));
+    let call_id = s.add_tool_call("read", &serde_json::json!({ "path": "src/main.rs" }));
+    s.add_tool_result(call_id, "read", "file contents");
+    s.add_subagent_tool_call(
+        Some(call_id),
+        "task",
+        &serde_json::json!({ "prompts": ["find x"] }),
+    );
     s.add_message(MessageRole::Assistant, "answer");
     save_session(&s).unwrap();
 
@@ -120,7 +125,7 @@ fn long_tool_result_is_saved_and_truncated_in_session() {
     let tail = "T".repeat(TOOL_RESULT_TAIL_CHARS);
     let output = format!("{head}{omitted}{tail}");
 
-    let returned = s.add_tool_result("bash/unsafe", &output);
+    let returned = s.add_tool_result(0, "bash/unsafe", &output);
 
     let content = s.messages[0].content.as_str();
     assert_eq!(returned, content);
@@ -154,13 +159,229 @@ fn long_tool_result_save_failure_keeps_full_output() {
 
     let mut s = Session::new("anthropic", "claude", 200000, "");
     let output = "x".repeat(TOOL_RESULT_SAVE_THRESHOLD + 1);
-    s.add_tool_result("bash", &output);
+    s.add_tool_result(0, "bash", &output);
 
     let content = s.messages[0].content.as_str();
     assert!(content.contains(&output));
     assert!(content.contains("failed to save long tool output separately"));
     let _ = std::fs::remove_file(path);
     drop(lock);
+}
+
+#[test]
+fn tool_call_and_result_link_by_id() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude", 200000, "");
+    let call_id = s.add_tool_call("read", &serde_json::json!({ "path": "src/main.rs" }));
+    s.add_tool_result(call_id, "read", "file contents");
+
+    match s.messages[0].tool.clone().expect("call record") {
+        ToolRecord::Call { id, name, args } => {
+            assert_eq!(id, call_id);
+            assert_eq!(name, "read");
+            assert_eq!(args, serde_json::json!({ "path": "src/main.rs" }));
+        }
+        other => panic!("expected ToolRecord::Call, got {other:?}"),
+    }
+    match s.messages[1].tool.clone().expect("result record") {
+        ToolRecord::Result {
+            call_id: linked,
+            name,
+            truncated,
+            full_output_path,
+        } => {
+            assert_eq!(linked, call_id);
+            assert_eq!(name, "read");
+            assert!(!truncated);
+            assert!(full_output_path.is_none());
+        }
+        other => panic!("expected ToolRecord::Result, got {other:?}"),
+    }
+    drop(env);
+}
+
+#[test]
+fn oversized_tool_result_has_truncated_record_with_overflow_path() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude", 200000, "");
+    let call_id = s.add_tool_call("bash", &serde_json::json!({ "command": "ls" }));
+    let output = "x".repeat(TOOL_RESULT_SAVE_THRESHOLD + 1);
+    s.add_tool_result(call_id, "bash", &output);
+
+    match s.messages[1].tool.clone().expect("result record") {
+        ToolRecord::Result {
+            call_id: linked,
+            truncated,
+            full_output_path,
+            ..
+        } => {
+            assert_eq!(linked, call_id);
+            assert!(truncated);
+            let path = full_output_path.expect("overflow path recorded");
+            assert!(Path::new(path.as_str()).starts_with(&env.dir));
+            assert_eq!(std::fs::read_to_string(path.as_str()).unwrap(), output);
+        }
+        other => panic!("expected ToolRecord::Result, got {other:?}"),
+    }
+    drop(env);
+}
+
+#[test]
+fn tool_record_round_trips_through_json() {
+    let call = ToolRecord::Call {
+        id: 7,
+        name: "read".into(),
+        args: serde_json::json!({ "path": "a.rs" }),
+    };
+    let call_json = serde_json::to_value(&call).unwrap();
+    assert_eq!(call_json["id"], 7);
+    assert!(call_json.get("call_id").is_none());
+    match serde_json::from_value::<ToolRecord>(call_json).unwrap() {
+        ToolRecord::Call { id, name, args } => {
+            assert_eq!(id, 7);
+            assert_eq!(name, "read");
+            assert_eq!(args, serde_json::json!({ "path": "a.rs" }));
+        }
+        other => panic!("expected ToolRecord::Call round-trip, got {other:?}"),
+    }
+
+    let result = ToolRecord::Result {
+        call_id: 7,
+        name: "read".into(),
+        truncated: true,
+        full_output_path: Some("/tmp/out.txt".into()),
+    };
+    let result_json = serde_json::to_value(&result).unwrap();
+    assert_eq!(result_json["call_id"], 7);
+    assert!(result_json.get("id").is_none());
+    match serde_json::from_value::<ToolRecord>(result_json).unwrap() {
+        ToolRecord::Result {
+            call_id,
+            truncated,
+            full_output_path,
+            ..
+        } => {
+            assert_eq!(call_id, 7);
+            assert!(truncated);
+            assert_eq!(full_output_path.as_deref(), Some("/tmp/out.txt"));
+        }
+        other => panic!("expected ToolRecord::Result round-trip, got {other:?}"),
+    }
+}
+
+#[cfg(any(feature = "subagents", feature = "acp"))]
+#[test]
+fn subagent_tool_call_links_to_the_enclosing_task_call() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude", 200000, "");
+    let call_id = s.add_tool_call("task", &serde_json::json!({ "prompts": ["find x"] }));
+    s.add_subagent_tool_call(
+        Some(call_id),
+        "grep",
+        &serde_json::json!({ "pattern": "fn x" }),
+    );
+    s.add_tool_result(call_id, "task", "found it");
+
+    assert_eq!(s.messages[1].role, MessageRole::SubagentToolCall);
+    match s.messages[1].tool.clone().expect("subagent call record") {
+        ToolRecord::SubagentCall {
+            parent_call_id,
+            name,
+            args,
+        } => {
+            assert_eq!(parent_call_id, call_id);
+            assert_eq!(name, "grep");
+            assert_eq!(args, serde_json::json!({ "pattern": "fn x" }));
+        }
+        other => panic!("expected ToolRecord::SubagentCall, got {other:?}"),
+    }
+    drop(env);
+}
+
+/// The linkage is never faked: with no enclosing call id to point at, the
+/// message keeps its display summary and simply carries no structured
+/// record, rather than claiming a parent it does not have.
+#[cfg(any(feature = "subagents", feature = "acp"))]
+#[test]
+fn subagent_tool_call_without_a_parent_records_no_structured_record() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude", 200000, "");
+    s.add_subagent_tool_call(None, "grep", &serde_json::json!({ "pattern": "fn x" }));
+
+    assert_eq!(s.messages[0].role, MessageRole::SubagentToolCall);
+    assert!(s.messages[0].tool.is_none());
+    assert!(s.messages[0].content.contains("grep"));
+    drop(env);
+}
+
+/// `ToolRecord` is `#[serde(untagged)]`, so a subagent record must stay
+/// structurally distinguishable from a plain `Call`: it carries
+/// `parent_call_id` and deliberately no `id`, otherwise serde would resolve
+/// its JSON to the `Call` variant listed first.
+#[cfg(any(feature = "subagents", feature = "acp"))]
+#[test]
+fn subagent_tool_record_round_trips_without_colliding_with_call() {
+    let subagent = ToolRecord::SubagentCall {
+        parent_call_id: 3,
+        name: "grep".into(),
+        args: serde_json::json!({ "pattern": "fn x" }),
+    };
+    let json = serde_json::to_value(&subagent).unwrap();
+    assert_eq!(json["parent_call_id"], 3);
+    assert!(json.get("id").is_none());
+    assert!(json.get("call_id").is_none());
+    match serde_json::from_value::<ToolRecord>(json).unwrap() {
+        ToolRecord::SubagentCall {
+            parent_call_id,
+            name,
+            args,
+        } => {
+            assert_eq!(parent_call_id, 3);
+            assert_eq!(name, "grep");
+            assert_eq!(args, serde_json::json!({ "pattern": "fn x" }));
+        }
+        other => panic!("expected ToolRecord::SubagentCall round-trip, got {other:?}"),
+    }
+
+    // The reverse direction: a main-agent call must not be swallowed by the
+    // subagent variant either.
+    let call_json = serde_json::to_value(ToolRecord::Call {
+        id: 3,
+        name: "task".into(),
+        args: serde_json::json!({ "prompts": ["find x"] }),
+    })
+    .unwrap();
+    assert!(matches!(
+        serde_json::from_value::<ToolRecord>(call_json).unwrap(),
+        ToolRecord::Call { .. }
+    ));
+}
+
+#[test]
+fn old_session_file_without_tool_records_loads_with_tool_none() {
+    let json = r#"{
+        "id": "legacy-session",
+        "name": "old session",
+        "messages": [
+            { "role": "user", "content": "hi", "estimated_tokens": 1 },
+            { "role": "tool_call", "content": "read: src/main.rs", "estimated_tokens": 3 }
+        ],
+        "compactions": [],
+        "created_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "total_cost": 0.0,
+        "total_estimated_tokens": 4,
+        "context_window": 128000,
+        "model": "gpt-4",
+        "provider": "openai",
+        "working_dir": "/tmp"
+    }"#;
+
+    let session: Session = serde_json::from_str(json).expect("old session file loads");
+    assert_eq!(session.messages.len(), 2);
+    assert!(session.messages[0].tool.is_none());
+    assert!(session.messages[1].tool.is_none());
+    assert_eq!(session.next_tool_call_id, 0);
 }
 
 #[test]

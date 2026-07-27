@@ -107,12 +107,13 @@ async fn run() -> anyhow::Result<()> {
         }
     }
 
-    let mut boot = ui::boot::Boot::new(is_interactive && cfg.resolve_show_boot_screen());
+    let mut boot =
+        ui::boot::Boot::new(is_interactive && cfg.resolve_show_additional_info_startup());
 
-    // Config was already read above (its `show_boot_screen` key gates the
-    // startup log itself); report where it came from as completed steps —
-    // one line for the global file, a separate one for a project-local
-    // override when present.
+    // Config was already read above (its `show_additional_info_startup` key
+    // gates the startup log itself); report where it came from as completed
+    // steps — one line for the global file, a separate one for a
+    // project-local override when present.
     let config_path = config::config_file_path();
     let config_source = if is_first_startup {
         format!(
@@ -127,6 +128,7 @@ async fn run() -> anyhow::Result<()> {
         boot.loaded("Local config", config::LOCAL_CONFIG_PATH);
     }
 
+    let phase_start = std::time::Instant::now();
     let mut startup = startup::Startup::init(
         cli,
         cfg,
@@ -136,6 +138,7 @@ async fn run() -> anyhow::Result<()> {
         &mut boot,
     )
     .await?;
+    tracing::debug!("startup: init took {:?}", phase_start.elapsed());
 
     // ACP mode: serve and exit before feature init
     #[cfg(feature = "acp")]
@@ -143,7 +146,11 @@ async fn run() -> anyhow::Result<()> {
         return extras::acp::serve(startup.cli, startup.cfg, startup.context).await;
     }
 
+    let phase_start = std::time::Instant::now();
     startup.init_features(&mut boot).await?;
+    tracing::debug!("startup: init_features took {:?}", phase_start.elapsed());
+    let phase_start = std::time::Instant::now();
     startup.resolve_prompts().await?;
+    tracing::debug!("startup: resolve_prompts took {:?}", phase_start.elapsed());
     startup.dispatch(boot).await
 }

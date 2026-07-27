@@ -78,11 +78,15 @@ pub(crate) async fn run_headless_loop(
             )
             .await
         {
-            Ok((r, _usage)) => {
+            Ok(outcome) => {
                 if let Some(ss) = status_signals.as_ref() {
                     ss.send_stop();
                 }
-                r
+                // `--loop` has no `Session` to persist into (`TODO(loop-history)`,
+                // design.md Non-Goals), so `outcome.tool_interactions` is
+                // discarded here; only the response text feeds the loop's
+                // plan/summary state.
+                outcome.response
             }
             Err(e) => {
                 if let Some(ss) = status_signals.as_ref() {

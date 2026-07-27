@@ -4,6 +4,8 @@ pub(crate) mod edit;
 pub(crate) mod find_files;
 pub(crate) mod grep;
 pub(crate) mod list_dir;
+#[cfg(feature = "lsp")]
+pub(crate) mod lsp;
 pub(crate) mod normalize;
 pub(crate) mod read;
 pub(crate) mod todo;

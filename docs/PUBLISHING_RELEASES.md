@@ -1,3 +1,7 @@
+---
+description: "How zerostack releases are published: crates.io, Homebrew, AUR, Conda, Nix packages, and the release workflow."
+---
+
 # Publishing Releases
 
 This guide covers the full release workflow: bumping the version, tagging, publishing to crates.io, and updating downstream package managers.

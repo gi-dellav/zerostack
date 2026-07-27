@@ -86,10 +86,11 @@ pub struct Config {
     pub mid_turn_compact_threshold: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub always_show_welcome: Option<bool>,
-    /// Show the boot screen (logo + startup progress) on interactive launch.
-    /// Defaults to true; set to false for a quiet startup.
+    /// Show additional startup info lines (config source, prompts/themes,
+    /// build features, step timings) in the chat feed on launch. MCP loading
+    /// lines are always shown. Defaults to false.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub show_boot_screen: Option<bool>,
+    pub show_additional_info_startup: Option<bool>,
     #[serde(
         skip_serializing_if = "Option::is_none",
         rename = "auto-update-prompts"
@@ -209,6 +210,12 @@ pub struct Config {
     pub colors: Option<types::ColorsConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub chain: Option<types::ChainConfig>,
+    #[cfg(feature = "lsp")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lsp: Option<types::LspConfig>,
+    #[cfg(feature = "rtk")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rtk: Option<types::RtkConfig>,
     #[cfg(feature = "advisor")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub advisor: Option<types::AdvisorConfig>,
@@ -279,7 +286,7 @@ impl Config {
     /// The model's input/output cost (USD per million tokens) straight from
     /// the static catalog, or `None` when the provider/model isn't listed or
     /// carries no baked-in pricing (e.g. OpenRouter, which prices live via
-    /// `fetch_openrouter_pricing` instead).
+    /// `fetch_live_model_info` instead).
     pub fn catalog_input_output_cost(provider: &str, model_id: &str) -> Option<(f64, f64)> {
         let entries = crate::models_catalog::catalog_entries(provider)?;
         entries
@@ -384,6 +391,20 @@ impl Config {
         self.max_bash_output_lines
     }
 
+    /// LSP configuration, `Some` only when an `[lsp]` table exists with
+    /// `enabled = true`.
+    #[cfg(feature = "lsp")]
+    pub fn resolve_lsp(&self) -> Option<&types::LspConfig> {
+        self.lsp.as_ref().filter(|l| l.enabled)
+    }
+
+    /// rtk output-filtering configuration, `Some` only when an `[rtk]` table
+    /// exists with `enabled = true`.
+    #[cfg(feature = "rtk")]
+    pub fn resolve_rtk(&self) -> Option<&types::RtkConfig> {
+        self.rtk.as_ref().filter(|r| r.enabled)
+    }
+
     pub fn resolve_max_grep_results(&self) -> u64 {
         self.max_grep_results.unwrap_or(150)
     }
@@ -420,8 +441,8 @@ impl Config {
         self.always_show_welcome.unwrap_or(false)
     }
 
-    pub fn resolve_show_boot_screen(&self) -> bool {
-        self.show_boot_screen.unwrap_or(true)
+    pub fn resolve_show_additional_info_startup(&self) -> bool {
+        self.show_additional_info_startup.unwrap_or(false)
     }
 
     pub fn resolve_show_reasoning(&self) -> bool {

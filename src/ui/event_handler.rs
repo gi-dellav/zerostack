@@ -106,7 +106,7 @@ pub async fn handle_agent_event(
             }
             run.response_buf.clear();
             run.response_start_block = None;
-            ui.session.add_tool_call(&name, &args);
+            run.pending_tool_call_id = Some(ui.session.add_tool_call(&name, &args));
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
             let line = format!(
                 "◈ {}",
@@ -116,7 +116,15 @@ pub async fn handle_agent_event(
         }
         #[cfg(any(feature = "subagents", feature = "acp"))]
         AgentEvent::SubagentToolCall { name, args } => {
-            ui.session.add_subagent_tool_call(&name, &args);
+            // Peeked, not taken: the enclosing `task` call's `ToolResult` is
+            // still to come and owns the consuming `take()`. Subagent events
+            // are sent from the task the `task` tool spawned, but they reach
+            // this handler through the same mpsc channel as the main agent's
+            // own events, and the subagent finishes before the `task` tool
+            // returns — so they always arrive between that call's `ToolCall`
+            // and `ToolResult`, with its id still pending here.
+            ui.session
+                .add_subagent_tool_call(run.pending_tool_call_id, &name, &args);
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
             let line = format!(
                 "⌥ {}",
@@ -125,7 +133,15 @@ pub async fn handle_agent_event(
             renderer.write_line(&sanitize_output(&line), C_TOOL)?;
         }
         AgentEvent::ToolResult { name, output } => {
-            ui.session.add_tool_result(&name, &output);
+            let call_id = run.pending_tool_call_id.take().unwrap_or_else(|| {
+                tracing::warn!(
+                    "ToolResult for {name} arrived with no pending ToolCall id; \
+                     linking to 0 (the agent event stream is expected to be strictly \
+                     sequential, so this should not happen)"
+                );
+                0
+            });
+            ui.session.add_tool_result(call_id, &name, &output);
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
             if name == "todo_write" {
                 let list = TODO_LIST.lock().unwrap_or_else(|e| e.into_inner());

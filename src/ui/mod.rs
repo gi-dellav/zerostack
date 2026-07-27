@@ -476,11 +476,12 @@ pub(crate) type PrebuildPayload = AnyAgent;
 
 /// Events from the background agent prebuild: live MCP connection results
 /// (rendered into the feed as they arrive, so tools visibly load one by one
-/// and stay as history), then the final payload.
+/// and stay as history), then the final payload. The payload is boxed: at
+/// several hundred bytes it dwarfs the progress variant.
 pub(crate) enum PrebuildEvent {
     #[cfg(feature = "mcp")]
     McpProgress(String, Color),
-    Done(PrebuildPayload),
+    Done(Box<PrebuildPayload>),
 }
 
 /// If the background prebuild hasn't delivered yet, block until it does.
@@ -499,7 +500,8 @@ pub(crate) async fn resolve_prebuild<'a>(
         // already rendered stay in the feed; the ready line lands via
         // take_prebuild.
         while let Some(ev) = rx.recv().await {
-            if let PrebuildEvent::Done((a, mcp)) = ev {
+            if let PrebuildEvent::Done(payload) = ev {
+                let (a, mcp) = *payload;
                 *agent = Some(a);
                 *mcp_manager = mcp;
                 break;
@@ -518,11 +520,8 @@ pub(crate) async fn resolve_prebuild<'a>(
         return;
     }
     if let Some(rx) = prebuild_rx.as_mut() {
-        while let Some(ev) = rx.recv().await {
-            if let PrebuildEvent::Done(a) = ev {
-                *agent = Some(a);
-                break;
-            }
+        if let Some(PrebuildEvent::Done(a)) = rx.recv().await {
+            *agent = Some(*a);
         }
         *prebuild_rx = None;
     }

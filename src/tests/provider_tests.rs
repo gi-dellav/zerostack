@@ -142,6 +142,7 @@ fn serialize_single_user_message() {
         role: MessageRole::User,
         content: CompactString::new("hello"),
         estimated_tokens: 1,
+        tool: None,
     }];
     let result = serialize_conversation(&msgs);
     assert!(result.contains("[User]: hello"));
@@ -154,16 +155,19 @@ fn serialize_multiple_roles() {
             role: MessageRole::User,
             content: CompactString::new("hi"),
             estimated_tokens: 1,
+            tool: None,
         },
         SessionMessage {
             role: MessageRole::Assistant,
             content: CompactString::new("hey"),
             estimated_tokens: 1,
+            tool: None,
         },
         SessionMessage {
             role: MessageRole::System,
             content: CompactString::new("note"),
             estimated_tokens: 1,
+            tool: None,
         },
     ];
     let result = serialize_conversation(&msgs);
@@ -380,4 +384,85 @@ fn leaves_non_anthropic_openrouter_models_untouched() {
             "{id} should not be pinned"
         );
     }
+}
+
+// --- parse_model_infos tests ---
+
+#[test]
+fn parses_openrouter_string_pricing() {
+    let body = br#"{
+        "data": [
+            {
+                "id": "openai/gpt-4o",
+                "pricing": { "prompt": "0.0000025", "completion": "0.00001" },
+                "context_length": 128000
+            }
+        ]
+    }"#;
+    let infos = crate::provider::parse_model_infos(body).unwrap();
+    let info = infos.get("openai/gpt-4o").expect("model should be present");
+    assert_eq!(info.input_cost, 2.5);
+    assert_eq!(info.output_cost, 10.0);
+    assert_eq!(info.context_length, Some(128_000));
+}
+
+#[test]
+fn parses_numeric_pricing_from_compatible_gateways() {
+    // laroute serializes pricing as numbers, not strings.
+    let body = br#"{
+        "data": [
+            {
+                "id": "moonshotai/kimi-k2.6",
+                "pricing": { "prompt": 0.000000646, "completion": 0.00000272, "request": 0 },
+                "context_length": 262144
+            }
+        ]
+    }"#;
+    let infos = crate::provider::parse_model_infos(body).unwrap();
+    let info = infos
+        .get("moonshotai/kimi-k2.6")
+        .expect("model should be present");
+    assert!((info.input_cost - 0.646).abs() < 1e-9);
+    assert!((info.output_cost - 2.72).abs() < 1e-9);
+    assert_eq!(info.context_length, Some(262_144));
+}
+
+#[test]
+fn keeps_context_length_only_entries_and_skips_empty_ones() {
+    let body = br#"{
+        "data": [
+            { "id": "ctx-only", "context_length": 1048576 },
+            { "id": "free", "pricing": { "prompt": 0, "completion": 0 } },
+            { "id": "empty" }
+        ]
+    }"#;
+    let infos = crate::provider::parse_model_infos(body).unwrap();
+    assert_eq!(
+        infos.get("ctx-only").and_then(|i| i.context_length),
+        Some(1_048_576)
+    );
+    assert!(
+        !infos.contains_key("free"),
+        "zero pricing without context_length is skipped"
+    );
+    assert!(!infos.contains_key("empty"));
+}
+
+// --- parse_manual_models tests ---
+
+#[test]
+fn manual_models_pick_up_context_length_when_reported() {
+    let body = br#"{
+        "object": "list",
+        "data": [
+            { "id": "deepseek/deepseek-v4-flash", "object": "model", "context_length": 1048576 },
+            { "id": "plain-model", "object": "model" }
+        ]
+    }"#;
+    let models = crate::provider::parse_manual_models(body).unwrap();
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0].id, "deepseek/deepseek-v4-flash");
+    assert_eq!(models[0].context_length, Some(1_048_576));
+    assert_eq!(models[1].id, "plain-model");
+    assert_eq!(models[1].context_length, None);
 }

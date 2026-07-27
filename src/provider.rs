@@ -342,6 +342,20 @@ impl AnyClient {
     }
 }
 
+/// Response shape of `GET {base}/models` on OpenAI/OpenRouter-compatible
+/// gateways. Only `id` and `context_length` are read; everything else is
+/// ignored, so plain OpenAI-style endpoints (no `context_length`) parse fine.
+#[derive(serde::Deserialize)]
+struct ManualModelsResp {
+    data: Vec<ManualModelsItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct ManualModelsItem {
+    id: String,
+    context_length: Option<u64>,
+}
+
 /// Custom / OpenAI-compatible gateway: best-effort GET {base}/models.
 pub async fn list_models_manual(
     provider_name: &str,
@@ -369,26 +383,27 @@ pub async fn list_models_manual(
         Some(&base),
     )?;
     let url = format!("{}/models", base.trim_end_matches('/'));
+    tracing::debug!("list_models_manual: GET {}", url);
     let mut req = http.get(url);
     if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         req = req.bearer_auth(k);
     }
-    #[derive(serde::Deserialize)]
-    struct Resp {
-        data: Vec<Item>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Item {
-        id: String,
-    }
-    let resp: Resp = req.send().await?.error_for_status()?.json().await?;
+    let body = req.send().await?.error_for_status()?.bytes().await?;
+    parse_manual_models(&body)
+}
+
+/// Parse a `GET {base}/models` payload from a custom / OpenAI-compatible
+/// gateway into picker entries. `context_length` is picked up when the
+/// gateway reports it (OpenRouter-style), `None` otherwise.
+pub(crate) fn parse_manual_models(body: &[u8]) -> anyhow::Result<Vec<ModelEntry>> {
+    let resp: ManualModelsResp = serde_json::from_slice(body)?;
     Ok(resp
         .data
         .into_iter()
         .map(|i| ModelEntry {
             display: i.id.clone(),
             id: i.id,
-            context_length: None,
+            context_length: i.context_length.map(|cl| cl as u32),
             kind: None,
             input_price: None,
             output_price: None,
@@ -403,35 +418,73 @@ pub struct OpenRouterModelInfo {
     pub context_length: Option<u64>,
 }
 
-pub async fn fetch_openrouter_pricing(
+/// Fetch per-model pricing and context length live from
+/// `GET {base_url}/models` for the built-in `openrouter` or any custom
+/// provider exposing an OpenRouter-style model listing (e.g. laroute).
+/// Returns an empty-map error only on transport/parse failure; providers
+/// whose listing carries no pricing/`context_length` simply yield no entries.
+pub async fn fetch_live_model_info(
+    provider_name: &str,
     api_key: Option<&str>,
     custom_providers: &HashMap<String, CustomProviderConfig>,
     config_api_keys: Option<&HashMap<String, String>>,
 ) -> anyhow::Result<HashMap<String, OpenRouterModelInfo>> {
-    let config = resolve_provider_config("openrouter", custom_providers)?;
+    let config = resolve_provider_config(provider_name, custom_providers)?;
     let key = AuthResolver::new(config.kind)
         .with_cli_key(api_key)
         .with_env_override(config.api_key_env.as_deref())
         .with_config_keys(config_api_keys)
-        .with_custom_provider_name(Some("openrouter"))
+        .with_custom_provider_name(Some(provider_name))
         .resolve()
         .ok();
-    let custom = custom_providers.get("openrouter");
+    let custom = custom_providers.get(provider_name);
+    let base = config
+        .base_url
+        .clone()
+        .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
     let http = build_http_client(
-        "openrouter",
+        provider_name,
         config.danger_accept_invalid_certs,
         custom,
-        None,
+        Some(&base),
     )?;
-    let url = "https://openrouter.ai/api/v1/models";
+    let url = format!("{}/models", base.trim_end_matches('/'));
     let mut req = http.get(url);
     if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         req = req.bearer_auth(k);
     }
+    let body = req.send().await?.error_for_status()?.bytes().await?;
+    parse_model_infos(&body)
+}
+
+/// A pricing value: OpenRouter serializes prices as strings, some compatible
+/// gateways (e.g. laroute) as plain numbers — accept both.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum StringOrNumber {
+    S(String),
+    N(f64),
+}
+
+impl StringOrNumber {
+    fn as_f64(&self) -> f64 {
+        match self {
+            Self::S(s) => s.parse().unwrap_or(0.0),
+            Self::N(n) => *n,
+        }
+    }
+}
+
+/// Parse an OpenRouter-style `GET /models` payload into per-model pricing
+/// (USD per token in the payload, returned per million tokens) and context
+/// length. Entries with no pricing and no `context_length` are skipped.
+pub(crate) fn parse_model_infos(
+    body: &[u8],
+) -> anyhow::Result<HashMap<String, OpenRouterModelInfo>> {
     #[derive(serde::Deserialize)]
     struct PricingResp {
-        prompt: String,
-        completion: String,
+        prompt: StringOrNumber,
+        completion: StringOrNumber,
     }
     #[derive(serde::Deserialize)]
     struct PricingEntry {
@@ -443,14 +496,11 @@ pub async fn fetch_openrouter_pricing(
     struct PricingList {
         data: Vec<PricingEntry>,
     }
-    let resp: PricingList = req.send().await?.error_for_status()?.json().await?;
+    let resp: PricingList = serde_json::from_slice(body)?;
     let mut map = HashMap::new();
     for entry in resp.data {
         let (input, output) = match entry.pricing.as_ref() {
-            Some(p) => (
-                p.prompt.parse().unwrap_or(0.0),
-                p.completion.parse().unwrap_or(0.0),
-            ),
+            Some(p) => (p.prompt.as_f64(), p.completion.as_f64()),
             None => (0.0, 0.0),
         };
         if input > 0.0 || output > 0.0 || entry.context_length.is_some() {
@@ -601,7 +651,7 @@ impl AnyAgent {
         // `--loop` iteration/active state; see `runner::run_print`. `None`
         // for plain `-p` one-shot runs.
         #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
-    ) -> anyhow::Result<(String, rig::completion::Usage)> {
+    ) -> anyhow::Result<runner::PrintOutcome> {
         match self {
             AnyAgent::OpenRouter(a) => {
                 runner::run_print(

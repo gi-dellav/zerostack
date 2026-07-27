@@ -154,6 +154,7 @@ impl<'a> App<'a> {
         ui.session.overhead_tokens =
             crate::agent::builder::estimate_overhead(ui.context, slash.reasoning_enabled);
 
+        let tui_start = std::time::Instant::now();
         crate::ui::events::render_session_with_boot(
             &mut renderer,
             ui.session,
@@ -185,14 +186,22 @@ impl<'a> App<'a> {
             &chain,
             BtwStats::default(),
         )?;
+        tracing::debug!("startup: initial TUI render took {:?}", tui_start.elapsed());
 
         {
             let provider = ui.session.provider.to_string();
             let is_custom = ui.cfg.custom_providers_map().contains_key(&provider);
+            let warm_start = std::time::Instant::now();
             let ids = crate::ui::slash::warm_model_cache(
                 &provider, is_custom, &ui.client, ui.cli, ui.cfg,
             )
             .await;
+            tracing::debug!(
+                "startup: warm_model_cache('{}') took {:?} ({} models)",
+                provider,
+                warm_start.elapsed(),
+                ids.len()
+            );
             input.set_live_model_names(ids);
         }
 
@@ -307,6 +316,7 @@ impl<'a> App<'a> {
             let ask_tx_clone = ui.ask_tx.clone();
             let sandbox_clone = ui.sandbox.clone();
             let reasoning_enabled = slash.reasoning_enabled;
+            tracing::debug!("startup: spawning background agent prebuild");
             tokio::spawn(async move {
                 // MCP servers connect here, in the open chat UI: a header
                 // line announces how many are loading, then each server
@@ -368,9 +378,11 @@ impl<'a> App<'a> {
                 .await;
 
                 #[cfg(feature = "mcp")]
-                let _ = prebuild_tx.send(PrebuildEvent::Done((a, mcp))).await;
+                let _ = prebuild_tx
+                    .send(PrebuildEvent::Done(Box::new((a, mcp))))
+                    .await;
                 #[cfg(not(feature = "mcp"))]
-                let _ = prebuild_tx.send(PrebuildEvent::Done(a)).await;
+                let _ = prebuild_tx.send(PrebuildEvent::Done(Box::new(a))).await;
             });
         }
 
@@ -448,7 +460,7 @@ impl<'a> App<'a> {
                             self.renderer.write_line(&line, color)?;
                         }
                         PrebuildEvent::Done(prebuilt) => {
-                            self.take_prebuild(prebuilt, true)?;
+                            self.take_prebuild(*prebuilt, true)?;
                         }
                     }
                     self.refresh()?;
@@ -484,7 +496,7 @@ impl<'a> App<'a> {
                                 self.renderer.write_line(&line, color)?;
                             }
                             PrebuildEvent::Done(payload) => {
-                                self.take_prebuild(payload, false)?;
+                                self.take_prebuild(*payload, false)?;
                             }
                         }
                     }

@@ -82,16 +82,15 @@ pub fn history_at(model: &FakeModel, turn: usize) -> Vec<Message> {
 
 #[tokio::test]
 async fn run_print_returns_scripted_text() {
-    // Under `--features hooks`, `run_print` reaches the process-global Stop
-    // dispatcher; serialize against the tests that install one so a leaked
-    // hook can't force an unscripted continuation here. No-op otherwise.
-    #[cfg(feature = "hooks")]
-    let _dispatcher_guard = dispatcher_guard::acquire();
+    // `run_print` reaches process-global wiring (the hooks Stop dispatcher,
+    // the subagent event sender); serialize against every other `run_print`
+    // test so none of them clobber each other's.
+    let _run_print_guard = run_print_guard::acquire();
 
     let model = text_chunks(["hello, ", "world"]);
     let agent = rig::agent::AgentBuilder::new(model).build();
 
-    let (response, _usage) = crate::agent::runner::run_print(
+    let outcome = crate::agent::runner::run_print(
         &agent,
         "hi",
         false,
@@ -103,34 +102,40 @@ async fn run_print_returns_scripted_text() {
     .await
     .expect("run_print should succeed against the fake model");
 
-    assert_eq!(response, "hello, world");
+    assert_eq!(outcome.response, "hello, world");
 }
 
-/// Serializes tests that touch the process-global hook dispatcher and clears
-/// it when the guard drops. `run_print`'s `Stop` path reads a process-wide
-/// dispatcher (`extras::hooks::DISPATCHER`), so a test that installs one via
-/// `init_dispatcher` would otherwise leak that hook into any other `run_print`
-/// test running concurrently in the same binary. Every `run_print` test holds
-/// this guard for the duration of its call, so at most one such test runs at a
-/// time and the dispatcher is always reset afterwards.
-#[cfg(feature = "hooks")]
-pub(crate) mod dispatcher_guard {
+/// Serializes tests that call `run_print`, which reaches process-global
+/// singletons that are last-writer-wins:
+///
+/// - the hooks `Stop` dispatcher (`extras::hooks::DISPATCHER`, `hooks` builds
+///   only), which a test installing one via `init_dispatcher` would otherwise
+///   leak into any `run_print` running concurrently in the same binary;
+/// - the subagent event sender (`extras::subagents::SUBAGENT_EVENT_TX`,
+///   `subagents` builds only), which `run_print` sets so subagent tool calls
+///   reach the session — a second `run_print` starting mid-turn would
+///   redirect the first one's subagent events into its own channel.
+///
+/// Every `run_print` test holds this guard for the duration of its call, so at
+/// most one runs at a time and the dispatcher is always reset afterwards.
+pub(crate) mod run_print_guard {
     use std::sync::{Mutex, MutexGuard, OnceLock};
 
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
-    /// Held for the lifetime of a dispatcher-touching test; resets the
-    /// process-global dispatcher on drop.
-    pub(crate) struct DispatcherGuard(#[allow(dead_code)] MutexGuard<'static, ()>);
+    /// Held for the lifetime of a `run_print` test; resets the process-global
+    /// hook dispatcher on drop.
+    pub(crate) struct RunPrintGuard(#[allow(dead_code)] MutexGuard<'static, ()>);
 
-    /// Acquire exclusive access to the process-global hook dispatcher.
-    pub(crate) fn acquire() -> DispatcherGuard {
+    /// Acquire exclusive access to `run_print`'s process-global wiring.
+    pub(crate) fn acquire() -> RunPrintGuard {
         let lock = LOCK.get_or_init(|| Mutex::new(()));
-        DispatcherGuard(lock.lock().unwrap_or_else(|e| e.into_inner()))
+        RunPrintGuard(lock.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
-    impl Drop for DispatcherGuard {
+    impl Drop for RunPrintGuard {
         fn drop(&mut self) {
+            #[cfg(feature = "hooks")]
             crate::extras::hooks::reset_dispatcher();
         }
     }

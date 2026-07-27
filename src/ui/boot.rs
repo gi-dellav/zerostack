@@ -4,11 +4,12 @@
 //! connected`, …) into a [`BootState`] via the [`Boot`] handle threaded
 //! through `startup.rs`. When the chat UI opens, the collected lines are
 //! pushed into the feed below the banner, so the information stays visible
-//! as scrollable history instead of flashing by on a separate screen.
+//! as scrollable history.
 //!
 //! `BootState` is the pure, unit-testable core; `Boot` is the `Option`
-//! wrapper so disabled (non-interactive) runs collect nothing and call sites
-//! stay unconditional.
+//! wrapper so disabled (non-interactive runs, or
+//! `show_additional_info_startup = false`) runs collect nothing and call
+//! sites stay unconditional.
 
 use compact_str::CompactString;
 use crossterm::style::Color;
@@ -24,29 +25,9 @@ pub(crate) fn fmt_duration(d: std::time::Duration) -> String {
     }
 }
 
-/// ASCII wordmark drawn at the top of the chat banner, one gradient color
-/// per line (plain text when monochrome). Figlet "standard" style.
-pub(crate) const LOGO: &[&str] = &[
-    "███████╗███████╗██████╗  ██████╗ ███████╗████████╗ █████╗  ██████╗██╗  ██╗",
-    "╚══███╔╝██╔════╝██╔══██╗██╔═══██╗██╔════╝╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝",
-    "  ███╔╝ █████╗  ██████╔╝██║   ██║███████╗   ██║   ███████║██║     █████╔╝ ",
-    " ███╔╝  ██╔══╝  ██╔══██╗██║   ██║╚════██║   ██║   ██╔══██║██║     ██╔═██╗ ",
-    "███████╗███████╗██║  ██║╚██████╔╝███████║   ██║   ██║  ██║╚██████╗██║  ██╗",
-    "╚══════╝╚══════╝╚═╝  ╚═╝ ╚═════╝ ╚══════╝   ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝",
-];
-
-/// Per-line logo colors (top to bottom).
-pub(crate) const LOGO_COLORS: &[Color] = &[
-    Color::Cyan,
-    Color::Cyan,
-    Color::Blue,
-    Color::Blue,
-    Color::Magenta,
-    Color::Magenta,
-];
-
 /// Truncate `s` to at most `max` chars, appending '…' when cut. Used to keep
 /// failure messages (e.g. MCP connect errors) on one line.
+#[cfg_attr(not(feature = "mcp"), allow(dead_code))]
 pub(crate) fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
@@ -72,6 +53,8 @@ pub(crate) fn abbreviate_home(p: &std::path::Path) -> String {
 
 /// Compile-time cargo features enabled in this build, alphabetically, shown
 /// in the startup log as `✓ Features — …`.
+#[allow(unused_mut)] // no pushes at all in a --no-default-features build
+#[allow(clippy::vec_init_then_push)] // the pushes are cfg-gated
 pub(crate) fn active_features() -> Vec<&'static str> {
     let mut out: Vec<&'static str> = Vec::new();
     #[cfg(feature = "acp")]
@@ -363,13 +346,6 @@ mod tests {
     fn fmt_duration_picks_unit() {
         assert_eq!(fmt_duration(std::time::Duration::from_millis(180)), "180ms");
         assert_eq!(fmt_duration(std::time::Duration::from_millis(1200)), "1.2s");
-    }
-
-    #[test]
-    fn logo_is_six_equal_width_lines_with_matching_colors() {
-        assert_eq!(LOGO.len(), LOGO_COLORS.len());
-        let width = LOGO[0].chars().count();
-        assert!(LOGO.iter().all(|l| l.chars().count() == width));
     }
 
     #[test]
