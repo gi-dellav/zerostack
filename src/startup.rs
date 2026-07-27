@@ -10,7 +10,7 @@ use crate::permission::ask::{AskReceiver, AskSender};
 use crate::permission::checker::{PermCheck, PermissionChecker};
 use crate::provider::{self, AnyClient};
 use crate::sandbox::Sandbox;
-use crate::session::{self, MessageRole, Session};
+use crate::session::{self, MessageRole, PromptRef, Session};
 
 #[cfg(feature = "advisor")]
 use crate::session::SessionMessage;
@@ -675,6 +675,10 @@ impl Startup {
 
                 self.context.current_prompt = Some(prompt_text);
                 self.context.current_prompt_name = Some(default_prompt.to_string());
+                self.session.prompt = Some(PromptRef {
+                    name: CompactString::new(default_prompt),
+                    source: context::prompts::source_of(default_prompt),
+                });
 
                 apply_startup_prompt_model(
                     default_prompt,
@@ -711,6 +715,10 @@ impl Startup {
 
                 self.context.current_prompt = Some(prompt_text);
                 self.context.current_prompt_name = Some(name.clone());
+                self.session.prompt = Some(PromptRef {
+                    name: CompactString::new(name.as_str()),
+                    source: context::prompts::source_of(name),
+                });
 
                 apply_startup_prompt_model(
                     name,

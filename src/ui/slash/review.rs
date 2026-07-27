@@ -59,7 +59,7 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
     ctx.context.one_shot_restore = ctx.context.current_prompt_name.clone();
 
     // Switch to review prompt
-    apply_prompt_mode("review", ctx.context, ctx.permission);
+    apply_prompt_mode("review", ctx.context, ctx.session, ctx.permission);
 
     let model_switched = ctx.switch_to_prompt_model("review").await;
     if !model_switched {

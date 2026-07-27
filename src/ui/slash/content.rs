@@ -40,6 +40,7 @@ async fn handle_prompt(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
         } else {
             ctx.context.current_prompt = None;
             ctx.context.current_prompt_name = None;
+            ctx.session.prompt = None;
             // Revert to the config default model
             let default_model = ctx.cli.resolve_model(ctx.cfg);
             let default_provider = ctx.cli.resolve_provider(ctx.cfg);
@@ -62,7 +63,7 @@ async fn handle_prompt(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
     } else {
         let name = parts[1].trim();
         if ctx.context.prompts.contains_key(name) {
-            match apply_prompt_mode(name, ctx.context, ctx.permission) {
+            match apply_prompt_mode(name, ctx.context, ctx.session, ctx.permission) {
                 PromptModeOutcome::RestoredUserMode => {
                     if let Some(perm) = ctx.permission {
                         let current = perm

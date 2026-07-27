@@ -99,6 +99,28 @@ pub struct PermissionAllowEntry {
     pub pattern: CompactString,
 }
 
+/// Whether a session's active prompt content was the compiled-in default or
+/// a user customization. `UserFile` means the text that shaped the session
+/// differed from the compiled-in one, or had no compiled-in counterpart at
+/// all; a file merely existing on disk is not enough, since the global
+/// prompts dir is seeded with every default on first run. See
+/// [`prompts::source_of`](crate::context::prompts::source_of).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptSource {
+    BuiltIn,
+    UserFile,
+}
+
+/// Which prompt shaped the session: its name and where its content came
+/// from. Last one wins; no history of switches is kept, matching what the
+/// status bar already shows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptRef {
+    pub name: CompactString,
+    pub source: PromptSource,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
     pub id: CompactString,
@@ -138,6 +160,11 @@ pub struct Session {
     /// there are no existing ids to collide with.
     #[serde(default)]
     pub next_tool_call_id: u64,
+    /// The prompt active when the session was last saved: name and source
+    /// (built-in vs user file). `None` for sessions with no active prompt,
+    /// and for files written before this field existed.
+    #[serde(default)]
+    pub prompt: Option<PromptRef>,
     #[cfg(feature = "multimodal")]
     #[serde(skip)]
     pub pending_media: Vec<crate::extras::multimodal::MediaAttachment>,
@@ -243,6 +270,7 @@ impl Session {
                 .unwrap_or_default(),
             permission_allowlist: Vec::new(),
             next_tool_call_id: 0,
+            prompt: None,
             #[cfg(feature = "multimodal")]
             pending_media: Vec::new(),
             show_cost_always: false,
