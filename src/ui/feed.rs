@@ -69,6 +69,9 @@ pub fn style_from_color(color: Color) -> BlockStyle {
 pub struct Block {
     pub style: BlockStyle,
     pub text: String,
+    /// Explicit color that wins over `style.color()` at layout time (e.g. the
+    /// logo gradient lines of the startup banner). `None` follows the style.
+    pub color_override: Option<Color>,
     /// True while a producer is still appending to this block (e.g. streaming
     /// agent tokens). A running agent block parses markdown only for its
     /// completed lines and renders the unfinished tail line as plain text.
@@ -93,9 +96,16 @@ impl Block {
         Self {
             style,
             text: text.into(),
+            color_override: None,
             running: false,
             md_cache: RefCell::new(None),
         }
+    }
+
+    /// The color this block's lines render in: the explicit override when
+    /// set, otherwise the semantic style color.
+    fn color(&self) -> Color {
+        self.color_override.unwrap_or_else(|| self.style.color())
     }
 }
 
@@ -193,6 +203,16 @@ impl Feed {
         self.push_block(style, text);
     }
 
+    /// Push a line whose color is set explicitly, ignoring the style color.
+    /// Used for the gradient logo lines of the startup banner, which have no
+    /// semantic style of their own.
+    pub fn push_colored_line(&mut self, color: Color, text: impl Into<String>) {
+        self.generation += 1;
+        let mut block = Block::new(BlockStyle::Plain, text);
+        block.color_override = Some(color);
+        self.blocks.push(block);
+    }
+
     /// Append text to the most recent block. Returns `false` when the feed is
     /// empty and there is no block to append to.
     pub fn append_to_last(&mut self, text: impl AsRef<str>) -> bool {
@@ -211,6 +231,7 @@ impl Feed {
         if let Some(last) = self.blocks.last_mut() {
             last.style = style;
             last.text = text.into();
+            last.color_override = None;
             last.running = false;
             *last.md_cache.borrow_mut() = None;
         } else {
@@ -276,7 +297,7 @@ impl Feed {
                     result.extend(styled);
                 }
                 _ => {
-                    let color = block.style.color();
+                    let color = block.color();
                     for line in block.text.split('\n') {
                         let trimmed = line.trim_end_matches('\r');
                         if trimmed.is_empty() {
@@ -453,5 +474,32 @@ fn cached_agent_lines(block: &Block, width: usize, parsed_len: usize) -> Option<
         Some(cache.lines.clone())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn colored_line_override_wins_over_style_color() {
+        let mut feed = Feed::new();
+        feed.push_colored_line(Color::Magenta, "logo line");
+        feed.push_line(BlockStyle::Welcome, "info line");
+
+        let lines = feed.lines(80);
+        assert_eq!(lines[0].color, Color::Magenta);
+        assert_eq!(lines[1].color, BlockStyle::Welcome.color());
+    }
+
+    #[test]
+    fn replace_last_clears_color_override() {
+        let mut feed = Feed::new();
+        feed.push_colored_line(Color::Magenta, "logo line");
+        feed.replace_last(BlockStyle::System, "rewritten");
+
+        let lines = feed.lines(80);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].color, BlockStyle::System.color());
     }
 }

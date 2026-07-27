@@ -25,21 +25,48 @@ pub fn format_time(rfc3339: &str) -> CompactString {
     }
 }
 
+/// The closing lines of a fresh session's banner block. When a startup log
+/// is in play they are deferred until the background prebuild finishes, so
+/// they render after the live MCP lines instead of before them.
+pub(crate) const READY_LINES: [&str; 2] = [
+    "Ready to code; type a request or '/' for commands",
+    "Run /welcome or /tutor to get started",
+];
+
 pub fn render_session(
     renderer: &mut Renderer,
     session: &Session,
-    cli: &Cli,
+    _cli: &Cli,
     cfg: &Config,
     context: &ContextFiles,
 ) -> anyhow::Result<()> {
+    render_session_with_boot(renderer, session, _cli, cfg, context, None)
+}
+
+/// [`render_session`] plus the startup log: at initial launch the collected
+/// boot lines (config source, context, provider, …) are replayed into the
+/// feed between the banner and the "ready" lines, so the logo comes first
+/// and the checklist reads in chronological order.
+pub fn render_session_with_boot(
+    renderer: &mut Renderer,
+    session: &Session,
+    _cli: &Cli,
+    cfg: &Config,
+    context: &ContextFiles,
+    boot_log: Option<&crate::ui::boot::BootState>,
+) -> anyhow::Result<()> {
     renderer.clear_content()?;
     let feed = renderer.feed_mut();
-    if context.agents.is_some() {
+    // With a startup log, the loaded context files are reported by its
+    // "Context files" line instead of standalone system lines; without one
+    // (slash-command re-renders, quiet startup) keep the system lines.
+    let show_context_system_lines = !session.messages.is_empty() || boot_log.is_none();
+    if context.agents.is_some() && show_context_system_lines {
         feed.push_line(BlockStyle::System, "[system] loaded AGENTS.md");
         feed.push_line(BlockStyle::Plain, "");
     }
     #[cfg(feature = "archmd")]
-    if context.architecture.is_some() {
+    if context.architecture.is_some() && show_context_system_lines {
         feed.push_line(BlockStyle::System, "[system] loaded ARCHITECTURE.md");
         feed.push_line(BlockStyle::Plain, "");
     }
@@ -89,32 +116,39 @@ pub fn render_session(
         }
         feed.push_line(BlockStyle::Plain, "");
     }
-    if session.messages.is_empty() {
-        let cwd = std::env::current_dir().ok();
-        let cwd_str = cwd
-            .as_ref()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or(".");
-        feed.push_line(
-            BlockStyle::Welcome,
-            format!(
-                "[>] zerostack {} | {} | {}",
-                env!("CARGO_PKG_VERSION"),
-                cli.resolve_model(cfg),
-                cwd_str,
-            ),
-        );
-        feed.push_line(
-            BlockStyle::Welcome,
-            "──────────────────────────────────────────────────",
-        );
-        feed.push_line(
-            BlockStyle::Welcome,
-            "Ready to code; type a request or '/' for commands",
-        );
-        feed.push_line(BlockStyle::Welcome, "Run /welcome or /tutor to get started");
+    if let Some(log) = boot_log
+        && !session.messages.is_empty()
+    {
+        // Resumed session: the startup log is fresh history, append it after
+        // the replayed transcript.
+        feed.push_line(BlockStyle::Welcome, "Startup");
+        for (text, color) in log.render_lines() {
+            feed.push_colored_line(color, text);
+        }
         feed.push_line(BlockStyle::Plain, "");
+    }
+    if session.messages.is_empty() {
+        // Minimal banner: name + version only. Model, context window,
+        // prompt, branch and cwd all live in the statusline, so repeating
+        // them here would be noise.
+        feed.push_line(
+            BlockStyle::Welcome,
+            format!("zerostack v{}", env!("CARGO_PKG_VERSION")),
+        );
+        if let Some(log) = boot_log {
+            feed.push_line(BlockStyle::Plain, "");
+            feed.push_line(BlockStyle::Welcome, "Startup");
+            for (text, color) in log.render_lines() {
+                feed.push_colored_line(color, text);
+            }
+        }
+        // With a startup log the ready lines are deferred: the TUI appends
+        // them once the background prebuild (MCP, agent) reports ready.
+        if boot_log.is_none() {
+            for line in READY_LINES {
+                feed.push_line(BlockStyle::Welcome, line);
+            }
+        }
         feed.push_line(BlockStyle::Plain, "");
     }
     Ok(())
@@ -265,4 +299,75 @@ pub fn sanitize_output(text: &str) -> CompactString {
         }
     }
     CompactString::from(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn test_context(prompt_name: Option<&str>) -> ContextFiles {
+        ContextFiles {
+            agents: None,
+            prompts: HashMap::new(),
+            current_prompt: None,
+            current_prompt_name: prompt_name.map(str::to_string),
+            themes: HashMap::new(),
+            current_theme_name: None,
+            extra_files: Vec::new(),
+            one_shot_restore: None,
+            chain_declined: Vec::new(),
+            #[cfg(feature = "memory")]
+            memory: None,
+            #[cfg(feature = "archmd")]
+            architecture: None,
+        }
+    }
+
+    #[test]
+    fn ready_lines_deferred_when_boot_log_present() {
+        use crate::ui::boot::BootState;
+        use crate::ui::renderer::Renderer;
+
+        let cli = Cli::default();
+        let cfg = Config::default();
+        let context = test_context(Some("code"));
+        let mut session = Session::new("anthropic", "claude-opus-4", 200_000, "");
+        session.working_dir = CompactString::new("/tmp/proj");
+
+        // Without a startup log, the ready lines close the banner directly.
+        let mut renderer = Renderer::new().unwrap();
+        render_session_with_boot(&mut renderer, &session, &cli, &cfg, &context, None).unwrap();
+        let texts: Vec<String> = renderer
+            .feed_mut()
+            .lines(100)
+            .iter()
+            .map(|l| l.text.to_string())
+            .collect();
+        assert!(texts.iter().any(|l| l.contains("Ready to code")));
+        assert!(texts[0].starts_with("zerostack v"));
+
+        // With one, they are deferred (the TUI appends them after the
+        // prebuild's MCP/agent-ready lines).
+        let mut log = BootState::default();
+        log.loaded("Configuration", "~/.zerostack/config/config.toml");
+        let mut renderer = Renderer::new().unwrap();
+        render_session_with_boot(&mut renderer, &session, &cli, &cfg, &context, Some(&log))
+            .unwrap();
+        let texts: Vec<String> = renderer
+            .feed_mut()
+            .lines(100)
+            .iter()
+            .map(|l| l.text.to_string())
+            .collect();
+        assert!(!texts.iter().any(|l| l.contains("Ready to code")));
+        // Banner first, then the startup checklist.
+        assert!(texts[0].starts_with("zerostack v"));
+        let banner_pos = 0;
+        let checklist_pos = texts
+            .iter()
+            .position(|l| l.contains("✓ Configuration"))
+            .expect("checklist line present");
+        assert!(checklist_pos > banner_pos);
+    }
 }
