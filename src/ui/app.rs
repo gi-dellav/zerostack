@@ -507,13 +507,30 @@ impl<'a> App<'a> {
                 }
             }
             UserEvent::MouseUp { row, col } => {
-                // The drag ends but the selection stays highlighted; `y`
-                // copies it, Esc clears it, the next click starts a new one.
+                // The drag ends but the selection stays highlighted (`y`
+                // copies again, Esc clears, the next click starts a new
+                // one). It is copied to the system clipboard right away:
+                // while mouse capture is on the terminal emulator has no
+                // native selection, so Cmd+C/Ctrl+Shift+C has nothing to
+                // grab — the app has to write the pasteboard itself.
                 if self.renderer.selection_dragging {
                     if let Some(point) = self.renderer.selection_point_at(row, col) {
                         self.renderer.selection_end = Some(point);
                     }
                     self.renderer.selection_dragging = false;
+                    if let Some(text) = self.renderer.selected_text() {
+                        match copy_to_clipboard(&text) {
+                            Ok(()) => {
+                                self.renderer.write_line("copied selection", Color::Green)?;
+                            }
+                            Err(e) => {
+                                self.renderer.write_line(
+                                    &format!("copy to clipboard failed: {}", e),
+                                    C_ERROR,
+                                )?;
+                            }
+                        }
+                    }
                 }
             }
             UserEvent::Paste(data) => {
