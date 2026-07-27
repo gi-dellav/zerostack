@@ -874,10 +874,16 @@ impl Startup {
             if let Some(ss) = self.status_signals.as_ref() {
                 ss.send_stop();
             }
-            let (response, usage) = response_result?;
+            let response_outcome = response_result?;
+            let response = response_outcome.response;
+            let usage = response_outcome.usage;
             if !self.cli.no_session {
                 let mut session = self.session;
                 session.add_message(MessageRole::User, &msg);
+                for interaction in &response_outcome.tool_interactions {
+                    let call_id = session.add_tool_call(&interaction.name, &interaction.args);
+                    session.add_tool_result(call_id, &interaction.name, &interaction.output);
+                }
                 session.add_message(MessageRole::Assistant, &response);
                 session.total_input_tokens = session
                     .total_input_tokens

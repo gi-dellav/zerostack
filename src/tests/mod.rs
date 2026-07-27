@@ -34,6 +34,8 @@ mod feed_tests;
 mod grep_tests;
 #[cfg(test)]
 mod headless_ask_tests;
+#[cfg(test)]
+mod headless_tool_record_tests;
 #[cfg(all(test, feature = "hooks"))]
 mod hooks;
 #[cfg(test)]

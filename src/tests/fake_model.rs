@@ -91,7 +91,7 @@ async fn run_print_returns_scripted_text() {
     let model = text_chunks(["hello, ", "world"]);
     let agent = rig::agent::AgentBuilder::new(model).build();
 
-    let (response, _usage) = crate::agent::runner::run_print(
+    let outcome = crate::agent::runner::run_print(
         &agent,
         "hi",
         false,
@@ -103,7 +103,7 @@ async fn run_print_returns_scripted_text() {
     .await
     .expect("run_print should succeed against the fake model");
 
-    assert_eq!(response, "hello, world");
+    assert_eq!(outcome.response, "hello, world");
 }
 
 /// Serializes tests that touch the process-global hook dispatcher and clears

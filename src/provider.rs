@@ -601,7 +601,7 @@ impl AnyAgent {
         // `--loop` iteration/active state; see `runner::run_print`. `None`
         // for plain `-p` one-shot runs.
         #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
-    ) -> anyhow::Result<(String, rig::completion::Usage)> {
+    ) -> anyhow::Result<runner::PrintOutcome> {
         match self {
             AnyAgent::OpenRouter(a) => {
                 runner::run_print(

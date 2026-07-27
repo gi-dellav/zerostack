@@ -590,7 +590,7 @@ pub async fn run_print<M>(
     // `loop_iteration`/`loop_active` fields; see `runner::spawn_agent`.
     // `None` for plain `-p` one-shot runs.
     #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
-) -> anyhow::Result<(String, rig::completion::Usage)>
+) -> anyhow::Result<PrintOutcome>
 where
     M: CompletionModel + 'static,
     M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
@@ -609,6 +609,12 @@ where
     let mut tool_interactions: Vec<Message> = Vec::new();
     let mut full_response = String::new();
     let mut last_tool_name: Option<String> = None;
+    let mut last_tool_args: Option<serde_json::Value> = None;
+    // Unconditional (independent of `pure_stdout` and the `hooks` feature)
+    // ordered record of this turn's completed tool call/result round trips,
+    // returned to the caller (`dispatch_print`) for session persistence. See
+    // design.md decision 5.
+    let mut recorded_interactions: Vec<ToolInteraction> = Vec::new();
     let mut usage = rig::completion::Usage::new();
     // Set true only when a `Stop` hook forces another turn; drives the outer
     // loop. Stays false (single pass, no continuation) in the hooks-off build.
@@ -642,10 +648,12 @@ where
                 Ok(MultiTurnStreamItem::StreamAssistantItem(
                     StreamedAssistantContent::ToolCall { tool_call, .. },
                 )) => {
+                    let name = tool_call.function.name.clone();
+                    let args = tool_call.function.arguments.clone();
+                    last_tool_name = Some(name.clone());
+                    last_tool_args = Some(args.clone());
                     if pure_stdout {
-                        let name = &tool_call.function.name;
-                        last_tool_name = Some(name.clone());
-                        let summary = format_tool_args_summary(&tool_call.function.arguments);
+                        let summary = format_tool_args_summary(&args);
                         println!("\n◈ {} {}", name, summary);
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                     }
@@ -656,33 +664,30 @@ where
                     tool_result,
                     ..
                 })) => {
-                    if pure_stdout {
-                        let name = last_tool_name.take().unwrap_or_default();
-                        let mut output = String::new();
-                        for c in tool_result.content.iter() {
-                            if let ToolResultContent::Text(t) = c {
-                                if !output.is_empty() {
-                                    output.push('\n');
-                                }
-                                output.push_str(&t.text);
+                    let name = last_tool_name.take().unwrap_or_default();
+                    let args = last_tool_args.take().unwrap_or(serde_json::Value::Null);
+                    let mut output = String::new();
+                    for c in tool_result.content.iter() {
+                        if let ToolResultContent::Text(t) = c {
+                            if !output.is_empty() {
+                                output.push('\n');
                             }
-                        }
-                        if !output.is_empty() {
-                            println!("◈ {} result:", name);
-                            let lines: Vec<&str> = output.lines().collect();
-                            if lines.len() > 40 {
-                                let truncated: Vec<&str> = lines.iter().take(40).copied().collect();
-                                println!("{}", truncated.join("\n"));
-                                println!(
-                                    "(truncated {} more lines)",
-                                    lines.len().saturating_sub(40)
-                                );
-                            } else {
-                                println!("{}", output);
-                            }
-                            let _ = std::io::Write::flush(&mut std::io::stdout());
+                            output.push_str(&t.text);
                         }
                     }
+                    if pure_stdout && !output.is_empty() {
+                        println!("◈ {} result:", name);
+                        let lines: Vec<&str> = output.lines().collect();
+                        if lines.len() > 40 {
+                            let truncated: Vec<&str> = lines.iter().take(40).copied().collect();
+                            println!("{}", truncated.join("\n"));
+                            println!("(truncated {} more lines)", lines.len().saturating_sub(40));
+                        } else {
+                            println!("{}", output);
+                        }
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                    }
+                    recorded_interactions.push(ToolInteraction { name, args, output });
                     #[cfg(feature = "hooks")]
                     tool_interactions.push(tool_result.clone().into());
                 }
@@ -745,7 +750,36 @@ where
     }
 
     println!();
-    Ok((full_response, usage))
+    Ok(PrintOutcome {
+        response: full_response,
+        usage,
+        tool_interactions: recorded_interactions,
+    })
+}
+
+/// One complete tool call/result round trip from a `run_print` turn: the
+/// call's name and complete, untruncated argument JSON, plus the result text
+/// it produced. Collected unconditionally (independent of `--pure-stdout`
+/// and the `hooks` feature), unlike the `hooks`-only `tool_interactions:
+/// Vec<Message>` above, which carries the raw `rig` message types needed
+/// only for `Stop`-continuation replay. `dispatch_print` turns each of these
+/// into a `Session::add_tool_call` + `add_tool_result` pair (design.md
+/// decision 5); relies on the single-threaded call/result pairing confirmed
+/// in design.md's Open Questions (2.3).
+#[derive(Debug, Clone)]
+pub struct ToolInteraction {
+    pub name: String,
+    pub args: serde_json::Value,
+    pub output: String,
+}
+
+/// [`run_print`]'s return value: the assistant's final response text, token
+/// usage, and this turn's ordered tool interactions for the caller to
+/// persist into the session.
+pub struct PrintOutcome {
+    pub response: String,
+    pub usage: rig::completion::Usage,
+    pub tool_interactions: Vec<ToolInteraction>,
 }
 
 fn format_tool_args_summary(args_json: &serde_json::Value) -> String {
