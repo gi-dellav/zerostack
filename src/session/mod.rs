@@ -27,6 +27,36 @@ pub struct SessionMessage {
     pub role: MessageRole,
     pub content: CompactString,
     pub estimated_tokens: u64,
+    #[serde(default)]
+    pub tool: Option<ToolRecord>,
+}
+
+/// Structured, machine-readable counterpart to a `ToolCall`/`ToolResult`
+/// message's display summary in `content`. `Call` carries the complete,
+/// untruncated argument JSON; `Result` carries linkage and truncation
+/// metadata only (the result text itself stays solely in `content`, governed
+/// by the existing threshold and overflow-file mechanism — see
+/// `Session::tool_result_content`).
+///
+/// `#[serde(untagged)]`: the two variants are structurally disjoint (`Call`
+/// has `id`/`args`, `Result` has `call_id`/`truncated`), so untagged
+/// deserialization picks the right one unambiguously; this keeps the JSON
+/// shape flat (no extra `type` discriminant) matching the schema already
+/// reviewed upstream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ToolRecord {
+    Call {
+        id: u64,
+        name: CompactString,
+        args: serde_json::Value,
+    },
+    Result {
+        call_id: u64,
+        name: CompactString,
+        truncated: bool,
+        full_output_path: Option<CompactString>,
+    },
 }
 
 /// A single-step restore point captured before a conversation rewind, so the
@@ -89,6 +119,13 @@ pub struct Session {
     pub working_dir: CompactString,
     #[serde(default)]
     pub permission_allowlist: Vec<PermissionAllowEntry>,
+    /// Counter stamping `ToolRecord::Call.id`, persisted so ids stay unique
+    /// across a `--continue`/resume rather than restarting at 0 and
+    /// colliding with ids already in `messages`. Old session files predate
+    /// structured tool records entirely, so defaulting to 0 on load is safe:
+    /// there are no existing ids to collide with.
+    #[serde(default)]
+    pub next_tool_call_id: u64,
     #[cfg(feature = "multimodal")]
     #[serde(skip)]
     pub pending_media: Vec<crate::extras::multimodal::MediaAttachment>,
@@ -193,6 +230,7 @@ impl Session {
                 .map(|p| CompactString::new(p.to_string_lossy()))
                 .unwrap_or_default(),
             permission_allowlist: Vec::new(),
+            next_tool_call_id: 0,
             #[cfg(feature = "multimodal")]
             pending_media: Vec::new(),
             show_cost_always: false,
@@ -305,11 +343,21 @@ impl Session {
     }
 
     pub fn add_message(&mut self, role: MessageRole, content: &str) {
+        self.add_message_with_tool(role, content, None);
+    }
+
+    fn add_message_with_tool(
+        &mut self,
+        role: MessageRole,
+        content: &str,
+        tool: Option<ToolRecord>,
+    ) {
         let tokens = Self::estimate_tokens(content);
         self.messages.push(SessionMessage {
             role,
             content: CompactString::new(content),
             estimated_tokens: tokens,
+            tool,
         });
         self.total_estimated_tokens = self.total_estimated_tokens.saturating_add(tokens);
         self.updated_at = CompactString::new(chrono::Utc::now().to_rfc3339());
@@ -318,29 +366,65 @@ impl Session {
         self.rewind_undo = None;
     }
 
-    pub fn add_tool_call(&mut self, name: &str, args: &serde_json::Value) {
-        self.add_message(
+    /// Records the tool call with a structured `ToolRecord::Call` (complete,
+    /// untruncated args) alongside the existing display summary in `content`,
+    /// and returns the stamped id so the caller can link the matching result
+    /// via [`add_tool_result`](Self::add_tool_result).
+    pub fn add_tool_call(&mut self, name: &str, args: &serde_json::Value) -> u64 {
+        let id = self.next_tool_call_id;
+        self.next_tool_call_id = self.next_tool_call_id.saturating_add(1);
+        let content = crate::ui::utils::format_tool_call_summary(name, args);
+        self.add_message_with_tool(
             MessageRole::ToolCall,
-            &crate::ui::utils::format_tool_call_summary(name, args),
+            &content,
+            Some(ToolRecord::Call {
+                id,
+                name: CompactString::new(name),
+                args: args.clone(),
+            }),
         );
+        id
     }
 
-    pub fn add_tool_result(&mut self, name: &str, output: &str) -> String {
-        let content = self.tool_result_content(name, output);
-        self.add_message(MessageRole::ToolResult, &content);
+    /// Records the tool result. `call_id` must be the id returned by the
+    /// [`add_tool_call`](Self::add_tool_call) this result answers, so the
+    /// structured record links the two by id rather than by position (see
+    /// design.md decision 3). The result text itself is never duplicated: it
+    /// stays solely in the returned/`content` string, under the existing
+    /// threshold and overflow-file mechanism.
+    pub fn add_tool_result(&mut self, call_id: u64, name: &str, output: &str) -> String {
+        let (content, truncated, full_output_path) = self.tool_result_content(name, output);
+        self.add_message_with_tool(
+            MessageRole::ToolResult,
+            &content,
+            Some(ToolRecord::Result {
+                call_id,
+                name: CompactString::new(name),
+                truncated,
+                full_output_path: full_output_path.map(CompactString::new),
+            }),
+        );
         content
     }
 
-    fn tool_result_content(&self, name: &str, output: &str) -> String {
+    fn tool_result_content(&self, name: &str, output: &str) -> (String, bool, Option<String>) {
         let output_chars = output.chars().count();
         if output_chars <= TOOL_RESULT_SAVE_THRESHOLD {
-            return format!("{name}:\n{output}");
+            return (format!("{name}:\n{output}"), false, None);
         }
 
         match storage::save_tool_output(&self.id, name, output) {
-            Ok(path) => format_truncated_tool_result(name, output, output_chars, &path),
-            Err(err) => format!(
-                "{name}:\n{output}\n\n[failed to save long tool output separately; kept full output in session to avoid data loss: {err}]"
+            Ok(path) => (
+                format_truncated_tool_result(name, output, output_chars, &path),
+                true,
+                Some(path.display().to_string()),
+            ),
+            Err(err) => (
+                format!(
+                    "{name}:\n{output}\n\n[failed to save long tool output separately; kept full output in session to avoid data loss: {err}]"
+                ),
+                false,
+                None,
             ),
         }
     }
@@ -561,6 +645,7 @@ impl Session {
             role: MessageRole::System,
             content: CompactString::from(summary.clone()),
             estimated_tokens: summary_tokens,
+            tool: None,
         };
 
         // Remove summarized messages and insert summary

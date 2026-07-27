@@ -853,6 +853,7 @@ impl Startup {
                     role: MessageRole::User,
                     content: CompactString::new(&msg),
                     estimated_tokens: Session::estimate_tokens(&msg),
+                    tool: None,
                 });
                 crate::extras::advisor::set_session_messages(msgs);
             }

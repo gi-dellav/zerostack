@@ -142,6 +142,7 @@ fn serialize_single_user_message() {
         role: MessageRole::User,
         content: CompactString::new("hello"),
         estimated_tokens: 1,
+        tool: None,
     }];
     let result = serialize_conversation(&msgs);
     assert!(result.contains("[User]: hello"));
@@ -154,16 +155,19 @@ fn serialize_multiple_roles() {
             role: MessageRole::User,
             content: CompactString::new("hi"),
             estimated_tokens: 1,
+            tool: None,
         },
         SessionMessage {
             role: MessageRole::Assistant,
             content: CompactString::new("hey"),
             estimated_tokens: 1,
+            tool: None,
         },
         SessionMessage {
             role: MessageRole::System,
             content: CompactString::new("note"),
             estimated_tokens: 1,
+            tool: None,
         },
     ];
     let result = serialize_conversation(&msgs);
