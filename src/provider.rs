@@ -369,6 +369,7 @@ pub async fn list_models_manual(
         Some(&base),
     )?;
     let url = format!("{}/models", base.trim_end_matches('/'));
+    tracing::debug!("list_models_manual: GET {}", url);
     let mut req = http.get(url);
     if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
         req = req.bearer_auth(k);

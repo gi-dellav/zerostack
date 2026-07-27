@@ -25,13 +25,22 @@ impl McpClientManager {
         let mut handles = Vec::new();
         let mut notices = Vec::new();
         for (name, cfg) in configs {
+            let connect_start = std::time::Instant::now();
             match client::McpClientHandle::connect(CompactString::new(name.clone()), cfg).await {
                 Ok(handle) => {
-                    tracing::info!("Connected to MCP server '{}'", name);
+                    tracing::info!(
+                        "Connected to MCP server '{}' in {:?}",
+                        name,
+                        connect_start.elapsed()
+                    );
                     handles.push(handle);
                 }
                 Err(e) => {
-                    tracing::debug!("Failed to connect to MCP server '{}': {e}", name);
+                    tracing::debug!(
+                        "Failed to connect to MCP server '{}' after {:?}: {e}",
+                        name,
+                        connect_start.elapsed()
+                    );
                     notices.push(CompactString::new(format!(
                         "MCP server '{name}' not connected: {e}"
                     )));

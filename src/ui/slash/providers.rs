@@ -55,6 +55,12 @@ pub(crate) async fn fetch_models_cached(
             return Ok(arc);
         }
     }
+    tracing::debug!(
+        "fetching model list for provider '{}' over the network (custom={}, refresh={})",
+        provider,
+        is_custom,
+        refresh
+    );
     let mut models = if is_custom {
         list_models_manual(
             provider,
@@ -116,7 +122,25 @@ pub(crate) async fn warm_model_cache(
     cli: &Cli,
     cfg: &Config,
 ) -> Vec<String> {
-    let _ = fetch_models_cached(provider, is_custom, client, cli, cfg, false).await;
+    let start = std::time::Instant::now();
+    match fetch_models_cached(provider, is_custom, client, cli, cfg, false).await {
+        Ok(models) => {
+            tracing::debug!(
+                "model list for '{}': {} entries in {:?}",
+                provider,
+                models.len(),
+                start.elapsed()
+            );
+        }
+        Err(e) => {
+            tracing::warn!(
+                "model list fetch for '{}' failed after {:?}: {}",
+                provider,
+                start.elapsed(),
+                e
+            );
+        }
+    }
     cached_model_ids(provider)
 }
 

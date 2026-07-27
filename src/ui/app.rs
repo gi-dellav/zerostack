@@ -149,6 +149,7 @@ impl<'a> App<'a> {
         ui.session.overhead_tokens =
             crate::agent::builder::estimate_overhead(ui.context, slash.reasoning_enabled);
 
+        let tui_start = std::time::Instant::now();
         render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context)?;
         let marker_path = crate::session::storage::data_dir().join("shown_welcome_msg");
         if ui.cfg.resolve_always_show_welcome() || !marker_path.exists() {
@@ -172,14 +173,22 @@ impl<'a> App<'a> {
             &chain,
             BtwStats::default(),
         )?;
+        tracing::debug!("startup: initial TUI render took {:?}", tui_start.elapsed());
 
         {
             let provider = ui.session.provider.to_string();
             let is_custom = ui.cfg.custom_providers_map().contains_key(&provider);
+            let warm_start = std::time::Instant::now();
             let ids = crate::ui::slash::warm_model_cache(
                 &provider, is_custom, &ui.client, ui.cli, ui.cfg,
             )
             .await;
+            tracing::debug!(
+                "startup: warm_model_cache('{}') took {:?} ({} models)",
+                provider,
+                warm_start.elapsed(),
+                ids.len()
+            );
             input.set_live_model_names(ids);
         }
 
@@ -294,6 +303,7 @@ impl<'a> App<'a> {
             let ask_tx_clone = ui.ask_tx.clone();
             let sandbox_clone = ui.sandbox.clone();
             let reasoning_enabled = slash.reasoning_enabled;
+            tracing::debug!("startup: spawning background agent prebuild");
             tokio::spawn(async move {
                 #[cfg(feature = "mcp")]
                 let mcp = if let Some(ref servers) = cfg_clone.mcp_servers {
