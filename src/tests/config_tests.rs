@@ -139,11 +139,10 @@ fn context_exhausted_report_math() {
 
 #[test]
 fn catalog_context_window_reads_known_model() {
-    // deepseek-v4-pro is a 1M-context model in the baked openrouter catalog.
-    assert_eq!(
-        Config::catalog_context_window("openrouter", "deepseek/deepseek-v4-pro"),
-        Some(1_048_576)
-    );
+    // The default model must resolve to a context window from the baked
+    // catalog. The exact value tracks models.dev and is not pinned here, so
+    // scheduled catalog refreshes don't turn this test red.
+    assert!(Config::catalog_context_window("openrouter", "deepseek/deepseek-v4-pro").is_some());
 }
 
 #[test]
@@ -161,11 +160,11 @@ fn resolve_context_window_prefers_config_pin_over_catalog() {
         cfg.resolve_context_window("openrouter", "deepseek/deepseek-v4-pro", &qm),
         128_000
     );
-    // Without a pin, the catalog's 1M wins.
+    // Without a pin, the catalog value wins.
     let cfg = Config::default();
     assert_eq!(
         cfg.resolve_context_window("openrouter", "deepseek/deepseek-v4-pro", &qm),
-        1_048_576
+        Config::catalog_context_window("openrouter", "deepseek/deepseek-v4-pro").unwrap()
     );
 }
 
@@ -186,7 +185,7 @@ fn resolve_context_window_from_quick_model() {
         },
     );
     let cfg = Config::default();
-    // Quick model's 64k wins over the catalog's 128k for deepseek-chat.
+    // Quick model's 64k wins over the catalog value for deepseek-chat.
     assert_eq!(
         cfg.resolve_context_window("openrouter", "deepseek/deepseek-chat", &qm),
         64_000
@@ -197,11 +196,14 @@ fn resolve_context_window_from_quick_model() {
         cfg.resolve_context_window("openrouter", "deepseek/deepseek-chat", &qm),
         32_000
     );
-    // Quick model with context_window: None falls through to catalog (128k).
+    // Quick model with context_window: None falls through to the catalog value.
     qm.get_mut("test").unwrap().context_window = None;
     let cfg = Config::default();
     let cw = cfg.resolve_context_window("openrouter", "deepseek/deepseek-chat", &qm);
-    assert_eq!(cw, 128_000);
+    assert_eq!(
+        cw,
+        Config::catalog_context_window("openrouter", "deepseek/deepseek-chat").unwrap()
+    );
 }
 
 // ── YAML config reader (replaces the former JSON reader) ───────────────
