@@ -337,8 +337,9 @@ pub fn load() -> (Config, bool) {
             );
             std::process::exit(1);
         });
-        match path.extension().and_then(|e| e.to_str()) {
-            Some("toml") => toml::from_str(&content).unwrap_or_else(|e| {
+        let is_toml = path.extension().and_then(|e| e.to_str()) == Some("toml");
+        let cfg: Config = if is_toml {
+            toml::from_str(&content).unwrap_or_else(|e| {
                 eprintln!(
                     "error: {} is not a valid config: {}\n\
                       Fix the file or remove it to use defaults.",
@@ -346,8 +347,9 @@ pub fn load() -> (Config, bool) {
                     e,
                 );
                 std::process::exit(1);
-            }),
-            _ => serde_yaml_ng::from_str(&content).unwrap_or_else(|e| {
+            })
+        } else {
+            serde_yaml_ng::from_str(&content).unwrap_or_else(|e| {
                 eprintln!(
                     "error: {} is not a valid config: {}\n\
                       Fix the file or remove it to use defaults.",
@@ -355,8 +357,23 @@ pub fn load() -> (Config, bool) {
                     e,
                 );
                 std::process::exit(1);
-            }),
+            })
+        };
+        // Best-effort second pass to flag unknown top-level keys (the main
+        // parse silently drops them).
+        let file_value = if is_toml {
+            toml::from_str::<toml::Value>(&content)
+                .ok()
+                .and_then(|v| serde_json::to_value(&v).ok())
+        } else {
+            serde_yaml_ng::from_str::<serde_yaml_ng::Value>(&content)
+                .ok()
+                .and_then(|v| serde_json::to_value(&v).ok())
+        };
+        if let Some(value) = &file_value {
+            warn_unknown_keys(&path.display().to_string(), value, &cfg);
         }
+        cfg
     };
 
     tracing::debug!(
@@ -394,6 +411,9 @@ fn apply_local_override(cfg: &mut Config) {
         );
         std::process::exit(1);
     });
+    let file_value = toml::from_str::<toml::Value>(&content)
+        .ok()
+        .and_then(|v| serde_json::to_value(&v).ok());
     match merge_config_override(cfg, &content) {
         Ok(merged) => {
             tracing::info!(
@@ -404,6 +424,9 @@ fn apply_local_override(cfg: &mut Config) {
                 "note: applied project-local config override from {}",
                 path.display()
             );
+            if let Some(value) = &file_value {
+                warn_unknown_keys(LOCAL_CONFIG_PATH, value, &merged);
+            }
             *cfg = merged;
         }
         Err(e) => {
@@ -447,6 +470,33 @@ fn deep_merge_json(base: &mut serde_json::Value, over: serde_json::Value) {
             }
         }
         (slot, v) => *slot = v,
+    }
+}
+
+/// Top-level keys in a parsed config file that do not map to a known
+/// `Config` field — typos, or keys gated behind a cargo feature that is not
+/// compiled in. The known set comes from serializing `cfg` back to JSON, so
+/// it tracks field renames and needs no manual list.
+pub fn unknown_keys(file: &serde_json::Value, cfg: &Config) -> Vec<String> {
+    let Ok(known) = serde_json::to_value(cfg) else {
+        return Vec::new();
+    };
+    let (Some(file_obj), Some(known_obj)) = (file.as_object(), known.as_object()) else {
+        return Vec::new();
+    };
+    file_obj
+        .keys()
+        .filter(|k| !known_obj.contains_key(*k))
+        .cloned()
+        .collect()
+}
+
+fn warn_unknown_keys(source: &str, file: &serde_json::Value, cfg: &Config) {
+    for key in unknown_keys(file, cfg) {
+        eprintln!(
+            "warning: {}: unknown config key '{}' (typo, or requires a cargo feature not compiled in)",
+            source, key
+        );
     }
 }
 
