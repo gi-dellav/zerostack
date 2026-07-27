@@ -173,8 +173,8 @@ mod dirty {
         assert!(!r.chat_needs_redraw());
         // Selection fields are public and mutated directly by callers.
         r.selection_active = true;
-        r.selection_start = Some(0);
-        r.selection_end = Some(0);
+        r.selection_start = Some((0, 0));
+        r.selection_end = Some((0, 0));
         assert!(r.chat_needs_redraw());
         r.mark_chat_clean();
         r.clear_selection();
@@ -187,6 +187,46 @@ mod dirty {
         r.mark_chat_clean();
         r.invalidate();
         assert!(r.chat_needs_redraw());
+    }
+
+    #[test]
+    fn selected_text_slices_first_and_last_lines() {
+        let mut r = Renderer::new().unwrap();
+        r.feed_mut().push_line(BlockStyle::Plain, "hello world");
+        r.feed_mut().push_line(BlockStyle::Plain, "second line");
+        r.feed_mut().push_line(BlockStyle::Plain, "third line");
+        r.selection_active = true;
+        r.selection_dragging = false;
+        r.selection_start = Some((0, 6));
+        r.selection_end = Some((2, 5));
+
+        assert_eq!(
+            r.selected_text().as_deref(),
+            Some("world\nsecond line\nthird")
+        );
+    }
+
+    #[test]
+    fn selected_text_normalizes_reversed_drag() {
+        let mut r = Renderer::new().unwrap();
+        r.feed_mut().push_line(BlockStyle::Plain, "hello world");
+        r.feed_mut().push_line(BlockStyle::Plain, "second line");
+        r.selection_active = true;
+        r.selection_start = Some((1, 4));
+        r.selection_end = Some((0, 2));
+
+        assert_eq!(r.selected_text().as_deref(), Some("llo world\nseco"));
+    }
+
+    #[test]
+    fn selected_text_none_for_empty_point_selection() {
+        let mut r = Renderer::new().unwrap();
+        r.feed_mut().push_line(BlockStyle::Plain, "hello world");
+        r.selection_active = true;
+        r.selection_start = Some((0, 3));
+        r.selection_end = Some((0, 3));
+
+        assert_eq!(r.selected_text(), None);
     }
 
     #[test]

@@ -59,8 +59,8 @@ struct ChatSnapshot {
     visible_rows: usize,
     scroll_offset: usize,
     selection_active: bool,
-    selection_start: Option<usize>,
-    selection_end: Option<usize>,
+    selection_start: Option<(usize, usize)>,
+    selection_end: Option<(usize, usize)>,
     partial: CompactString,
     partial_style: BlockStyle,
     chat_bg: Option<Color>,
@@ -134,9 +134,17 @@ pub struct Renderer {
     chat_bg: Option<Color>,
     input_bg: Option<Color>,
     status_bg: Option<Color>,
+    /// A selection exists in the chat buffer (highlighted). Set on mouse
+    /// down, cleared by `y` (after copy) or Esc.
     pub selection_active: bool,
-    pub selection_start: Option<usize>,
-    pub selection_end: Option<usize>,
+    /// Selection endpoints as `(visual_line, display_col)` — character-level,
+    /// not whole rows. The drag start/end, in no particular order.
+    pub selection_start: Option<(usize, usize)>,
+    pub selection_end: Option<(usize, usize)>,
+    /// True while the mouse button is held mid-drag. On release the
+    /// selection stays visible (this becomes false; `selection_active` stays
+    /// true) until `y` copies or Esc clears it.
+    pub selection_dragging: bool,
     prev_input_height: usize,
     /// Number of statusline rows (1-3), fixed by the statusline config at startup.
     statusline_height: usize,
@@ -182,6 +190,7 @@ impl Renderer {
             selection_active: false,
             selection_start: None,
             selection_end: None,
+            selection_dragging: false,
             prev_input_height: 0,
             statusline_height: 1,
             chat_margin: 0,
@@ -393,8 +402,23 @@ impl Renderer {
     pub fn clear_selection(&mut self) {
         self.chat_dirty = true;
         self.selection_active = false;
+        self.selection_dragging = false;
         self.selection_start = None;
         self.selection_end = None;
+    }
+
+    /// Map a screen `(row, col)` in the chat viewport to a selection point
+    /// `(visual_line, display_col)`, accounting for the chat left margin.
+    /// `None` when the row maps to no buffer line.
+    pub fn selection_point_at(&self, row: u16, col: u16) -> Option<(usize, usize)> {
+        let idx = self.buffer_line_at_row(row)?;
+        Some((idx, col.saturating_sub(self.chat_margin) as usize))
+    }
+
+    /// Selection endpoints ordered by `(line, col)`, when both are set.
+    fn normalized_selection(&self) -> Option<((usize, usize), (usize, usize))> {
+        let (s, e) = (self.selection_start?, self.selection_end?);
+        Some(if s <= e { (s, e) } else { (e, s) })
     }
 
     pub fn link_url_at(&self, buf_idx: usize, col: u16) -> Option<String> {
@@ -413,21 +437,32 @@ impl Renderer {
         None
     }
 
+    /// The selected text, honoring character-level endpoints: the first and
+    /// last lines are sliced to their display columns, lines in between are
+    /// taken whole. `None` when the selection is empty.
     pub fn selected_text(&self) -> Option<String> {
-        let (start, end) = match (self.selection_start, self.selection_end) {
-            (Some(s), Some(e)) if s <= e => (s, e),
-            (Some(s), Some(e)) => (e, s),
-            _ => return None,
-        };
+        let ((lo_line, lo_col), (hi_line, hi_col)) = self.normalized_selection()?;
         let lines = self.chat_lines(self.max_line_width());
         let mut result = String::new();
-        for i in start..=end {
-            if let Some(entry) = lines.get(i) {
-                if !result.is_empty() {
-                    result.push('\n');
-                }
-                result.push_str(&entry.text);
+        for i in lo_line..=hi_line {
+            let Some(entry) = lines.get(i) else {
+                continue;
+            };
+            let line_width = display_width(&entry.text);
+            let start = if i == lo_line { lo_col } else { 0 };
+            let end = if i == hi_line {
+                hi_col.min(line_width)
+            } else {
+                line_width
+            };
+            if !result.is_empty() {
+                result.push('\n');
             }
+            result.push_str(&crate::ui::utils::display_col_slice(
+                &entry.text,
+                start,
+                end,
+            ));
         }
         if result.is_empty() {
             None
@@ -623,26 +658,43 @@ impl Renderer {
 
             stdout.execute(MoveTo(0, visual_row))?;
 
-            let is_selected = self.selection_active
-                && if let (Some(s), Some(e)) = (self.selection_start, self.selection_end) {
-                    let lo = s.min(e);
-                    let hi = s.max(e);
-                    buf_idx >= lo && buf_idx <= hi
-                } else {
-                    false
-                };
+            // Character-level selection range within this line, if any:
+            // endpoints slice only the first/last lines, middle lines are
+            // fully covered.
+            let line_sel = self
+                .normalized_selection()
+                .and_then(|((lo_l, lo_c), (hi_l, hi_c))| {
+                    if !self.selection_active || buf_idx < lo_l || buf_idx > hi_l {
+                        return None;
+                    }
+                    let line_width = display_width(chunk);
+                    let start = if buf_idx == lo_l { lo_c } else { 0 };
+                    let end = if buf_idx == hi_l {
+                        hi_c.min(line_width)
+                    } else {
+                        line_width
+                    };
+                    (end > start).then(|| {
+                        (
+                            crate::ui::utils::byte_index_at_display_col(chunk, start),
+                            crate::ui::utils::byte_index_at_display_col(chunk, end),
+                        )
+                    })
+                });
 
             if let Some(bg) = self.chat_bg {
                 write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
             }
             self.write_chat_margin(&mut stdout)?;
-            if is_selected {
-                write!(stdout, "{}", SetAttribute(Attribute::Reverse))?;
-            }
             write!(stdout, "{}", SetForegroundColor(self.color(entry.color)))?;
-            write!(stdout, "{}", wrap_urls_osc8(chunk))?;
-            if is_selected {
+            if let Some((a, b)) = line_sel {
+                write!(stdout, "{}", wrap_urls_osc8(&chunk[..a]))?;
+                write!(stdout, "{}", SetAttribute(Attribute::Reverse))?;
+                write!(stdout, "{}", wrap_urls_osc8(&chunk[a..b]))?;
                 write!(stdout, "{}", SetAttribute(Attribute::NoReverse))?;
+                write!(stdout, "{}", wrap_urls_osc8(&chunk[b..]))?;
+            } else {
+                write!(stdout, "{}", wrap_urls_osc8(chunk))?;
             }
             write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
             write!(stdout, "{}", ResetColor)?;

@@ -137,6 +137,32 @@ pub(crate) fn parse_color(s: &str) -> Option<Color> {
     }
 }
 
+/// Byte index of the first char whose display cell starts at or after
+/// display column `col` (`s.len()` when the string is narrower). Selection
+/// ranges are measured in display columns; this maps them back to byte
+/// offsets. A wide (CJK) char straddling `col` is excluded from the range.
+pub(crate) fn byte_index_at_display_col(s: &str, col: usize) -> usize {
+    if col == 0 {
+        return 0;
+    }
+    let mut width = 0;
+    for (i, c) in s.char_indices() {
+        if width >= col {
+            return i;
+        }
+        width += char_display_width(c);
+    }
+    s.len()
+}
+
+/// The substring of `s` covering display columns `[start_col, end_col)`.
+/// Columns are clamped and may be given in any order.
+pub(crate) fn display_col_slice(s: &str, start_col: usize, end_col: usize) -> String {
+    let a = byte_index_at_display_col(s, start_col.min(end_col));
+    let b = byte_index_at_display_col(s, start_col.max(end_col));
+    s[a..b].to_string()
+}
+
 /// Formats a tool call showing only the primary file/command parameter.
 pub(crate) fn format_tool_call_summary(name: &str, args: &serde_json::Value) -> String {
     let obj = match args {
@@ -221,5 +247,32 @@ pub(crate) fn suggest_pattern(tool: &str, input: &str) -> String {
             format!("{}*", first)
         }
         _ => "*".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn byte_index_maps_display_cols() {
+        assert_eq!(byte_index_at_display_col("hello", 0), 0);
+        assert_eq!(byte_index_at_display_col("hello", 3), 3);
+        assert_eq!(byte_index_at_display_col("hello", 99), 5);
+        // Wide chars: '你' occupies cols 0-1, '好' cols 2-3.
+        assert_eq!(byte_index_at_display_col("你好x", 2), 3);
+        // col 1 straddles '你' — excluded, next boundary is '好' at byte 3.
+        assert_eq!(byte_index_at_display_col("你好x", 1), 3);
+    }
+
+    #[test]
+    fn display_col_slice_extracts_ranges() {
+        assert_eq!(display_col_slice("hello world", 0, 5), "hello");
+        assert_eq!(display_col_slice("hello world", 6, 11), "world");
+        assert_eq!(display_col_slice("hello", 3, 1), "el");
+        assert_eq!(display_col_slice("hello", 2, 99), "llo");
+        assert_eq!(display_col_slice("你好世界", 0, 4), "你好");
+        assert_eq!(display_col_slice("a你b", 1, 3), "你");
+        assert_eq!(display_col_slice("hello", 2, 2), "");
     }
 }
