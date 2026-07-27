@@ -140,6 +140,14 @@ pub(crate) struct AgentRunState {
     pub was_reasoning: bool,
     pub turn_trace: Vec<compact_str::CompactString>,
     pub awaiting_compaction_relief: bool,
+    /// The id `Session::add_tool_call` stamped for the most recent `ToolCall`
+    /// event, held until the matching `ToolResult` event consumes it via
+    /// `Session::add_tool_result`. The agent event stream is strictly
+    /// sequential (one tool call's result always arrives before the next
+    /// call starts — see design.md's single-threaded-execution finding), so a
+    /// single pending slot is sufficient; it never needs to hold more than
+    /// one id at a time.
+    pub pending_tool_call_id: Option<u64>,
 }
 
 /// What happens when the current run finishes: chained prompts, dot-prompt

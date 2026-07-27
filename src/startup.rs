@@ -853,6 +853,7 @@ impl Startup {
                     role: MessageRole::User,
                     content: CompactString::new(&msg),
                     estimated_tokens: Session::estimate_tokens(&msg),
+                    tool: None,
                 });
                 crate::extras::advisor::set_session_messages(msgs);
             }
@@ -873,10 +874,25 @@ impl Startup {
             if let Some(ss) = self.status_signals.as_ref() {
                 ss.send_stop();
             }
-            let (response, usage) = response_result?;
+            let response_outcome = response_result?;
+            let response = response_outcome.response;
+            let usage = response_outcome.usage;
             if !self.cli.no_session {
                 let mut session = self.session;
                 session.add_message(MessageRole::User, &msg);
+                for interaction in &response_outcome.tool_interactions {
+                    let call_id = session.add_tool_call(&interaction.name, &interaction.args);
+                    // Between the call and its result, where they happened.
+                    #[cfg(feature = "subagents")]
+                    for subagent_call in &interaction.subagent_calls {
+                        session.add_subagent_tool_call(
+                            Some(call_id),
+                            &subagent_call.name,
+                            &subagent_call.args,
+                        );
+                    }
+                    session.add_tool_result(call_id, &interaction.name, &interaction.output);
+                }
                 session.add_message(MessageRole::Assistant, &response);
                 session.total_input_tokens = session
                     .total_input_tokens
