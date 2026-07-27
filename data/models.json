@@ -1,6 +1,13 @@
 {
   "anthropic": [
     {
+      "id": "claude-fable-5",
+      "name": "Claude Fable 5",
+      "context": 1000000,
+      "input_price": 10,
+      "output_price": 50
+    },
+    {
       "id": "claude-haiku-4-5",
       "name": "Claude Haiku 4.5 (latest)",
       "context": 200000,
@@ -15,11 +22,6 @@
       "output_price": 5
     },
     {
-      "id": "claude-opus-4-0",
-      "name": "Claude Opus 4 (latest)",
-      "context": 200000
-    },
-    {
       "id": "claude-opus-4-1",
       "name": "Claude Opus 4.1 (latest)",
       "context": 200000,
@@ -32,11 +34,6 @@
       "context": 200000,
       "input_price": 15,
       "output_price": 75
-    },
-    {
-      "id": "claude-opus-4-20250514",
-      "name": "Claude Opus 4",
-      "context": 200000
     },
     {
       "id": "claude-opus-4-5",
@@ -74,26 +71,23 @@
       "output_price": 25
     },
     {
-      "id": "claude-sonnet-4-0",
-      "name": "Claude Sonnet 4 (latest)",
-      "context": 200000
-    },
-    {
-      "id": "claude-sonnet-4-20250514",
-      "name": "Claude Sonnet 4",
-      "context": 200000
+      "id": "claude-opus-5",
+      "name": "Claude Opus 5",
+      "context": 1000000,
+      "input_price": 5,
+      "output_price": 25
     },
     {
       "id": "claude-sonnet-4-5",
       "name": "Claude Sonnet 4.5 (latest)",
-      "context": 200000,
+      "context": 1000000,
       "input_price": 3,
       "output_price": 15
     },
     {
       "id": "claude-sonnet-4-5-20250929",
       "name": "Claude Sonnet 4.5",
-      "context": 200000,
+      "context": 1000000,
       "input_price": 3,
       "output_price": 15
     },
@@ -103,6 +97,13 @@
       "context": 1000000,
       "input_price": 3,
       "output_price": 15
+    },
+    {
+      "id": "claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "context": 1000000,
+      "input_price": 2,
+      "output_price": 10
     }
   ],
   "openai": [
@@ -191,20 +192,6 @@
       "output_price": 10
     },
     {
-      "id": "gpt-5-chat-latest",
-      "name": "GPT-5 Chat (latest)",
-      "context": 400000,
-      "input_price": 1.25,
-      "output_price": 10
-    },
-    {
-      "id": "gpt-5-codex",
-      "name": "GPT-5-Codex",
-      "context": 400000,
-      "input_price": 1.25,
-      "output_price": 10
-    },
-    {
       "id": "gpt-5-mini",
       "name": "GPT-5 Mini",
       "context": 400000,
@@ -233,34 +220,6 @@
       "output_price": 10
     },
     {
-      "id": "gpt-5.1-chat-latest",
-      "name": "GPT-5.1 Chat",
-      "context": 128000,
-      "input_price": 1.25,
-      "output_price": 10
-    },
-    {
-      "id": "gpt-5.1-codex",
-      "name": "GPT-5.1 Codex",
-      "context": 400000,
-      "input_price": 1.25,
-      "output_price": 10
-    },
-    {
-      "id": "gpt-5.1-codex-max",
-      "name": "GPT-5.1 Codex Max",
-      "context": 400000,
-      "input_price": 1.25,
-      "output_price": 10
-    },
-    {
-      "id": "gpt-5.1-codex-mini",
-      "name": "GPT-5.1 Codex mini",
-      "context": 400000,
-      "input_price": 0.25,
-      "output_price": 2
-    },
-    {
       "id": "gpt-5.2",
       "name": "GPT-5.2",
       "context": 400000,
@@ -271,13 +230,6 @@
       "id": "gpt-5.2-chat-latest",
       "name": "GPT-5.2 Chat",
       "context": 128000,
-      "input_price": 1.75,
-      "output_price": 14
-    },
-    {
-      "id": "gpt-5.2-codex",
-      "name": "GPT-5.2 Codex",
-      "context": 400000,
       "input_price": 1.75,
       "output_price": 14
     },
@@ -352,21 +304,39 @@
       "output_price": 180
     },
     {
+      "id": "gpt-5.6",
+      "name": "GPT-5.6",
+      "context": 1050000,
+      "input_price": 5,
+      "output_price": 30
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
+      "context": 1050000,
+      "input_price": 1,
+      "output_price": 6
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "name": "GPT-5.6 Sol",
+      "context": 1050000,
+      "input_price": 5,
+      "output_price": 30
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "name": "GPT-5.6 Terra",
+      "context": 1050000,
+      "input_price": 2.5,
+      "output_price": 15
+    },
+    {
       "id": "o1",
       "name": "o1",
       "context": 200000,
       "input_price": 15,
       "output_price": 60
-    },
-    {
-      "id": "o1-mini",
-      "name": "o1-mini",
-      "context": 128000
-    },
-    {
-      "id": "o1-preview",
-      "name": "o1-preview",
-      "context": 128000
     },
     {
       "id": "o1-pro",
@@ -381,13 +351,6 @@
       "context": 200000,
       "input_price": 2,
       "output_price": 8
-    },
-    {
-      "id": "o3-deep-research",
-      "name": "o3-deep-research",
-      "context": 200000,
-      "input_price": 10,
-      "output_price": 40
     },
     {
       "id": "o3-mini",
@@ -409,16 +372,23 @@
       "context": 200000,
       "input_price": 1.1,
       "output_price": 4.4
-    },
-    {
-      "id": "o4-mini-deep-research",
-      "name": "o4-mini-deep-research",
-      "context": 200000,
-      "input_price": 2,
-      "output_price": 8
     }
   ],
   "gemini": [
+    {
+      "id": "deep-research-max-preview-04-2026",
+      "name": "Deep Research Max Preview (Apr-21-2026)",
+      "context": 131072,
+      "input_price": 2,
+      "output_price": 12
+    },
+    {
+      "id": "deep-research-preview-04-2026",
+      "name": "Deep Research Preview (Apr-21-2026)",
+      "context": 131072,
+      "input_price": 2,
+      "output_price": 12
+    },
     {
       "id": "gemini-2.0-flash",
       "name": "Gemini 2.0 Flash",
@@ -432,6 +402,13 @@
       "context": 1048576,
       "input_price": 0.075,
       "output_price": 0.3
+    },
+    {
+      "id": "gemini-2.5-computer-use-preview-10-2025",
+      "name": "Gemini 2.5 Computer Use Preview 10-2025",
+      "context": 131072,
+      "input_price": 1.25,
+      "output_price": 10
     },
     {
       "id": "gemini-2.5-flash",
@@ -469,11 +446,32 @@
       "output_price": 3
     },
     {
+      "id": "gemini-3-pro-image",
+      "name": "Nano Banana Pro",
+      "context": 131072,
+      "input_price": 2,
+      "output_price": 120
+    },
+    {
+      "id": "gemini-3-pro-image-preview",
+      "name": "Nano Banana Pro",
+      "context": 131072,
+      "input_price": 2,
+      "output_price": 120
+    },
+    {
       "id": "gemini-3-pro-preview",
       "name": "Gemini 3 Pro Preview",
       "context": 1048576,
       "input_price": 2,
       "output_price": 12
+    },
+    {
+      "id": "gemini-3.1-flash-image",
+      "name": "Nano Banana 2",
+      "context": 65536,
+      "input_price": 0.5,
+      "output_price": 60
     },
     {
       "id": "gemini-3.1-flash-image-preview",
@@ -490,11 +488,25 @@
       "output_price": 1.5
     },
     {
+      "id": "gemini-3.1-flash-lite-image",
+      "name": "Nano Banana 2 Lite",
+      "context": 65536,
+      "input_price": 0.25,
+      "output_price": 30
+    },
+    {
       "id": "gemini-3.1-flash-lite-preview",
       "name": "Gemini 3.1 Flash Lite Preview",
       "context": 1048576,
       "input_price": 0.25,
       "output_price": 1.5
+    },
+    {
+      "id": "gemini-3.1-flash-live-preview",
+      "name": "Gemini 3.1 Flash Live Preview",
+      "context": 131072,
+      "input_price": 0.75,
+      "output_price": 4.5
     },
     {
       "id": "gemini-3.1-pro-preview",
@@ -518,28 +530,74 @@
       "output_price": 9
     },
     {
-      "id": "gemini-flash-latest",
-      "name": "Gemini Flash Latest",
+      "id": "gemini-3.5-flash-lite",
+      "name": "Gemini 3.5 Flash Lite",
       "context": 1048576,
       "input_price": 0.3,
       "output_price": 2.5
     },
     {
+      "id": "gemini-3.5-live-translate-preview",
+      "name": "Gemini 3.5 Live Translate Preview",
+      "context": 16384,
+      "input_price": 3.5,
+      "output_price": 21
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "name": "Gemini 3.6 Flash",
+      "context": 1048576,
+      "input_price": 1.5,
+      "output_price": 7.5
+    },
+    {
+      "id": "gemini-flash-latest",
+      "name": "Gemini Flash Latest",
+      "context": 1048576,
+      "input_price": 1.5,
+      "output_price": 9
+    },
+    {
       "id": "gemini-flash-lite-latest",
       "name": "Gemini Flash-Lite Latest",
       "context": 1048576,
-      "input_price": 0.1,
-      "output_price": 0.4
+      "input_price": 0.25,
+      "output_price": 1.5
+    },
+    {
+      "id": "gemini-robotics-er-1.6-preview",
+      "name": "Gemini Robotics-ER 1.6 Preview",
+      "context": 131072,
+      "input_price": 1,
+      "output_price": 5
     },
     {
       "id": "gemma-4-26b-a4b-it",
       "name": "Gemma 4 26B A4B IT",
-      "context": 262144
+      "context": 262144,
+      "input_price": null,
+      "output_price": null
     },
     {
       "id": "gemma-4-31b-it",
       "name": "Gemma 4 31B IT",
-      "context": 262144
+      "context": 262144,
+      "input_price": null,
+      "output_price": null
+    },
+    {
+      "id": "lyria-3-clip-preview",
+      "name": "Lyria 3 Clip Preview",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "lyria-3-pro-preview",
+      "name": "Lyria 3 Pro Preview",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
     }
   ],
   "openrouter": [
@@ -549,9 +607,9 @@
       "context": 200000
     },
     {
-      "id": "anthropic/claude-3.5-haiku",
-      "name": "Claude 3.5 Haiku",
-      "context": 200000
+      "id": "anthropic/claude-fable-5",
+      "name": "Claude Fable 5",
+      "context": 1000000
     },
     {
       "id": "anthropic/claude-haiku-4.5",
@@ -579,11 +637,6 @@
       "context": 1000000
     },
     {
-      "id": "anthropic/claude-opus-4.6-fast",
-      "name": "Claude Opus 4.6 (Fast)",
-      "context": 1000000
-    },
-    {
       "id": "anthropic/claude-opus-4.7",
       "name": "Claude Opus 4.7",
       "context": 1000000
@@ -604,6 +657,16 @@
       "context": 1000000
     },
     {
+      "id": "anthropic/claude-opus-5",
+      "name": "Claude Opus 5",
+      "context": 1000000
+    },
+    {
+      "id": "anthropic/claude-opus-5-fast",
+      "name": "Claude Opus 5 (Fast)",
+      "context": 1000000
+    },
+    {
       "id": "anthropic/claude-sonnet-4",
       "name": "Claude Sonnet 4",
       "context": 1000000
@@ -619,9 +682,14 @@
       "context": 1000000
     },
     {
+      "id": "anthropic/claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "context": 1000000
+    },
+    {
       "id": "deepseek/deepseek-chat",
       "name": "DeepSeek Chat",
-      "context": 128000
+      "context": 163840
     },
     {
       "id": "deepseek/deepseek-chat-v3-0324",
@@ -635,8 +703,8 @@
     },
     {
       "id": "deepseek/deepseek-r1",
-      "name": "R1",
-      "context": 64000
+      "name": "DeepSeek-R1",
+      "context": 163840
     },
     {
       "id": "deepseek/deepseek-r1-0528",
@@ -646,12 +714,7 @@
     {
       "id": "deepseek/deepseek-r1-distill-llama-70b",
       "name": "R1 Distill Llama 70B",
-      "context": 131072
-    },
-    {
-      "id": "deepseek/deepseek-r1-distill-qwen-32b",
-      "name": "R1 Distill Qwen 32B",
-      "context": 32768
+      "context": 8192
     },
     {
       "id": "deepseek/deepseek-v3.1-terminus",
@@ -661,7 +724,7 @@
     {
       "id": "deepseek/deepseek-v3.2",
       "name": "DeepSeek V3.2",
-      "context": 128000
+      "context": 163840
     },
     {
       "id": "deepseek/deepseek-v3.2-exp",
@@ -694,11 +757,6 @@
       "context": 1048576
     },
     {
-      "id": "google/gemini-2.5-flash-lite-preview-09-2025",
-      "name": "Gemini 2.5 Flash Lite Preview 09-2025",
-      "context": 1048576
-    },
-    {
       "id": "google/gemini-2.5-pro",
       "name": "Gemini 2.5 Pro",
       "context": 1048576
@@ -719,19 +777,34 @@
       "context": 1048576
     },
     {
+      "id": "google/gemini-3-pro-image",
+      "name": "Nano Banana Pro",
+      "context": 131072
+    },
+    {
       "id": "google/gemini-3-pro-image-preview",
-      "name": "Nano Banana Pro (Gemini 3 Pro Image Preview)",
+      "name": "Nano Banana Pro",
       "context": 65536
+    },
+    {
+      "id": "google/gemini-3.1-flash-image",
+      "name": "Nano Banana 2",
+      "context": 131072
     },
     {
       "id": "google/gemini-3.1-flash-image-preview",
       "name": "Nano Banana 2",
-      "context": 65536
+      "context": 131072
     },
     {
       "id": "google/gemini-3.1-flash-lite",
       "name": "Gemini 3.1 Flash Lite",
       "context": 1048576
+    },
+    {
+      "id": "google/gemini-3.1-flash-lite-image",
+      "name": "Nano Banana 2 Lite",
+      "context": 65536
     },
     {
       "id": "google/gemini-3.1-flash-lite-preview",
@@ -754,6 +827,16 @@
       "context": 1048576
     },
     {
+      "id": "google/gemini-3.5-flash-lite",
+      "name": "Gemini 3.5 Flash Lite",
+      "context": 1048576
+    },
+    {
+      "id": "google/gemini-3.6-flash",
+      "name": "Gemini 3.6 Flash",
+      "context": 1048576
+    },
+    {
       "id": "google/gemma-2-27b-it",
       "name": "Gemma 2 27B",
       "context": 8192
@@ -766,7 +849,7 @@
     {
       "id": "google/gemma-3-27b-it",
       "name": "Gemma 3 27B",
-      "context": 131072
+      "context": 262144
     },
     {
       "id": "google/gemma-3-4b-it",
@@ -809,16 +892,6 @@
       "context": 1048576
     },
     {
-      "id": "meta-llama/llama-3-70b-instruct",
-      "name": "Llama 3 70B Instruct",
-      "context": 8192
-    },
-    {
-      "id": "meta-llama/llama-3-8b-instruct",
-      "name": "Llama 3 8B Instruct",
-      "context": 8192
-    },
-    {
       "id": "meta-llama/llama-3.1-70b-instruct",
       "name": "Llama 3.1 70B Instruct",
       "context": 131072
@@ -826,11 +899,6 @@
     {
       "id": "meta-llama/llama-3.1-8b-instruct",
       "name": "Llama 3.1 8B Instruct",
-      "context": 16384
-    },
-    {
-      "id": "meta-llama/llama-3.2-11b-vision-instruct",
-      "name": "Llama 3.2 11B Vision Instruct",
       "context": 131072
     },
     {
@@ -841,22 +909,12 @@
     {
       "id": "meta-llama/llama-3.2-3b-instruct",
       "name": "Llama 3.2 3B Instruct",
-      "context": 80000
-    },
-    {
-      "id": "meta-llama/llama-3.2-3b-instruct:free",
-      "name": "Llama 3.2 3B Instruct (free)",
       "context": 131072
     },
     {
       "id": "meta-llama/llama-3.3-70b-instruct",
       "name": "Llama-3.3-70B-Instruct",
       "context": 131072
-    },
-    {
-      "id": "meta-llama/llama-3.3-70b-instruct:free",
-      "name": "Llama 3.3 70B Instruct (free)",
-      "context": 65536
     },
     {
       "id": "meta-llama/llama-4-maverick",
@@ -866,17 +924,12 @@
     {
       "id": "meta-llama/llama-4-scout",
       "name": "Llama 4 Scout",
-      "context": 327680
-    },
-    {
-      "id": "meta-llama/llama-guard-3-8b",
-      "name": "Llama Guard 3 8B",
-      "context": 131072
+      "context": 1310720
     },
     {
       "id": "meta-llama/llama-guard-4-12b",
       "name": "Llama Guard 4 12B",
-      "context": 163840
+      "context": 1048576
     },
     {
       "id": "mistralai/codestral-2508",
@@ -961,7 +1014,7 @@
     {
       "id": "mistralai/mistral-small-3.2-24b-instruct",
       "name": "Mistral Small 3.2 24B",
-      "context": 128000
+      "context": 256000
     },
     {
       "id": "mistralai/mixtral-8x22b-instruct",
@@ -999,9 +1052,14 @@
       "context": 262144
     },
     {
-      "id": "moonshotai/kimi-k2.6:free",
-      "name": "Kimi K2.6 (free)",
+      "id": "moonshotai/kimi-k2.7-code",
+      "name": "Kimi K2.7 Code",
       "context": 262144
+    },
+    {
+      "id": "moonshotai/kimi-k3",
+      "name": "Kimi K3",
+      "context": 1048576
     },
     {
       "id": "openai/gpt-3.5-turbo",
@@ -1027,16 +1085,6 @@
       "id": "openai/gpt-4",
       "name": "GPT-4",
       "context": 8191
-    },
-    {
-      "id": "openai/gpt-4-0314",
-      "name": "GPT-4 (older v0314)",
-      "context": 8191
-    },
-    {
-      "id": "openai/gpt-4-1106-preview",
-      "name": "GPT-4 Turbo (older v1106)",
-      "context": 128000
     },
     {
       "id": "openai/gpt-4-turbo",
@@ -1091,11 +1139,6 @@
     {
       "id": "openai/gpt-4o-mini-2024-07-18",
       "name": "GPT-4o-mini (2024-07-18)",
-      "context": 128000
-    },
-    {
-      "id": "openai/gpt-4o-mini-search-preview",
-      "name": "GPT-4o-mini Search Preview",
       "context": 128000
     },
     {
@@ -1234,23 +1277,48 @@
       "context": 1050000
     },
     {
+      "id": "openai/gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-5.6-luna-pro",
+      "name": "GPT-5.6 Luna Pro",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-5.6-sol",
+      "name": "GPT-5.6 Sol",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-5.6-sol-pro",
+      "name": "GPT-5.6 Sol Pro",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-5.6-terra",
+      "name": "GPT-5.6 Terra",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-5.6-terra-pro",
+      "name": "GPT-5.6 Terra Pro",
+      "context": 1050000
+    },
+    {
       "id": "openai/gpt-chat-latest",
       "name": "GPT Chat Latest",
       "context": 400000
     },
     {
       "id": "openai/gpt-oss-120b",
-      "name": "gpt-oss-120b",
-      "context": 131072
-    },
-    {
-      "id": "openai/gpt-oss-120b:free",
-      "name": "gpt-oss-120b (free)",
+      "name": "GPT OSS 120B",
       "context": 131072
     },
     {
       "id": "openai/gpt-oss-20b",
-      "name": "gpt-oss-20b",
+      "name": "GPT OSS 20B",
       "context": 131072
     },
     {
@@ -1330,7 +1398,7 @@
     },
     {
       "id": "qwen/qwen-plus",
-      "name": "Qwen-Plus",
+      "name": "Qwen Plus",
       "context": 1000000
     },
     {
@@ -1346,16 +1414,16 @@
     {
       "id": "qwen/qwen2.5-vl-72b-instruct",
       "name": "Qwen2.5 VL 72B Instruct",
-      "context": 32000
+      "context": 128000
     },
     {
       "id": "qwen/qwen3-14b",
       "name": "Qwen3 14B",
-      "context": 40960
+      "context": 131072
     },
     {
       "id": "qwen/qwen3-235b-a22b",
-      "name": "Qwen3 235B A22B",
+      "name": "Qwen3 235B-A22B",
       "context": 131072
     },
     {
@@ -1371,27 +1439,27 @@
     {
       "id": "qwen/qwen3-30b-a3b",
       "name": "Qwen3 30B A3B",
-      "context": 40960
+      "context": 131072
     },
     {
       "id": "qwen/qwen3-30b-a3b-instruct-2507",
       "name": "Qwen3 30B A3B Instruct 2507",
-      "context": 128000
+      "context": 262144
     },
     {
       "id": "qwen/qwen3-30b-a3b-thinking-2507",
       "name": "Qwen3 30B A3B Thinking 2507",
-      "context": 131072
+      "context": 81920
     },
     {
       "id": "qwen/qwen3-32b",
       "name": "Qwen3 32B",
-      "context": 40960
+      "context": 131072
     },
     {
       "id": "qwen/qwen3-8b",
       "name": "Qwen3 8B",
-      "context": 40960
+      "context": 131072
     },
     {
       "id": "qwen/qwen3-coder",
@@ -1400,8 +1468,8 @@
     },
     {
       "id": "qwen/qwen3-coder-30b-a3b-instruct",
-      "name": "Qwen3 Coder 30B A3B Instruct",
-      "context": 160000
+      "name": "Qwen3-Coder 30B-A3B Instruct",
+      "context": 262144
     },
     {
       "id": "qwen/qwen3-coder-flash",
@@ -1419,11 +1487,6 @@
       "context": 1000000
     },
     {
-      "id": "qwen/qwen3-coder:free",
-      "name": "Qwen3 Coder 480B A35B (free)",
-      "context": 262000
-    },
-    {
       "id": "qwen/qwen3-max",
       "name": "Qwen3 Max",
       "context": 262144
@@ -1435,18 +1498,13 @@
     },
     {
       "id": "qwen/qwen3-next-80b-a3b-instruct",
-      "name": "Qwen3 Next 80B A3B Instruct",
-      "context": 262144
-    },
-    {
-      "id": "qwen/qwen3-next-80b-a3b-instruct:free",
-      "name": "Qwen3 Next 80B A3B Instruct (free)",
+      "name": "Qwen3-Next 80B-A3B Instruct",
       "context": 262144
     },
     {
       "id": "qwen/qwen3-next-80b-a3b-thinking",
-      "name": "Qwen3 Next 80B A3B Thinking",
-      "context": 131072
+      "name": "Qwen3-Next 80B-A3B (Thinking)",
+      "context": 262144
     },
     {
       "id": "qwen/qwen3-vl-235b-a22b-instruct",
@@ -1461,12 +1519,12 @@
     {
       "id": "qwen/qwen3-vl-30b-a3b-instruct",
       "name": "Qwen3 VL 30B A3B Instruct",
-      "context": 131072
+      "context": 262144
     },
     {
       "id": "qwen/qwen3-vl-30b-a3b-thinking",
       "name": "Qwen3 VL 30B A3B Thinking",
-      "context": 131072
+      "context": 262144
     },
     {
       "id": "qwen/qwen3-vl-32b-instruct",
@@ -1476,7 +1534,7 @@
     {
       "id": "qwen/qwen3-vl-8b-instruct",
       "name": "Qwen3 VL 8B Instruct",
-      "context": 131072
+      "context": 262144
     },
     {
       "id": "qwen/qwen3-vl-8b-thinking",
@@ -1485,27 +1543,27 @@
     },
     {
       "id": "qwen/qwen3.5-122b-a10b",
-      "name": "Qwen3.5-122B-A10B",
+      "name": "Qwen3.5 122B-A10B",
       "context": 262144
     },
     {
       "id": "qwen/qwen3.5-27b",
-      "name": "Qwen3.5-27B",
+      "name": "Qwen3.5 27B",
       "context": 262144
     },
     {
       "id": "qwen/qwen3.5-35b-a3b",
-      "name": "Qwen3.5-35B-A3B",
+      "name": "Qwen3.5 35B-A3B",
       "context": 262144
     },
     {
       "id": "qwen/qwen3.5-397b-a17b",
-      "name": "Qwen3.5 397B A17B",
+      "name": "Qwen3.5 397B-A17B",
       "context": 262144
     },
     {
       "id": "qwen/qwen3.5-9b",
-      "name": "Qwen3.5-9B",
+      "name": "Qwen3.5 9B",
       "context": 262144
     },
     {
@@ -1526,12 +1584,12 @@
     {
       "id": "qwen/qwen3.6-27b",
       "name": "Qwen3.6 27B",
-      "context": 262140
+      "context": 262144
     },
     {
       "id": "qwen/qwen3.6-35b-a3b",
-      "name": "Qwen3.6 35B A3B",
-      "context": 262140
+      "name": "Qwen3.6 35B-A3B",
+      "context": 262144
     },
     {
       "id": "qwen/qwen3.6-flash",
@@ -1574,14 +1632,14 @@
       "context": 1000000
     },
     {
+      "id": "x-ai/grok-4.5",
+      "name": "Grok 4.5",
+      "context": 500000
+    },
+    {
       "id": "x-ai/grok-build-0.1",
       "name": "Grok Build 0.1",
       "context": 256000
-    },
-    {
-      "id": "z-ai/glm-4-32b",
-      "name": "GLM 4 32B ",
-      "context": 128000
     },
     {
       "id": "z-ai/glm-4.5",
@@ -1591,11 +1649,6 @@
     {
       "id": "z-ai/glm-4.5-air",
       "name": "GLM-4.5-Air",
-      "context": 131070
-    },
-    {
-      "id": "z-ai/glm-4.5-air:free",
-      "name": "GLM 4.5 Air (free)",
       "context": 131072
     },
     {
@@ -1606,7 +1659,7 @@
     {
       "id": "z-ai/glm-4.6",
       "name": "GLM-4.6",
-      "context": 202752
+      "context": 204800
     },
     {
       "id": "z-ai/glm-4.6v",
@@ -1616,7 +1669,7 @@
     {
       "id": "z-ai/glm-4.7",
       "name": "GLM-4.7",
-      "context": 202752
+      "context": 204800
     },
     {
       "id": "z-ai/glm-4.7-flash",
@@ -1626,7 +1679,7 @@
     {
       "id": "z-ai/glm-5",
       "name": "GLM-5",
-      "context": 202752
+      "context": 204800
     },
     {
       "id": "z-ai/glm-5-turbo",
@@ -1636,7 +1689,12 @@
     {
       "id": "z-ai/glm-5.1",
       "name": "GLM-5.1",
-      "context": 202752
+      "context": 204800
+    },
+    {
+      "id": "z-ai/glm-5.2",
+      "name": "GLM-5.2",
+      "context": 1048576
     },
     {
       "id": "z-ai/glm-5v-turbo",
