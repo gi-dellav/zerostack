@@ -615,6 +615,27 @@ where
     // returned to the caller (`dispatch_print`) for session persistence. See
     // design.md decision 5.
     let mut recorded_interactions: Vec<ToolInteraction> = Vec::new();
+    // Subagent tool calls reach this loop on a side channel rather than as
+    // stream items: `run_subagent` sends them from the tokio task the `task`
+    // tool spawned, concurrently with this turn's own stream. Only
+    // `spawn_agent` (the TUI) ever published a sender, so headless runs left
+    // subagent activity untraced; publishing one here is what makes it
+    // recordable. Same channel capacity as `spawn_agent`'s, and drained by
+    // the `select!` below while the `task` tool is still running, so a
+    // subagent making many tool calls cannot fill it and stall.
+    #[cfg(feature = "subagents")]
+    let (subagent_tx, mut subagent_rx) = mpsc::channel::<AgentEvent>(32);
+    #[cfg(feature = "subagents")]
+    crate::extras::subagents::set_subagent_event_tx(subagent_tx.clone());
+    // Held for the whole turn: with no sender alive the channel would be
+    // closed, and the `select!` arm below would then complete immediately on
+    // every poll instead of waiting.
+    #[cfg(feature = "subagents")]
+    let _subagent_tx = subagent_tx;
+    // Subagent calls seen since the current main-agent tool call started;
+    // moved into that call's `ToolInteraction` when its result arrives.
+    #[cfg(feature = "subagents")]
+    let mut pending_subagent_calls: Vec<SubagentCall> = Vec::new();
     let mut usage = rig::completion::Usage::new();
     // Set true only when a `Stop` hook forces another turn; drives the outer
     // loop. Stays false (single pass, no continuation) in the hooks-off build.
@@ -630,7 +651,30 @@ where
 
     while continue_turn {
         continue_turn = false;
-        while let Some(item) = stream.next().await {
+        loop {
+            // Wait for the next stream item while staying available to the
+            // subagent channel. `StreamExt::next` is cancel-safe (it only
+            // polls the stream, which owns its own state), so losing the race
+            // to a subagent event costs nothing: the next iteration polls the
+            // same stream again.
+            #[cfg(feature = "subagents")]
+            let next_item = loop {
+                tokio::select! {
+                    // `biased`: drain everything already queued before
+                    // touching the stream, so a subagent event that arrived
+                    // during the `task` call is attributed to that call and
+                    // not to whatever comes next.
+                    biased;
+                    Some(event) = subagent_rx.recv() => {
+                        push_subagent_call(&mut pending_subagent_calls, event);
+                    }
+                    item = stream.next() => break item,
+                }
+            };
+            #[cfg(not(feature = "subagents"))]
+            let next_item = stream.next().await;
+
+            let Some(item) = next_item else { break };
             match item {
                 Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
                     text,
@@ -687,7 +731,23 @@ where
                         }
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                     }
-                    recorded_interactions.push(ToolInteraction { name, args, output });
+                    // Anything still queued belongs to the call that just
+                    // finished: a subagent only runs inside its `task` call,
+                    // and every send completes before that call returns. The
+                    // `select!` above normally has them already, but a tool
+                    // that sends without ever yielding hands us its result in
+                    // the same poll, leaving them queued until here.
+                    #[cfg(feature = "subagents")]
+                    while let Ok(event) = subagent_rx.try_recv() {
+                        push_subagent_call(&mut pending_subagent_calls, event);
+                    }
+                    recorded_interactions.push(ToolInteraction {
+                        name,
+                        args,
+                        output,
+                        #[cfg(feature = "subagents")]
+                        subagent_calls: std::mem::take(&mut pending_subagent_calls),
+                    });
                     #[cfg(feature = "hooks")]
                     tool_interactions.push(tool_result.clone().into());
                 }
@@ -771,6 +831,37 @@ pub struct ToolInteraction {
     pub name: String,
     pub args: serde_json::Value,
     pub output: String,
+    /// The tool calls subagents made while this call was running, in arrival
+    /// order. Nesting them here is what carries the parent link across the
+    /// concurrency boundary: only this loop knows which main-agent call was
+    /// in flight when each event arrived, and `dispatch_print` turns the
+    /// nesting into `parent_call_id` once the enclosing call has an id.
+    /// Always empty for anything but a `task` call.
+    #[cfg(feature = "subagents")]
+    pub subagent_calls: Vec<SubagentCall>,
+}
+
+/// One tool call made by a subagent, as reported by
+/// [`AgentEvent::SubagentToolCall`]: name plus complete, untruncated argument
+/// JSON. Subagent tool *results* have no event to carry them (design.md
+/// Non-Goals), so there is nothing to pair this with.
+#[cfg(feature = "subagents")]
+#[derive(Debug, Clone)]
+pub struct SubagentCall {
+    pub name: String,
+    pub args: serde_json::Value,
+}
+
+/// Collects a `SubagentToolCall` event; any other event on that channel is
+/// not something a subagent emits and is ignored.
+#[cfg(feature = "subagents")]
+fn push_subagent_call(collected: &mut Vec<SubagentCall>, event: AgentEvent) {
+    if let AgentEvent::SubagentToolCall { name, args } = event {
+        collected.push(SubagentCall {
+            name: name.to_string(),
+            args,
+        });
+    }
 }
 
 /// [`run_print`]'s return value: the assistant's final response text, token

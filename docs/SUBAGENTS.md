@@ -161,7 +161,7 @@ Key files:
 | `src/extras/subagents/task_tool.rs`          | `TaskTool` implementation             |
 | `src/extras/subagents/builder.rs`            | Subagent construction (`build_explore_agent`) |
 | `src/extras/subagents/prompt.rs`             | Subagent system prompt                |
-| `src/agent/runner.rs` (`run_subagent`)       | Silent agent execution                |
+| `src/agent/runner.rs` (`run_subagent`)       | Silent agent execution; reports each subagent tool call as an event |
 | `src/agent/builder.rs`                       | Wires `TaskTool` into main agent      |
 | `src/provider.rs` (`AnyAgent::run_subagent`) | Type-erased dispatch                  |
 | `src/main.rs`                                | Initializes `SubagentConfig`          |

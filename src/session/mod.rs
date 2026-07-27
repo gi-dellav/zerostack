@@ -38,11 +38,11 @@ pub struct SessionMessage {
 /// by the existing threshold and overflow-file mechanism — see
 /// `Session::tool_result_content`).
 ///
-/// `#[serde(untagged)]`: the two variants are structurally disjoint (`Call`
-/// has `id`/`args`, `Result` has `call_id`/`truncated`), so untagged
-/// deserialization picks the right one unambiguously; this keeps the JSON
-/// shape flat (no extra `type` discriminant) matching the schema already
-/// reviewed upstream.
+/// `#[serde(untagged)]`: the variants are structurally disjoint (`Call` has
+/// `id`/`args`, `Result` has `call_id`/`truncated`, `SubagentCall` has
+/// `parent_call_id`/`args`), so untagged deserialization picks the right one
+/// unambiguously; this keeps the JSON shape flat (no extra `type`
+/// discriminant) matching the schema already reviewed upstream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ToolRecord {
@@ -56,6 +56,18 @@ pub enum ToolRecord {
         name: CompactString,
         truncated: bool,
         full_output_path: Option<CompactString>,
+    },
+    /// A tool call made by a subagent, attributed to the enclosing `task`
+    /// call via `parent_call_id` (the `Call` record's `id`). Deliberately has
+    /// no `id` of its own: subagent tool *results* have no event to record
+    /// (design.md Non-Goals), so nothing ever links back to one, and an `id`
+    /// field here would make this variant's JSON also satisfy `Call` — which,
+    /// being listed first, would win the untagged match. `parent_call_id` is
+    /// required for the same reason: it is what keeps the two disjoint.
+    SubagentCall {
+        parent_call_id: u64,
+        name: CompactString,
+        args: serde_json::Value,
     },
 }
 
@@ -429,11 +441,35 @@ impl Session {
         }
     }
 
+    /// Records a subagent's tool call with a structured
+    /// [`ToolRecord::SubagentCall`] (complete, untruncated args) alongside the
+    /// existing display summary in `content`. `parent_call_id` is the id of
+    /// the enclosing `task` call — the value [`add_tool_call`](Self::add_tool_call)
+    /// returned for it — which is what attributes the subagent's activity to
+    /// the call that spawned it; subagent events are concurrent with the main
+    /// agent's turn, so position alone cannot express that link.
+    ///
+    /// `None` means the caller had no enclosing call in flight, which the
+    /// event ordering makes unreachable in practice (a subagent only runs
+    /// inside a `task` call). It degrades to the pre-existing behavior of a
+    /// display summary with no structured record, rather than fabricating a
+    /// parent id that would silently point at an unrelated call.
     #[cfg(any(feature = "subagents", feature = "acp"))]
-    pub fn add_subagent_tool_call(&mut self, name: &str, args: &serde_json::Value) {
-        self.add_message(
+    pub fn add_subagent_tool_call(
+        &mut self,
+        parent_call_id: Option<u64>,
+        name: &str,
+        args: &serde_json::Value,
+    ) {
+        let content = crate::ui::utils::format_tool_call_summary(name, args);
+        self.add_message_with_tool(
             MessageRole::SubagentToolCall,
-            &crate::ui::utils::format_tool_call_summary(name, args),
+            &content,
+            parent_call_id.map(|parent_call_id| ToolRecord::SubagentCall {
+                parent_call_id,
+                name: CompactString::new(name),
+                args: args.clone(),
+            }),
         );
     }
 

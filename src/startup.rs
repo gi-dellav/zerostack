@@ -882,6 +882,15 @@ impl Startup {
                 session.add_message(MessageRole::User, &msg);
                 for interaction in &response_outcome.tool_interactions {
                     let call_id = session.add_tool_call(&interaction.name, &interaction.args);
+                    // Between the call and its result, where they happened.
+                    #[cfg(feature = "subagents")]
+                    for subagent_call in &interaction.subagent_calls {
+                        session.add_subagent_tool_call(
+                            Some(call_id),
+                            &subagent_call.name,
+                            &subagent_call.args,
+                        );
+                    }
                     session.add_tool_result(call_id, &interaction.name, &interaction.output);
                 }
                 session.add_message(MessageRole::Assistant, &response);

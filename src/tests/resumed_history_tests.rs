@@ -31,10 +31,10 @@ async fn resumed_session_history_reaches_model_initial_turn() {
     let model = text_chunks(["got it"]);
     let agent = AgentBuilder::new(model.clone()).build();
 
-    // Under `--features hooks`, `run_print` consults the process-global Stop
-    // dispatcher; serialize against the test that installs one. No-op otherwise.
-    #[cfg(feature = "hooks")]
-    let _dispatcher_guard = crate::tests::fake_model::dispatcher_guard::acquire();
+    // `run_print` reaches process-global wiring (the hooks Stop dispatcher,
+    // the subagent event sender); serialize against every other `run_print`
+    // test so none of them clobber each other's.
+    let _run_print_guard = crate::tests::fake_model::run_print_guard::acquire();
 
     // Mirrors `dispatch_print`'s own `convert_history(&self.session)` call:
     // this is the `-p --continue` code path being exercised end to end.
@@ -75,10 +75,10 @@ async fn resumed_session_tool_messages_replay_as_tagged_history_entries() {
     let model = text_chunks(["got it"]);
     let agent = AgentBuilder::new(model.clone()).build();
 
-    // Under `--features hooks`, `run_print` consults the process-global Stop
-    // dispatcher; serialize against the test that installs one. No-op otherwise.
-    #[cfg(feature = "hooks")]
-    let _dispatcher_guard = crate::tests::fake_model::dispatcher_guard::acquire();
+    // `run_print` reaches process-global wiring (the hooks Stop dispatcher,
+    // the subagent event sender); serialize against every other `run_print`
+    // test so none of them clobber each other's.
+    let _run_print_guard = crate::tests::fake_model::run_print_guard::acquire();
 
     let _outcome = run_print(
         &agent,
@@ -129,7 +129,7 @@ async fn resumed_session_history_survives_stop_hook_continuation() {
     // Installs a process-global Stop hook below; the guard serializes against
     // other `run_print` tests and clears the dispatcher when it drops, so the
     // hook can't leak into them.
-    let _dispatcher_guard = crate::tests::fake_model::dispatcher_guard::acquire();
+    let _run_print_guard = crate::tests::fake_model::run_print_guard::acquire();
 
     let session = resumed_session();
     let expected_history = convert_history(&session);

@@ -114,10 +114,10 @@ fn record_turn_into_session(
 
 #[tokio::test]
 async fn headless_tool_call_recorded_with_full_args_independent_of_pure_stdout() {
-    // Under `--features hooks`, `run_print` consults the process-global Stop
-    // dispatcher; serialize against the test that installs one. No-op otherwise.
-    #[cfg(feature = "hooks")]
-    let _dispatcher_guard = crate::tests::fake_model::dispatcher_guard::acquire();
+    // `run_print` reaches process-global wiring (the hooks Stop dispatcher,
+    // the subagent event sender); serialize against every other `run_print`
+    // test so none of them clobber each other's.
+    let _run_print_guard = crate::tests::fake_model::run_print_guard::acquire();
 
     let model = echo_call_model();
     let agent = AgentBuilder::new(model)
@@ -193,8 +193,7 @@ async fn headless_tool_call_recorded_with_full_args_independent_of_pure_stdout()
 
 #[tokio::test]
 async fn headless_mid_stream_error_after_tool_call_records_nothing() {
-    #[cfg(feature = "hooks")]
-    let _dispatcher_guard = crate::tests::fake_model::dispatcher_guard::acquire();
+    let _run_print_guard = crate::tests::fake_model::run_print_guard::acquire();
 
     let model = echo_then_error_model();
     let agent = AgentBuilder::new(model)

@@ -116,7 +116,15 @@ pub async fn handle_agent_event(
         }
         #[cfg(any(feature = "subagents", feature = "acp"))]
         AgentEvent::SubagentToolCall { name, args } => {
-            ui.session.add_subagent_tool_call(&name, &args);
+            // Peeked, not taken: the enclosing `task` call's `ToolResult` is
+            // still to come and owns the consuming `take()`. Subagent events
+            // are sent from the task the `task` tool spawned, but they reach
+            // this handler through the same mpsc channel as the main agent's
+            // own events, and the subagent finishes before the `task` tool
+            // returns — so they always arrive between that call's `ToolCall`
+            // and `ToolResult`, with its id still pending here.
+            ui.session
+                .add_subagent_tool_call(run.pending_tool_call_id, &name, &args);
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
             let line = format!(
                 "⌥ {}",

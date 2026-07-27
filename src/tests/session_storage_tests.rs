@@ -96,7 +96,11 @@ fn save_session_preserves_tool_messages() {
     s.add_message(MessageRole::User, "question");
     let call_id = s.add_tool_call("read", &serde_json::json!({ "path": "src/main.rs" }));
     s.add_tool_result(call_id, "read", "file contents");
-    s.add_subagent_tool_call("task", &serde_json::json!({ "prompts": ["find x"] }));
+    s.add_subagent_tool_call(
+        Some(call_id),
+        "task",
+        &serde_json::json!({ "prompts": ["find x"] }),
+    );
     s.add_message(MessageRole::Assistant, "answer");
     save_session(&s).unwrap();
 
@@ -263,6 +267,94 @@ fn tool_record_round_trips_through_json() {
         }
         other => panic!("expected ToolRecord::Result round-trip, got {other:?}"),
     }
+}
+
+#[cfg(any(feature = "subagents", feature = "acp"))]
+#[test]
+fn subagent_tool_call_links_to_the_enclosing_task_call() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude", 200000, "");
+    let call_id = s.add_tool_call("task", &serde_json::json!({ "prompts": ["find x"] }));
+    s.add_subagent_tool_call(
+        Some(call_id),
+        "grep",
+        &serde_json::json!({ "pattern": "fn x" }),
+    );
+    s.add_tool_result(call_id, "task", "found it");
+
+    assert_eq!(s.messages[1].role, MessageRole::SubagentToolCall);
+    match s.messages[1].tool.clone().expect("subagent call record") {
+        ToolRecord::SubagentCall {
+            parent_call_id,
+            name,
+            args,
+        } => {
+            assert_eq!(parent_call_id, call_id);
+            assert_eq!(name, "grep");
+            assert_eq!(args, serde_json::json!({ "pattern": "fn x" }));
+        }
+        other => panic!("expected ToolRecord::SubagentCall, got {other:?}"),
+    }
+    drop(env);
+}
+
+/// The linkage is never faked: with no enclosing call id to point at, the
+/// message keeps its display summary and simply carries no structured
+/// record, rather than claiming a parent it does not have.
+#[cfg(any(feature = "subagents", feature = "acp"))]
+#[test]
+fn subagent_tool_call_without_a_parent_records_no_structured_record() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude", 200000, "");
+    s.add_subagent_tool_call(None, "grep", &serde_json::json!({ "pattern": "fn x" }));
+
+    assert_eq!(s.messages[0].role, MessageRole::SubagentToolCall);
+    assert!(s.messages[0].tool.is_none());
+    assert!(s.messages[0].content.contains("grep"));
+    drop(env);
+}
+
+/// `ToolRecord` is `#[serde(untagged)]`, so a subagent record must stay
+/// structurally distinguishable from a plain `Call`: it carries
+/// `parent_call_id` and deliberately no `id`, otherwise serde would resolve
+/// its JSON to the `Call` variant listed first.
+#[cfg(any(feature = "subagents", feature = "acp"))]
+#[test]
+fn subagent_tool_record_round_trips_without_colliding_with_call() {
+    let subagent = ToolRecord::SubagentCall {
+        parent_call_id: 3,
+        name: "grep".into(),
+        args: serde_json::json!({ "pattern": "fn x" }),
+    };
+    let json = serde_json::to_value(&subagent).unwrap();
+    assert_eq!(json["parent_call_id"], 3);
+    assert!(json.get("id").is_none());
+    assert!(json.get("call_id").is_none());
+    match serde_json::from_value::<ToolRecord>(json).unwrap() {
+        ToolRecord::SubagentCall {
+            parent_call_id,
+            name,
+            args,
+        } => {
+            assert_eq!(parent_call_id, 3);
+            assert_eq!(name, "grep");
+            assert_eq!(args, serde_json::json!({ "pattern": "fn x" }));
+        }
+        other => panic!("expected ToolRecord::SubagentCall round-trip, got {other:?}"),
+    }
+
+    // The reverse direction: a main-agent call must not be swallowed by the
+    // subagent variant either.
+    let call_json = serde_json::to_value(ToolRecord::Call {
+        id: 3,
+        name: "task".into(),
+        args: serde_json::json!({ "prompts": ["find x"] }),
+    })
+    .unwrap();
+    assert!(matches!(
+        serde_json::from_value::<ToolRecord>(call_json).unwrap(),
+        ToolRecord::Call { .. }
+    ));
 }
 
 #[test]
