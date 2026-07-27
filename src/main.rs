@@ -107,8 +107,10 @@ async fn run() -> anyhow::Result<()> {
         }
     }
 
+    let phase_start = std::time::Instant::now();
     let mut startup =
         startup::Startup::init(cli, cfg, is_first_startup, version_changed, is_interactive).await?;
+    tracing::debug!("startup: init took {:?}", phase_start.elapsed());
 
     // ACP mode: serve and exit before feature init
     #[cfg(feature = "acp")]
@@ -116,7 +118,11 @@ async fn run() -> anyhow::Result<()> {
         return extras::acp::serve(startup.cli, startup.cfg, startup.context).await;
     }
 
+    let phase_start = std::time::Instant::now();
     startup.init_features().await?;
+    tracing::debug!("startup: init_features took {:?}", phase_start.elapsed());
+    let phase_start = std::time::Instant::now();
     startup.resolve_prompts().await?;
+    tracing::debug!("startup: resolve_prompts took {:?}", phase_start.elapsed());
     startup.dispatch().await
 }

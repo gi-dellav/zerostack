@@ -598,7 +598,13 @@ impl Startup {
             } else {
                 "startup"
             };
+            let hooks_start = std::time::Instant::now();
             crate::extras::hooks::dispatch_session_start(source).await;
+            tracing::debug!(
+                "startup: SessionStart hooks ({}) took {:?}",
+                source,
+                hooks_start.elapsed()
+            );
         }
 
         // ARCHITECTURE.md prompt
