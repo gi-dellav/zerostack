@@ -69,6 +69,16 @@ the `custom_providers` key in the config file:
 | `timeout_secs`                | integer | Optional. Overrides the default HTTP timeout.                                                                                                                                 |
 | `model`                       | string  | Optional. Default model name for this provider. Used when no model is specified via `--model` or `ZS_MODEL`.                                                                  |
 
+### Live context window and pricing
+
+For custom providers, zerostack reads the context window and token pricing
+live from `GET {base_url}/models` when the endpoint reports OpenRouter-style
+`context_length` / `pricing` fields (pricing may be strings, as on OpenRouter,
+or plain numbers). This drives the statusline context meter, auto-compaction,
+and cost tracking. Providers whose listing omits these fields fall back to
+`128000`; set `context_window` in the config (or per quick model) to override —
+config values always win over live discovery.
+
 ### Header variable expansion
 
 Header values can reference environment variables with `${VAR}` syntax:
