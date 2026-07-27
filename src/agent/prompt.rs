@@ -50,6 +50,19 @@ to run a manual typecheck just to confirm. Use the lsp_diagnostics tool to \
 query a file before editing it, or to list diagnostics across the project. \
 Files with no server configured simply return no diagnostics.";
 
+/// Appended to the preamble when the rtk output-filtering proxy is active
+/// (`[rtk] enabled = true` and the binary detected). Tells the model why bash
+/// output looks compact and where the full output goes on failure.
+#[cfg(feature = "rtk")]
+pub const RTK_PROMPT: &str = "\n\n## rtk output filtering\n\
+Bash commands are automatically rewritten through rtk, an output-filtering proxy: \
+supported commands (git, cargo, test runners, ls, grep, ...) return compact output \
+— e.g. tests report failures only, git operations a one-line confirmation. \
+Trust the compact output; do not re-run a command just because it looks short. \
+On failure rtk may print the path to a tee log with the full raw output — read \
+that file when you need the details. Never prefix commands with `rtk` yourself; \
+rewriting is automatic.";
+
 pub const COMPACTION_PROMPT: &str = "\
 You are a conversation summarizer for a coding session. Distill the following conversation into a concise summary.
 

@@ -1146,6 +1146,44 @@ Behavior notes:
 - Post-edit diagnostics are capped (errors first, ~20 lines); nothing is
   appended when the file is clean.
 
+## rtk output filtering
+
+zerostack can route bash commands through [rtk](https://github.com/rtk-ai/rtk),
+an external CLI proxy that filters and compresses command output before it
+reaches the model context (e.g. tests report failures only, `git status`
+returns a compact summary). rtk claims up to 90% reduction of bash output
+tokens.
+
+This integration is behind the non-default `rtk` Cargo feature — build with
+`--features rtk` to enable it.
+
+When enabled, every `bash` tool command is passed through `rtk rewrite` before
+execution. rtk decides which commands have a compact equivalent — unsupported
+commands run unchanged. Permission checks always run against the original
+command, so existing permission patterns keep working. The integration is
+fail-open: if the binary is missing, times out, or errors, the original
+command runs unfiltered.
+
+### TOML
+
+```toml
+[rtk]
+enabled = true
+# path = "rtk"    # rtk binary; default resolves `rtk` via PATH
+```
+
+### YAML
+
+```yaml
+rtk:
+  enabled: true
+  path: rtk
+```
+
+When active, a short note is appended to the system prompt telling the model
+that bash output is compacted and that rtk writes full raw output to a tee log
+on failure.
+
 ## Logging
 
 zerostack uses the `tracing` framework for structured logging. By default, only

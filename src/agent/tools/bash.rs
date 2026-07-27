@@ -2,6 +2,8 @@ use rig::tool::Tool;
 use tokio::time::{Duration, timeout};
 
 use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm};
+#[cfg(feature = "rtk")]
+use crate::extras::rtk::Rtk;
 use crate::extras::truncate::head_lines;
 use crate::sandbox::Sandbox;
 
@@ -83,6 +85,10 @@ pub struct BashTool {
     /// `None` = no truncation (matches the historical behaviour). `Some(n)`
     /// = head-only truncation after `n` lines with a recovery hint.
     pub max_output_lines: Option<u64>,
+    /// When `Some`, commands are rewritten through `rtk rewrite` before
+    /// execution so supported commands return compact output.
+    #[cfg(feature = "rtk")]
+    pub rtk: Option<Rtk>,
 }
 
 impl BashTool {
@@ -91,12 +97,15 @@ impl BashTool {
         ask_tx: Option<AskSender>,
         sandbox: Sandbox,
         max_output_lines: Option<u64>,
+        #[cfg(feature = "rtk")] rtk: Option<Rtk>,
     ) -> Self {
         BashTool {
             permission,
             ask_tx,
             sandbox,
             max_output_lines,
+            #[cfg(feature = "rtk")]
+            rtk,
         }
     }
 }
@@ -139,10 +148,27 @@ impl Tool for BashTool {
             }
         }
 
+        // Permissions were checked against the original command; rtk only
+        // wraps it in `rtk ...` calls, so the rewritten form needs no
+        // re-check. Fail-open: any rewrite problem runs the original.
+        #[cfg(feature = "rtk")]
+        let command = match &self.rtk {
+            Some(rtk) => match rtk.rewrite(&args.command).await {
+                Some(rewritten) if rewritten != args.command => {
+                    tracing::debug!("rtk rewrite: {:?} -> {:?}", args.command, rewritten);
+                    rewritten
+                }
+                _ => args.command.clone(),
+            },
+            None => args.command.clone(),
+        };
+        #[cfg(not(feature = "rtk"))]
+        let command = args.command.clone();
+
         let output = if let Some(secs) = args.timeout {
             match timeout(
                 Duration::from_millis(secs),
-                self.sandbox.output_command(&args.command),
+                self.sandbox.output_command(&command),
             )
             .await
             {
@@ -154,7 +180,7 @@ impl Tool for BashTool {
                 }
             }
         } else {
-            self.sandbox.output_command(&args.command).await
+            self.sandbox.output_command(&command).await
         }?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
