@@ -1,8 +1,10 @@
 use std::collections::HashMap;
+use std::process::Stdio;
 
 use compact_str::CompactString;
 use rmcp::service::{RoleClient, RunningService, serve_client};
 use rmcp::transport::child_process::TokioChildProcess;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use super::config::McpServerConfig;
@@ -30,7 +32,23 @@ impl McpClientHandle {
                 for (k, v) in env {
                     cmd.env(k, v);
                 }
-                let transport = TokioChildProcess::new(cmd)?;
+                // rmcp's child-process builder defaults stderr to `inherit`,
+                // so a chatty server's logs write straight over the
+                // alt-screen TUI. Pipe it and drain into tracing (log file)
+                // instead — draining also keeps a verbose server from
+                // deadlocking on a full pipe buffer.
+                let (transport, stderr) = TokioChildProcess::builder(cmd)
+                    .stderr(Stdio::piped())
+                    .spawn()?;
+                if let Some(stderr) = stderr {
+                    let name = server_name.clone();
+                    tokio::spawn(async move {
+                        let mut lines = BufReader::new(stderr).lines();
+                        while let Ok(Some(line)) = lines.next_line().await {
+                            tracing::debug!("[mcp {name}] {line}");
+                        }
+                    });
+                }
                 let running_service = serve_client((), transport).await.map_err(|e| {
                     anyhow::anyhow!("MCP connection failed for '{server_name}': {e}")
                 })?;
