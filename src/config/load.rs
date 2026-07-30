@@ -515,6 +515,9 @@ pub fn inject_mcp_defaults(cfg: &mut Config) {
                 url: "https://mcp.exa.ai/mcp".to_string(),
                 headers,
                 oauth: None,
+                connect_timeout_secs: None,
+                tool_timeout_secs: None,
+                connect_retries: None,
             });
     } else {
         servers.remove("Exa Web Search");
@@ -531,6 +534,9 @@ pub fn inject_mcp_defaults(cfg: &mut Config) {
                 url: "https://mcp.context7.com/mcp".to_string(),
                 headers,
                 oauth: None,
+                connect_timeout_secs: None,
+                tool_timeout_secs: None,
+                connect_retries: None,
             });
     } else {
         servers.remove("Context7");
@@ -547,6 +553,9 @@ pub fn inject_mcp_defaults(cfg: &mut Config) {
                 url: "https://mcp.grep.app".to_string(),
                 headers,
                 oauth: None,
+                connect_timeout_secs: None,
+                tool_timeout_secs: None,
+                connect_retries: None,
             });
     } else {
         servers.remove("Grep.app");

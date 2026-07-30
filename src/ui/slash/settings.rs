@@ -349,8 +349,8 @@ async fn handle_mcp(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
     // `/mcp <server>` — list tools for one server.
     if parts.len() > 1 {
         let name = parts[1].trim();
-        if let Some(handle) = mgr.handles.iter().find(|h| h.server_name == name) {
-            match handle.list_tools().await {
+        if let Some(handle) = mgr.get_handle(name).await {
+            match handle.read().await.list_tools().await {
                 Ok(tools) => {
                     if tools.is_empty() {
                         write_ok(ctx.renderer, format!("server '{}' has no tools", name));
@@ -391,12 +391,8 @@ async fn handle_mcp(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
     let mut names: Vec<&String> = servers.keys().collect();
     names.sort();
     for name in names {
-        if let Some(handle) = mgr
-            .handles
-            .iter()
-            .find(|h| h.server_name.as_str() == name.as_str())
-        {
-            let label = match handle.list_tools().await {
+        if let Some(handle) = mgr.get_handle(name).await {
+            let label = match handle.read().await.list_tools().await {
                 Ok(tools) => format!("  + {name} ({} tools)", tools.len()),
                 Err(_) => format!("  + {name} (connected)"),
             };
