@@ -745,6 +745,34 @@ override — global ones by name.
 }
 ```
 
+### Timeouts, retries, and auto-reconnect
+
+Both server kinds accept optional resilience fields:
+
+| Field                  | Default | Description                                                                 |
+| ---------------------- | ------- | --------------------------------------------------------------------------- |
+| `connect_timeout_secs` | `10`    | Timeout for establishing the connection and MCP handshake.                  |
+| `tool_timeout_secs`    | `20`    | Timeout for individual tool calls (and tool listing).                       |
+| `connect_retries`      | `1`     | How many times a failed connection attempt is retried (2 attempts total).   |
+
+```json
+{
+  "mcp_servers": {
+    "slow-server": {
+      "url": "https://example.com/mcp",
+      "connect_timeout_secs": 30,
+      "tool_timeout_secs": 60,
+      "connect_retries": 2
+    }
+  }
+}
+```
+
+All servers connect concurrently at startup, so one slow server does not delay
+the others. If a server's transport drops mid-session (child process exits,
+HTTP session is lost), the next tool call to that server automatically
+reconnects once and retries the call before reporting an error.
+
 ### OAuth for URL servers
 
 URL-based servers can authenticate with OAuth 2.0 (authorization code + PKCE).
