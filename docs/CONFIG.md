@@ -652,6 +652,12 @@ Controls the terminal color escape sequences emitted. Two values:
 - `chat_background` — background color for the main conversation buffer.
 - `input_background` — background color for the text input area.
 - `status_background` — background color for the status bar (lowest line).
+- `roles` — map of semantic role → color, overriding the default palette for
+  conversation blocks. Known roles: `user`, `agent`, `reasoning`, `tool`,
+  `tool_result`, `error`, `system`, `welcome`, `permission`, `plain`. Unknown
+  roles and unparsable colors are ignored with a warning. Roles work in theme
+  files too (same `colors` object); a theme without a `roles` map restores
+  the default palette.
 
 Supported named colors: `reset`, `black`, `red`, `green`, `yellow`, `blue`,
 `magenta`, `cyan`, `white`, `grey`, `dark_grey`, `dark_red`, `dark_green`,
@@ -664,7 +670,13 @@ Example:
     "scheme_type": "full",
     "chat_background": "#1e1e2e",
     "input_background": "#181825",
-    "status_background": "#11111b"
+    "status_background": "#11111b",
+    "roles": {
+      "agent": "#cdd6f4",
+      "error": "#f38ba8",
+      "tool": "#f9e2af",
+      "permission": "#cba6f7"
+    }
   }
 }
 ```

@@ -114,6 +114,11 @@ impl<'a> App<'a> {
             } else {
                 renderer.set_background_colors(chat_bg, input_bg, status_bg);
             }
+            // Semantic role colors from `[colors.roles]`, same as themes.
+            match &colors.roles {
+                Some(roles) => crate::ui::roles::apply(roles),
+                None => crate::ui::roles::reset(),
+            }
         }
 
         let mut input = InputEditor::new();

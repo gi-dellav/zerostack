@@ -7,6 +7,7 @@ pub(crate) mod markdown;
 mod permission_handler;
 pub(crate) mod pickers;
 pub(crate) mod renderer;
+pub(crate) mod roles;
 pub(crate) mod slash;
 pub(crate) mod state;
 pub(crate) mod statusline;
