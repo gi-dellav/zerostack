@@ -14,7 +14,7 @@ use crate::event::{AgentEvent, BtwEvent, UserEvent};
 #[cfg(feature = "mcp")]
 use crate::extras::mcp::McpClientManager;
 use crate::provider::AnyAgent;
-use crate::session::MessageRole;
+use crate::session::{MessageRole, PromptRef};
 use crate::ui::event_handler;
 use crate::ui::events::{render_session, sanitize_output};
 use crate::ui::input::InputEditor;
@@ -915,6 +915,15 @@ impl<'a> App<'a> {
             } else {
                 None
             };
+            self.ui.session.prompt =
+                self.ui
+                    .context
+                    .current_prompt_name
+                    .as_deref()
+                    .map(|name| PromptRef {
+                        name: name.into(),
+                        source: crate::context::prompts::source_of(name),
+                    });
             if let Some(perm) = &self.ui.permission {
                 let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
                 guard.restore_user_mode();
@@ -984,6 +993,15 @@ impl<'a> App<'a> {
             } else {
                 None
             };
+            self.ui.session.prompt =
+                self.ui
+                    .context
+                    .current_prompt_name
+                    .as_deref()
+                    .map(|name| PromptRef {
+                        name: name.into(),
+                        source: crate::context::prompts::source_of(name),
+                    });
             if let Some(perm) = &self.ui.permission {
                 let mut guard = perm.lock().unwrap_or_else(|e| e.into_inner());
                 guard.restore_user_mode();
@@ -1022,7 +1040,12 @@ impl<'a> App<'a> {
         extra: Option<&str>,
     ) -> anyhow::Result<()> {
         let next_name = phase.next_prompt_name();
-        apply_prompt_mode(next_name, self.ui.context, &self.ui.permission);
+        apply_prompt_mode(
+            next_name,
+            self.ui.context,
+            self.ui.session,
+            &self.ui.permission,
+        );
         apply_prompt_model(
             next_name,
             &mut self.ui,
@@ -1076,7 +1099,12 @@ impl<'a> App<'a> {
             let msg = msg.trim();
             if !prompt_name.is_empty() && self.ui.context.prompts.contains_key(prompt_name) {
                 self.chain.dot_prompt_restore = self.ui.context.current_prompt_name.clone();
-                apply_prompt_mode(prompt_name, self.ui.context, &self.ui.permission);
+                apply_prompt_mode(
+                    prompt_name,
+                    self.ui.context,
+                    self.ui.session,
+                    &self.ui.permission,
+                );
                 apply_prompt_model(
                     prompt_name,
                     &mut self.ui,
@@ -1097,7 +1125,12 @@ impl<'a> App<'a> {
 
         let prompt_name = after_dot.trim();
         if self.ui.context.prompts.contains_key(prompt_name) {
-            apply_prompt_mode(prompt_name, self.ui.context, &self.ui.permission);
+            apply_prompt_mode(
+                prompt_name,
+                self.ui.context,
+                self.ui.session,
+                &self.ui.permission,
+            );
             apply_prompt_model(
                 prompt_name,
                 &mut self.ui,

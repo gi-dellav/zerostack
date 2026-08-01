@@ -4,6 +4,7 @@ use crate::session::ToolRecord;
 use crate::session::storage::{
     delete_session, find_sessions_by_prefix, load_suffix, save_session, suffix_path,
 };
+use crate::session::{PromptRef, PromptSource};
 use crate::session::{TOOL_RESULT_HEAD_CHARS, TOOL_RESULT_SAVE_THRESHOLD, TOOL_RESULT_TAIL_CHARS};
 use std::env;
 use std::path::Path;
@@ -85,6 +86,49 @@ fn save_session_preserves_messages() {
     assert_eq!(found[0].messages.len(), 2);
     assert_eq!(found[0].messages[0].content, "question");
     assert_eq!(found[0].messages[1].content, "answer");
+    drop(env);
+}
+
+#[test]
+fn save_session_round_trips_prompt_provenance() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude", 200000, "");
+    s.prompt = Some(PromptRef {
+        name: "code".into(),
+        source: PromptSource::BuiltIn,
+    });
+    save_session(&s).unwrap();
+
+    let found = find_sessions_by_prefix(&s.id[..8]).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(
+        found[0].prompt,
+        Some(PromptRef {
+            name: "code".into(),
+            source: PromptSource::BuiltIn,
+        })
+    );
+    drop(env);
+}
+
+#[test]
+fn old_session_file_without_prompt_field_loads_as_none() {
+    let env = setup_test_env();
+    // Simulates a session file written before `prompt` existed: build one via
+    // `Session::new`, serialize it, then drop the `prompt` key entirely
+    // before writing it to disk, as an old binary would have.
+    let s = Session::new("anthropic", "claude", 200000, "");
+    let mut value = serde_json::to_value(&s).unwrap();
+    value.as_object_mut().unwrap().remove("prompt");
+    let json = serde_json::to_string(&value).unwrap();
+    let path = crate::session::storage::data_dir()
+        .join("sessions")
+        .join(format!("{}.json", s.id));
+    std::fs::write(&path, json).unwrap();
+
+    let found = find_sessions_by_prefix(&s.id[..8]).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].prompt, None);
     drop(env);
 }
 
