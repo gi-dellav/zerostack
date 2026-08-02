@@ -496,32 +496,46 @@ impl<'a> App<'a> {
                             self.renderer
                                 .write_line(&format!("cannot open link: {}", e), C_ERROR)?;
                         }
-                    } else {
+                    } else if let Some(point) = self.renderer.selection_point_at(row, col) {
                         self.renderer.selection_active = true;
-                        self.renderer.selection_start = Some(idx);
-                        self.renderer.selection_end = Some(idx);
+                        self.renderer.selection_dragging = true;
+                        self.renderer.selection_start = Some(point);
+                        self.renderer.selection_end = Some(point);
                     }
                 }
             }
-            UserEvent::MouseDrag { row, col: _ } => {
-                if self.renderer.selection_active
-                    && let Some(idx) = self.renderer.buffer_line_at_row(row)
+            UserEvent::MouseDrag { row, col } => {
+                if self.renderer.selection_dragging
+                    && let Some(point) = self.renderer.selection_point_at(row, col)
                 {
-                    self.renderer.selection_end = Some(idx);
+                    self.renderer.selection_end = Some(point);
                 }
             }
-            UserEvent::MouseUp { row, col: _ } => {
-                if self.renderer.selection_active {
-                    if let Some(idx) = self.renderer.buffer_line_at_row(row) {
-                        self.renderer.selection_end = Some(idx);
+            UserEvent::MouseUp { row, col } => {
+                // The drag ends but the selection stays highlighted (`y`
+                // copies again, Esc clears, the next click starts a new
+                // one). It is copied to the system clipboard right away:
+                // while mouse capture is on the terminal emulator has no
+                // native selection, so Cmd+C/Ctrl+Shift+C has nothing to
+                // grab — the app has to write the pasteboard itself.
+                if self.renderer.selection_dragging {
+                    if let Some(point) = self.renderer.selection_point_at(row, col) {
+                        self.renderer.selection_end = Some(point);
                     }
-                    if let Some(text) = self.renderer.selected_text()
-                        && let Err(e) = copy_to_clipboard(&text)
-                    {
-                        self.renderer
-                            .write_line(&format!("copy to clipboard failed: {}", e), C_ERROR)?;
+                    self.renderer.selection_dragging = false;
+                    if let Some(text) = self.renderer.selected_text() {
+                        match copy_to_clipboard(&text) {
+                            Ok(()) => {
+                                self.renderer.write_line("copied selection", Color::Green)?;
+                            }
+                            Err(e) => {
+                                self.renderer.write_line(
+                                    &format!("copy to clipboard failed: {}", e),
+                                    C_ERROR,
+                                )?;
+                            }
+                        }
                     }
-                    self.renderer.clear_selection();
                 }
             }
             UserEvent::Paste(data) => {
