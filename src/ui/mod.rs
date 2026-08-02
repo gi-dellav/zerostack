@@ -160,7 +160,13 @@ pub(crate) fn refresh_display(
     renderer.draw_bottom(&input.buffer, input.cursor, &statusline, run.is_running)?;
     if let Some(ref mut picker) = input.picker {
         let was_active = picker.active();
-        picker.draw()?;
+        // Pickers paint straight onto real stdout, bypassing the render
+        // backend; in headless test runs there is no usable terminal (and on
+        // CI stdout is a non-blocking pipe, so the burst of escape sequences
+        // fails with EAGAIN). Key handling is unaffected — only painting.
+        if !renderer.is_headless() {
+            picker.draw()?;
+        }
         if was_active {
             // The picker painted over the chat and bottom regions, which the
             // dirty-region tracking cannot see; force a full repaint next

@@ -426,6 +426,21 @@ impl Renderer {
         self.backend.captured().unwrap_or_default()
     }
 
+    /// Whether the renderer drives a headless test backend instead of a real
+    /// terminal. Used to skip code paths that bypass the backend abstraction
+    /// and write straight to stdout (e.g. the pickers), which break on CI
+    /// where stdout is a non-blocking pipe.
+    pub(crate) fn is_headless(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.backend.captured().is_some()
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
+
     /// Mark both regions dirty, forcing a full repaint on the next frame.
     /// Used when something painted over the screen outside the tracked paths
     /// (e.g. an active picker overlay).
