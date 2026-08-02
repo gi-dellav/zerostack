@@ -121,6 +121,9 @@ fn oauth_config_round_trips_through_serde() {
         url: "https://example.com/mcp".to_string(),
         headers: Default::default(),
         oauth: Some(OAuthConfig::Enabled(true)),
+        connect_timeout_secs: None,
+        tool_timeout_secs: None,
+        connect_retries: None,
     };
     let json = serde_json::to_string(&cfg).unwrap();
     let back: McpServerConfig = serde_json::from_str(&json).unwrap();

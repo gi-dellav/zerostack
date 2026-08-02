@@ -652,6 +652,12 @@ Controls the terminal color escape sequences emitted. Two values:
 - `chat_background` — background color for the main conversation buffer.
 - `input_background` — background color for the text input area.
 - `status_background` — background color for the status bar (lowest line).
+- `roles` — map of semantic role → color, overriding the default palette for
+  conversation blocks. Known roles: `user`, `agent`, `reasoning`, `tool`,
+  `tool_result`, `error`, `system`, `welcome`, `permission`, `plain`. Unknown
+  roles and unparsable colors are ignored with a warning. Roles work in theme
+  files too (same `colors` object); a theme without a `roles` map restores
+  the default palette.
 
 Supported named colors: `reset`, `black`, `red`, `green`, `yellow`, `blue`,
 `magenta`, `cyan`, `white`, `grey`, `dark_grey`, `dark_red`, `dark_green`,
@@ -664,7 +670,13 @@ Example:
     "scheme_type": "full",
     "chat_background": "#1e1e2e",
     "input_background": "#181825",
-    "status_background": "#11111b"
+    "status_background": "#11111b",
+    "roles": {
+      "agent": "#cdd6f4",
+      "error": "#f38ba8",
+      "tool": "#f9e2af",
+      "permission": "#cba6f7"
+    }
   }
 }
 ```
@@ -744,6 +756,34 @@ override — global ones by name.
   }
 }
 ```
+
+### Timeouts, retries, and auto-reconnect
+
+Both server kinds accept optional resilience fields:
+
+| Field                  | Default | Description                                                                 |
+| ---------------------- | ------- | --------------------------------------------------------------------------- |
+| `connect_timeout_secs` | `10`    | Timeout for establishing the connection and MCP handshake.                  |
+| `tool_timeout_secs`    | `20`    | Timeout for individual tool calls (and tool listing).                       |
+| `connect_retries`      | `1`     | How many times a failed connection attempt is retried (2 attempts total).   |
+
+```json
+{
+  "mcp_servers": {
+    "slow-server": {
+      "url": "https://example.com/mcp",
+      "connect_timeout_secs": 30,
+      "tool_timeout_secs": 60,
+      "connect_retries": 2
+    }
+  }
+}
+```
+
+All servers connect concurrently at startup, so one slow server does not delay
+the others. If a server's transport drops mid-session (child process exits,
+HTTP session is lost), the next tool call to that server automatically
+reconnects once and retries the call before reporting an error.
 
 ### OAuth for URL servers
 

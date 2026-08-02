@@ -32,6 +32,49 @@ pub fn load() -> HashMap<String, String> {
     prompts
 }
 
+/// Whether prompt `name`'s currently-loaded content is the compiled-in
+/// default or a user customization.
+///
+/// Compares content rather than testing file existence: `ensure_global()`
+/// seeds every embedded prompt into the global prompts dir on first run, so
+/// `code.md` being present on disk says nothing about whether the user
+/// touched it. A prompt counts as [`UserFile`](crate::session::PromptSource::UserFile)
+/// only when the text that actually shaped the session differs from the
+/// compiled-in one, or has no compiled-in counterpart at all.
+///
+/// Reads the highest-precedence on-disk copy, mirroring the last-writer-wins
+/// order in [`load()`]: `.zerostack/prompts/`, then the project's
+/// `data/prompts/`, then the global dir. A lower-precedence copy being edited
+/// is irrelevant when a higher-precedence one shadows it.
+pub fn source_of(name: &str) -> crate::session::PromptSource {
+    use crate::session::PromptSource;
+
+    let file_name = format!("{name}.md");
+    let effective = [zerostack_dir(), PathBuf::from("data/prompts"), global_dir()]
+        .into_iter()
+        .find_map(|dir| std::fs::read_to_string(dir.join(&file_name)).ok());
+
+    match effective {
+        // Nothing on disk, so `load()` served the embedded copy. A name with
+        // no embedded copy either cannot reach here: callers resolve against
+        // `load()`'s map first.
+        None => PromptSource::BuiltIn,
+        // On disk but byte-identical to the embedded default: a seeded copy,
+        // not a customization. Also covers a name with no embedded
+        // counterpart, which can only have come from a user file.
+        Some(content) => {
+            let embedded = EMBEDDED
+                .get_file(&file_name)
+                .and_then(|f| f.contents_utf8());
+            if embedded == Some(content.as_str()) {
+                PromptSource::BuiltIn
+            } else {
+                PromptSource::UserFile
+            }
+        }
+    }
+}
+
 pub fn ensure_global() -> anyhow::Result<()> {
     let dir = global_dir();
     if !dir.exists() {
@@ -178,5 +221,78 @@ mod tests {
         assert!(prompts.contains_key("code"));
         assert!(prompts.contains_key("ask"));
         assert!(prompts.contains_key("default"));
+    }
+
+    #[test]
+    fn test_source_of_built_in_prompt() {
+        let _td = TestDir::new();
+        let prompts = load();
+        assert!(prompts.contains_key("code"));
+        assert_eq!(source_of("code"), crate::session::PromptSource::BuiltIn);
+    }
+
+    #[test]
+    fn test_source_of_user_file_shadowing_a_built_in_name() {
+        let _td = TestDir::new();
+        let zs_dir = zerostack_dir();
+        write_prompt(&zs_dir, "code", "from .zerostack/");
+
+        let prompts = load();
+        assert_eq!(prompts["code"], "from .zerostack/");
+        assert_eq!(source_of("code"), crate::session::PromptSource::UserFile);
+    }
+
+    #[test]
+    fn test_source_of_user_only_prompt() {
+        let _td = TestDir::new();
+        let dir = zerostack_dir();
+        write_prompt(&dir, "myproject", "# My Project Prompt");
+
+        let prompts = load();
+        assert!(prompts.contains_key("myproject"));
+        assert_eq!(
+            source_of("myproject"),
+            crate::session::PromptSource::UserFile
+        );
+    }
+
+    /// The case a file-existence check gets wrong: every real run calls
+    /// `ensure_global()`, which writes all embedded prompts to the global
+    /// dir, so `code.md` exists on disk without the user having touched it.
+    #[test]
+    fn test_source_of_built_in_survives_ensure_global() {
+        let _td = TestDir::new();
+        ensure_global().unwrap();
+        assert!(
+            global_dir().join("code.md").exists(),
+            "ensure_global should have seeded the global prompts dir"
+        );
+
+        assert_eq!(source_of("code"), crate::session::PromptSource::BuiltIn);
+    }
+
+    #[test]
+    fn test_source_of_edited_global_copy() {
+        let _td = TestDir::new();
+        ensure_global().unwrap();
+        write_prompt(&global_dir(), "code", "edited in place");
+
+        let prompts = load();
+        assert_eq!(prompts["code"], "edited in place");
+        assert_eq!(source_of("code"), crate::session::PromptSource::UserFile);
+    }
+
+    /// Only the copy that actually shaped the session counts: an edited
+    /// global copy is shadowed by a `.zerostack/` one holding the stock text.
+    #[test]
+    fn test_source_of_reads_highest_precedence_copy() {
+        let _td = TestDir::new();
+        let built_in = load()["code"].clone();
+        write_prompt(&global_dir(), "code", "edited in place");
+        write_prompt(&zerostack_dir(), "code", &built_in);
+
+        let prompts = load();
+        assert_eq!(prompts["code"], built_in);
+        assert_eq!(source_of("code"), crate::session::PromptSource::BuiltIn);
     }
 }

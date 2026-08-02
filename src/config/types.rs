@@ -144,6 +144,11 @@ pub struct ColorsConfig {
     pub chat_background: Option<CompactString>,
     pub input_background: Option<CompactString>,
     pub status_background: Option<CompactString>,
+    /// Semantic role → color overrides, e.g. `{ "agent": "white",
+    /// "error": "#ff5555", "tool": "yellow", "permission": "magenta" }`.
+    /// Known roles: user, agent, reasoning, tool, tool_result, error,
+    /// system, welcome, permission, plain.
+    pub roles: Option<HashMap<String, String>>,
     #[serde(default)]
     pub scheme_type: SchemeType,
 }

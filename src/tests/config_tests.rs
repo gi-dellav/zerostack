@@ -551,6 +551,9 @@ fn local_override_merges_mcp_servers() {
             url: "https://global.example.com/mcp".to_string(),
             headers: HashMap::new(),
             oauth: None,
+            connect_timeout_secs: None,
+            tool_timeout_secs: None,
+            connect_retries: None,
         },
     );
     let base = Config {

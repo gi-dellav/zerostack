@@ -7,6 +7,7 @@ pub(crate) mod markdown;
 mod permission_handler;
 pub(crate) mod pickers;
 pub(crate) mod renderer;
+pub(crate) mod roles;
 pub(crate) mod slash;
 pub(crate) mod state;
 pub(crate) mod statusline;
@@ -33,7 +34,7 @@ use crate::permission::ask::AskReceiver;
 use crate::permission::checker::PermCheck;
 use crate::permission::{self, SecurityMode};
 use crate::provider::AnyAgent;
-use crate::session::{MessageRole, Session};
+use crate::session::{MessageRole, PromptRef, Session};
 use crate::ui::event_handler::ensure_agent;
 #[cfg(feature = "advisor")]
 use crate::ui::events::sanitize_output;
@@ -62,6 +63,7 @@ pub(crate) enum PromptModeOutcome {
 pub(crate) fn apply_prompt_mode(
     name: &str,
     context: &mut ContextFiles,
+    session: &mut Session,
     permission: &Option<PermCheck>,
 ) -> PromptModeOutcome {
     let Some(content) = context.prompts.get(name) else {
@@ -74,6 +76,10 @@ pub(crate) fn apply_prompt_mode(
         content.clone()
     });
     context.current_prompt_name = Some(name.to_string());
+    session.prompt = Some(PromptRef {
+        name: name.into(),
+        source: crate::context::prompts::source_of(name),
+    });
     apply_mode_directive(mode_directive, permission)
 }
 

@@ -1,15 +1,22 @@
 use std::borrow::Cow;
 use std::fmt;
+use std::sync::Arc;
+use std::time::Duration;
 
 use compact_str::CompactString;
 use rig::tool::{ToolDyn, ToolError};
 use rig::wasm_compat::WasmBoxedFuture;
-use rmcp::model::{CallToolRequestParams, ContentBlock, JsonObject};
-use rmcp::service::{Peer, RoleClient};
+use rmcp::model::{
+    CallToolRequest, CallToolRequestParams, ClientRequest, ContentBlock, JsonObject, ServerResult,
+};
+use rmcp::service::{Peer, PeerRequestOptions, RoleClient, ServiceError};
+use tokio::sync::RwLock;
 
 use crate::agent::tools::check_perm;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
+
+use super::client::McpClientHandle;
 
 #[derive(Debug)]
 pub struct McpToolError(pub CompactString);
@@ -25,9 +32,41 @@ impl std::error::Error for McpToolError {}
 pub struct McpTool {
     pub server_name: CompactString,
     pub definition: rmcp::model::Tool,
-    pub peer: Peer<RoleClient>,
+    pub handle: Arc<RwLock<McpClientHandle>>,
     pub permission: Option<PermCheck>,
     pub ask_tx: Option<AskSender>,
+}
+
+fn tool_err(msg: impl Into<String>) -> ToolError {
+    ToolError::ToolCallError(Box::new(McpToolError(CompactString::new(msg.into()))))
+}
+
+/// Map an rmcp service error to a user-facing message, spelling out timeouts.
+fn call_error_message(server_name: &str, tool_name: &str, e: &ServiceError) -> String {
+    match e {
+        ServiceError::Timeout { timeout } => format!(
+            "MCP tool '{tool_name}' on server '{server_name}' timed out after {}s",
+            timeout.as_secs()
+        ),
+        _ => format!("MCP tool error: {e}"),
+    }
+}
+
+async fn call_tool_with_timeout(
+    peer: &Peer<RoleClient>,
+    params: CallToolRequestParams,
+    timeout: Duration,
+) -> Result<rmcp::model::CallToolResult, ServiceError> {
+    let request = ClientRequest::CallToolRequest(CallToolRequest::new(params));
+    let result = peer
+        .send_cancellable_request(request, PeerRequestOptions::with_timeout(timeout))
+        .await?
+        .await_response()
+        .await?;
+    match result {
+        ServerResult::CallToolResult(result) => Ok(result),
+        _ => Err(ServiceError::UnexpectedResponse),
+    }
 }
 
 impl ToolDyn for McpTool {
@@ -50,7 +89,7 @@ impl ToolDyn for McpTool {
     fn call(&self, args: String) -> WasmBoxedFuture<'_, Result<String, ToolError>> {
         let server_name = self.server_name.clone();
         let tool_name = self.definition.name.to_string();
-        let peer = self.peer.clone();
+        let handle = self.handle.clone();
         let permission = self.permission.clone();
         let ask_tx = self.ask_tx.clone();
 
@@ -58,22 +97,42 @@ impl ToolDyn for McpTool {
             let perm_key = format!("mcp_tool:{server_name}:{tool_name}");
             let coaching = check_perm(&permission, &ask_tx, "mcp_tool", &perm_key)
                 .await
-                .map_err(|e| {
-                    ToolError::ToolCallError(Box::new(McpToolError(CompactString::new(
-                        e.to_string(),
-                    ))))
-                })?;
+                .map_err(|e| tool_err(e.to_string()))?;
 
             let arguments: Option<JsonObject> = serde_json::from_str(&args).unwrap_or_default();
             let params = arguments
                 .map(|a| CallToolRequestParams::new(tool_name.clone()).with_arguments(a))
                 .unwrap_or_else(|| CallToolRequestParams::new(tool_name.clone()));
 
-            let result = peer.call_tool(params).await.map_err(|e| {
-                ToolError::ToolCallError(Box::new(McpToolError(CompactString::new(format!(
-                    "MCP tool error: {e}"
-                )))))
-            })?;
+            let (peer, timeout) = {
+                let h = handle.read().await;
+                (h.peer(), h.tool_timeout)
+            };
+            let mut result = call_tool_with_timeout(&peer, params.clone(), timeout).await;
+
+            // The transport died (child process exited, HTTP session dropped):
+            // reconnect the server once and retry the call on the fresh peer.
+            if matches!(result, Err(ServiceError::TransportClosed)) {
+                tracing::info!(
+                    "MCP server '{}' transport closed, attempting reconnect",
+                    server_name
+                );
+                let mut h = handle.write().await;
+                match McpClientHandle::connect(server_name.clone(), &h.config).await {
+                    Ok(new_handle) => {
+                        *h = new_handle;
+                        result = call_tool_with_timeout(&h.peer(), params, h.tool_timeout).await;
+                    }
+                    Err(e) => {
+                        return Err(tool_err(format!(
+                            "MCP server '{server_name}' transport closed and reconnect failed: {e}"
+                        )));
+                    }
+                }
+            }
+
+            let result =
+                result.map_err(|e| tool_err(call_error_message(&server_name, &tool_name, &e)))?;
 
             if result.is_error.unwrap_or(false) {
                 let error_msg = result
@@ -90,9 +149,7 @@ impl ToolDyn for McpTool {
                 } else {
                     error_msg
                 };
-                return Err(ToolError::ToolCallError(Box::new(McpToolError(
-                    CompactString::new(msg),
-                ))));
+                return Err(tool_err(msg));
             }
 
             let mut content = String::new();
