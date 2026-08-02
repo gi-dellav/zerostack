@@ -34,10 +34,15 @@ Single crate, no workspace. All source under `src/`.
 - **`Session`** (`src/session/mod.rs:61`) — serializable state: messages, compactions, costs, permission allowlist, model/provider info.
 - **`PermissionChecker`** (`src/permission/checker.rs:29`) — dual-layer (glob + regex) rules, doom-loop detection, `SecurityMode` dispatch.
 - **`TerminalGuard`** (`src/ui/terminal.rs:10`) — RAII for raw mode, alt screen, mouse capture.
-- **`Renderer`** (`src/ui/renderer.rs:52`) — line-buffered viewport, markdown rendering, scroll/selection.
+- **`Renderer`** (`src/ui/renderer.rs:52`) — line-buffered viewport, markdown rendering, scroll/selection. All terminal I/O (ANSI writes, size reads) goes through the `RenderBackend` trait: `CrosstermBackend` in production, `FakeBackend` (fixed geometry, captures frames) in tests.
 - **`InputEditor`** (`src/ui/input/mod.rs:21`) — text buffer, cursor, history, kill-ring, picker integration.
 - **`ContextFiles`** (`src/context/mod.rs:57`) — loaded agents, prompts, themes, architecture docs.
 - **`HookDispatcher`** (`src/extras/hooks/dispatcher.rs:60`, feature `hooks`) — merges `PreToolUse` verdicts (`Allow`/`Defer`/`Ask`/`Deny`, most severe wins) and applies `PostToolUse`/lifecycle `Decision`s (`Continue`/`Block`/`Rewrite`). Wraps every tool via `wrap_from_global()` (`src/agent/builder.rs:276`), outside each tool's own `PermissionChecker` check.
+
+## Testing
+
+- Unit tests live in `src/tests/` (binary crate, so integration tests are in-crate too).
+- **Headless main-loop integration tests** (`src/tests/tui_loop_tests.rs`) drive the real TUI loop without a terminal or network: `App::new_headless()` skips `TerminalGuard` and the crossterm event thread, renders into a `FakeBackend`, and receives scripted `UserEvent`s via `App::inject`; the loop is pumped one iteration at a time with `App::step`. Agent runs use `AnyAgent::Mock` (rig's `MockCompletionModel`, see `src/tests/fake_model.rs`).
 
 ## Control Flow
 

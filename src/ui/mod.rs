@@ -1,4 +1,4 @@
-mod app;
+pub(crate) mod app;
 mod event_handler;
 pub(crate) mod events;
 pub(crate) mod feed;
