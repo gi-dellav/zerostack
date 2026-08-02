@@ -71,18 +71,66 @@ pub(crate) struct App<'a> {
     running: Arc<AtomicBool>,
     event_handle: Option<std::thread::JoinHandle<()>>,
     prebuild_rx: Option<mpsc::Receiver<PrebuildPayload>>,
-    _terminal_guard: TerminalGuard,
+    _terminal_guard: Option<TerminalGuard>,
 }
 
 impl<'a> App<'a> {
     pub(crate) async fn new(
-        mut ui: UiContext<'a>,
+        ui: UiContext<'a>,
         agent: Option<AnyAgent>,
         ask_rx: Option<mpsc::Receiver<crate::permission::ask::AskRequest>>,
         auto_trigger_msg: Option<String>,
         #[cfg(feature = "advisor")] handoff_rx: Option<crate::extras::advisor::HandoffReceiver>,
     ) -> anyhow::Result<Self> {
-        let _terminal_guard = TerminalGuard::new()?;
+        Self::create(
+            ui,
+            agent,
+            ask_rx,
+            auto_trigger_msg,
+            #[cfg(feature = "advisor")]
+            handoff_rx,
+            None,
+        )
+        .await
+    }
+
+    /// Headless constructor for integration tests: no terminal guard, no
+    /// crossterm event thread, and a fake render backend that captures output.
+    /// Events are fed through [`App::inject`] and the loop is pumped with
+    /// [`App::step`].
+    #[cfg(test)]
+    pub(crate) async fn new_headless(
+        ui: UiContext<'a>,
+        agent: Option<AnyAgent>,
+        ask_rx: Option<mpsc::Receiver<crate::permission::ask::AskRequest>>,
+        auto_trigger_msg: Option<String>,
+        backend: Box<dyn renderer_mod::RenderBackend>,
+    ) -> anyhow::Result<Self> {
+        Self::create(
+            ui,
+            agent,
+            ask_rx,
+            auto_trigger_msg,
+            #[cfg(feature = "advisor")]
+            None,
+            Some(backend),
+        )
+        .await
+    }
+
+    async fn create(
+        mut ui: UiContext<'a>,
+        agent: Option<AnyAgent>,
+        ask_rx: Option<mpsc::Receiver<crate::permission::ask::AskRequest>>,
+        auto_trigger_msg: Option<String>,
+        #[cfg(feature = "advisor")] handoff_rx: Option<crate::extras::advisor::HandoffReceiver>,
+        headless_backend: Option<Box<dyn renderer_mod::RenderBackend>>,
+    ) -> anyhow::Result<Self> {
+        let headless = headless_backend.is_some();
+        let _terminal_guard = match headless {
+            true => None,
+            false => Some(TerminalGuard::new()?),
+        };
 
         ui.session.show_cost_always = ui.cfg.resolve_show_cost_always();
         crate::ui::statusline::init(ui.cfg);
@@ -93,7 +141,10 @@ impl<'a> App<'a> {
         }
         let last_branch_check = std::time::Instant::now();
 
-        let mut renderer = Renderer::new()?;
+        let mut renderer = match headless_backend {
+            Some(backend) => Renderer::with_backend(backend),
+            None => Renderer::new()?,
+        };
         renderer.set_statusline_height(crate::ui::statusline::line_count());
         renderer.set_monochrome(ui.cli.no_color);
         renderer.set_chat_margin(ui.cfg.resolve_chat_left_margin());
@@ -184,16 +235,23 @@ impl<'a> App<'a> {
             let provider = ui.session.provider.to_string();
             let is_custom = ui.cfg.custom_providers_map().contains_key(&provider);
             let warm_start = std::time::Instant::now();
-            let ids = crate::ui::slash::warm_model_cache(
-                &provider, is_custom, &ui.client, ui.cli, ui.cfg,
-            )
-            .await;
-            tracing::debug!(
-                "startup: warm_model_cache('{}') took {:?} ({} models)",
-                provider,
-                warm_start.elapsed(),
-                ids.len()
-            );
+            // Headless tests skip the cache warm: it can reach the network for
+            // non-catalog providers and the model list is never exercised.
+            let ids = if headless {
+                Vec::new()
+            } else {
+                let ids = crate::ui::slash::warm_model_cache(
+                    &provider, is_custom, &ui.client, ui.cli, ui.cfg,
+                )
+                .await;
+                tracing::debug!(
+                    "startup: warm_model_cache('{}') took {:?} ({} models)",
+                    provider,
+                    warm_start.elapsed(),
+                    ids.len()
+                );
+                ids
+            };
             input.set_live_model_names(ids);
         }
 
@@ -294,7 +352,11 @@ impl<'a> App<'a> {
 
         let (user_tx, user_rx) = mpsc::channel::<UserEvent>(64);
         let running = Arc::new(AtomicBool::new(true));
-        let event_handle = Some(spawn_event_thread(user_tx.clone(), running.clone()));
+        // Headless tests drive the loop via `inject`, so no crossterm reader.
+        let event_handle = match headless {
+            true => None,
+            false => Some(spawn_event_thread(user_tx.clone(), running.clone())),
+        };
 
         let (prebuild_tx, prebuild_rx_raw) = mpsc::channel::<PrebuildPayload>(1);
         let prebuild_rx = Some(prebuild_rx_raw);
@@ -374,6 +436,22 @@ impl<'a> App<'a> {
 
     pub(crate) async fn run(&mut self) -> anyhow::Result<()> {
         loop {
+            match self.step().await? {
+                ControlFlow::Break(()) => break,
+                ControlFlow::Continue(()) => {}
+            }
+        }
+
+        self.handle_worktree_auto_merge().await?;
+        Ok(())
+    }
+
+    /// One iteration of the main loop: housekeeping (git branch refresh), one
+    /// round of the event `select!`, and the advisor handoff drain. Split out
+    /// from [`App::run`] so headless integration tests can pump the loop one
+    /// step at a time and assert on state in between.
+    pub(crate) async fn step(&mut self) -> anyhow::Result<ControlFlow<(), ()>> {
+        {
             self.ui.session.reasoning_enabled = self.slash.reasoning_enabled;
             if self.last_branch_check.elapsed() >= Duration::from_secs(1) {
                 self.ui.session.refresh_git_branch();
@@ -386,7 +464,7 @@ impl<'a> App<'a> {
             tokio::select! {
                 Some(ev) = self.user_rx.recv() => {
                     match self.handle_user_event(ev).await? {
-                        ControlFlow::Break(()) => break,
+                        ControlFlow::Break(()) => return Ok(ControlFlow::Break(())),
                         ControlFlow::Continue(()) => {}
                     }
                 }
@@ -435,8 +513,54 @@ impl<'a> App<'a> {
             }
         }
 
-        self.handle_worktree_auto_merge().await?;
-        Ok(())
+        Ok(ControlFlow::Continue(()))
+    }
+
+    // --- Headless-test helpers: a fake `UserEvent` source (events injected
+    // straight into the loop's channel) plus accessors over the state the loop
+    // mutated, so tests can pump `step` and assert in between. ---
+
+    /// Queue a fake user event, as if the crossterm event thread had sent it.
+    #[cfg(test)]
+    pub(crate) async fn inject(&self, ev: UserEvent) {
+        self.user_tx.send(ev).await.expect("event channel closed");
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_running(&self) -> bool {
+        self.run.is_running
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_scrolling(&self) -> bool {
+        self.renderer.is_scrolling()
+    }
+
+    /// All feed lines (wrapped to 80 cols) joined with newlines.
+    #[cfg(test)]
+    pub(crate) fn feed_text(&self) -> String {
+        self.renderer
+            .feed()
+            .lines(80)
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[cfg(test)]
+    pub(crate) fn input_buffer(&self) -> String {
+        self.input.buffer.to_string()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn backend_output(&self) -> String {
+        self.renderer.captured_output()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn session(&self) -> &crate::session::Session {
+        self.ui.session
     }
 
     pub(crate) async fn teardown(self) {

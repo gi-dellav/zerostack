@@ -2,7 +2,7 @@ use std::io::{self, Write};
 use std::sync::LazyLock;
 
 use compact_str::CompactString;
-use crossterm::ExecutableCommand;
+use crossterm::QueueableCommand;
 use crossterm::cursor::{Hide, MoveTo, Show};
 use crossterm::style::{
     Attribute, Color, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
@@ -15,6 +15,85 @@ use super::feed::{BlockStyle, Feed, style_from_color};
 use super::markdown::word_wrap;
 use super::statusline::StatusSpan;
 use super::utils::{char_display_width, display_width, resolve_color};
+
+/// Terminal output sink for [`Renderer`]: every ANSI write and terminal-size
+/// read goes through this trait. Production uses [`CrosstermBackend`] (stdout
+/// plus the real terminal size); tests swap in [`FakeBackend`] to capture the
+/// emitted frames and pin a fixed geometry — this is what lets the main loop
+/// run headless in integration tests.
+pub(crate) trait RenderBackend: io::Write + Send {
+    fn size(&self) -> io::Result<(u16, u16)>;
+
+    /// Everything written so far, for test assertions. `None` on real backends.
+    #[cfg(test)]
+    fn captured(&self) -> Option<String> {
+        None
+    }
+}
+
+/// Production backend: plain stdout plus `crossterm::terminal::size`.
+pub(crate) struct CrosstermBackend {
+    stdout: io::Stdout,
+}
+
+impl io::Write for CrosstermBackend {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.stdout.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.stdout.flush()
+    }
+}
+
+impl RenderBackend for CrosstermBackend {
+    fn size(&self) -> io::Result<(u16, u16)> {
+        crossterm::terminal::size()
+    }
+}
+
+/// Test backend: fixed terminal geometry, records every byte written so tests
+/// can assert on the frames the renderer emitted.
+#[cfg(test)]
+pub(crate) struct FakeBackend {
+    buf: Vec<u8>,
+    cols: u16,
+    rows: u16,
+}
+
+#[cfg(test)]
+impl FakeBackend {
+    pub(crate) fn new(cols: u16, rows: u16) -> Self {
+        Self {
+            buf: Vec::new(),
+            cols,
+            rows,
+        }
+    }
+}
+
+#[cfg(test)]
+impl io::Write for FakeBackend {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.buf.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl RenderBackend for FakeBackend {
+    fn size(&self) -> io::Result<(u16, u16)> {
+        Ok((self.cols, self.rows))
+    }
+
+    fn captured(&self) -> Option<String> {
+        Some(String::from_utf8_lossy(&self.buf).into_owned())
+    }
+}
 
 static URL_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"https?://[^\x00-\x1f\x7f\s<>]+").expect("compile URL regex"));
@@ -113,6 +192,7 @@ pub(crate) enum BottomRedrawPlan {
 }
 
 pub struct Renderer {
+    backend: Box<dyn RenderBackend>,
     spinner_frame: u8,
     feed: Feed,
     partial: CompactString,
@@ -159,7 +239,14 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new() -> io::Result<Self> {
-        Ok(Renderer {
+        Ok(Self::with_backend(Box::new(CrosstermBackend {
+            stdout: io::stdout(),
+        })))
+    }
+
+    pub(crate) fn with_backend(backend: Box<dyn RenderBackend>) -> Self {
+        Renderer {
+            backend,
             spinner_frame: 0,
             feed: Feed::new(),
             partial: CompactString::new(""),
@@ -193,7 +280,14 @@ impl Renderer {
             bottom_dirty: true,
             last_bottom_snapshot: None,
             bottom_cursor: None,
-        })
+        }
+    }
+
+    /// Queue a crossterm command to the backend and flush, mirroring
+    /// `ExecutableCommand::execute` semantics.
+    fn exec(&mut self, command: impl crossterm::Command) -> io::Result<()> {
+        self.backend.queue(command)?;
+        self.backend.flush()
     }
 
     /// Set the number of statusline rows (1-3). Call once at startup.
@@ -220,9 +314,9 @@ impl Renderer {
     /// Emit the chat left-margin gutter (spaces in the chat background) at the
     /// current cursor position. Caller has already positioned to column 0 and
     /// set the background.
-    fn write_chat_margin(&self, stdout: &mut impl Write) -> io::Result<()> {
-        if self.chat_margin > 0 {
-            write!(stdout, "{}", " ".repeat(self.chat_margin as usize))?;
+    fn write_chat_margin(margin: u16, stdout: &mut impl Write) -> io::Result<()> {
+        if margin > 0 {
+            write!(stdout, "{}", " ".repeat(margin as usize))?;
         }
         Ok(())
     }
@@ -243,7 +337,7 @@ impl Renderer {
     }
 
     fn terminal_size(&self) -> (u16, u16) {
-        crossterm::terminal::size().unwrap_or((80, 24))
+        self.backend.size().unwrap_or((80, 24))
     }
 
     fn max_line_width(&self) -> usize {
@@ -323,6 +417,28 @@ impl Renderer {
     #[cfg(test)]
     pub fn mark_chat_clean(&mut self) {
         self.record_chat_drawn();
+    }
+
+    /// Test helper: everything written to a [`FakeBackend`] so far (empty on
+    /// real backends).
+    #[cfg(test)]
+    pub(crate) fn captured_output(&self) -> String {
+        self.backend.captured().unwrap_or_default()
+    }
+
+    /// Whether the renderer drives a headless test backend instead of a real
+    /// terminal. Used to skip code paths that bypass the backend abstraction
+    /// and write straight to stdout (e.g. the pickers), which break on CI
+    /// where stdout is a non-blocking pipe.
+    pub(crate) fn is_headless(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.backend.captured().is_some()
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     /// Mark both regions dirty, forcing a full repaint on the next frame.
@@ -584,8 +700,7 @@ impl Renderer {
         let visible = self.visible_lines();
         let buffer = self.chat_lines(max_width);
         let total = buffer.len();
-        let mut stdout = io::stdout();
-        write!(stdout, "{}", Hide)?;
+        write!(self.backend, "{}", Hide)?;
 
         let auto_scroll = self.scroll_offset == 0;
         let start = if auto_scroll {
@@ -603,12 +718,13 @@ impl Renderer {
         if auto_scroll && total < visible {
             let pad = visible - total;
             for _ in 0..pad {
-                stdout.execute(MoveTo(0, visual_row))?;
+                self.exec(MoveTo(0, visual_row))?;
                 if let Some(bg) = self.chat_bg {
-                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                    let bg = self.color(bg);
+                    write!(self.backend, "{}", SetBackgroundColor(bg))?;
                 }
-                write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-                write!(stdout, "{}", ResetColor)?;
+                write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+                write!(self.backend, "{}", ResetColor)?;
                 visual_row += 1;
             }
         }
@@ -621,7 +737,7 @@ impl Renderer {
                 break;
             }
 
-            stdout.execute(MoveTo(0, visual_row))?;
+            self.exec(MoveTo(0, visual_row))?;
 
             let is_selected = self.selection_active
                 && if let (Some(s), Some(e)) = (self.selection_start, self.selection_end) {
@@ -633,31 +749,34 @@ impl Renderer {
                 };
 
             if let Some(bg) = self.chat_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                let bg = self.color(bg);
+                write!(self.backend, "{}", SetBackgroundColor(bg))?;
             }
-            self.write_chat_margin(&mut stdout)?;
+            Self::write_chat_margin(self.chat_margin, &mut self.backend)?;
             if is_selected {
-                write!(stdout, "{}", SetAttribute(Attribute::Reverse))?;
+                write!(self.backend, "{}", SetAttribute(Attribute::Reverse))?;
             }
-            write!(stdout, "{}", SetForegroundColor(self.color(entry.color)))?;
-            write!(stdout, "{}", wrap_urls_osc8(chunk))?;
+            let fg = self.color(entry.color);
+            write!(self.backend, "{}", SetForegroundColor(fg))?;
+            write!(self.backend, "{}", wrap_urls_osc8(chunk))?;
             if is_selected {
-                write!(stdout, "{}", SetAttribute(Attribute::NoReverse))?;
+                write!(self.backend, "{}", SetAttribute(Attribute::NoReverse))?;
             }
-            write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(stdout, "{}", ResetColor)?;
+            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+            write!(self.backend, "{}", ResetColor)?;
 
             visual_row += 1;
             buf_idx += 1;
         }
 
         while (visual_row as usize) < visible {
-            stdout.execute(MoveTo(0, visual_row))?;
+            self.exec(MoveTo(0, visual_row))?;
             if let Some(bg) = self.chat_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                let bg = self.color(bg);
+                write!(self.backend, "{}", SetBackgroundColor(bg))?;
             }
-            write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(stdout, "{}", ResetColor)?;
+            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+            write!(self.backend, "{}", ResetColor)?;
             visual_row += 1;
         }
 
@@ -669,20 +788,18 @@ impl Renderer {
             };
             let indicator = format!(" SCROLL {}% ", pct);
             let x = cols.saturating_sub(indicator.len() as u16);
-            stdout.execute(MoveTo(x, 0))?;
+            self.exec(MoveTo(x, 0))?;
             if let Some(bg) = self.chat_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                let bg = self.color(bg);
+                write!(self.backend, "{}", SetBackgroundColor(bg))?;
             }
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkYellow))
-            )?;
-            write!(stdout, "{}", indicator)?;
-            write!(stdout, "{}", ResetColor)?;
+            let fg = self.color(Color::DarkYellow);
+            write!(self.backend, "{}", SetForegroundColor(fg))?;
+            write!(self.backend, "{}", indicator)?;
+            write!(self.backend, "{}", ResetColor)?;
         }
 
-        stdout.flush()?;
+        self.backend.flush()?;
         self.record_chat_drawn();
         Ok(())
     }
@@ -731,14 +848,14 @@ impl Renderer {
         self.partial.clear();
         self.scroll_offset = 0;
         self.clear_selection();
-        let mut stdout = io::stdout();
         if let Some(bg) = self.chat_bg {
-            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+            let bg = self.color(bg);
+            write!(self.backend, "{}", SetBackgroundColor(bg))?;
         }
-        stdout.execute(Clear(ClearType::All))?;
-        write!(stdout, "{}", ResetColor)?;
-        stdout.execute(MoveTo(0, 0))?;
-        stdout.flush()?;
+        self.exec(Clear(ClearType::All))?;
+        write!(self.backend, "{}", ResetColor)?;
+        self.exec(MoveTo(0, 0))?;
+        self.backend.flush()?;
         Ok(())
     }
 
@@ -751,7 +868,7 @@ impl Renderer {
         }
     }
 
-    fn clear_shrunk_rows(&self, old_height: usize, new_height: usize) -> io::Result<()> {
+    fn clear_shrunk_rows(&mut self, old_height: usize, new_height: usize) -> io::Result<()> {
         if new_height >= old_height {
             return Ok(());
         }
@@ -760,32 +877,29 @@ impl Renderer {
         let avail = rows.saturating_sub(reserve);
         let old_start = avail.saturating_sub(old_height as u16).saturating_add(1);
         let new_start = avail.saturating_sub(new_height as u16).saturating_add(1);
-        let mut stdout = io::stdout();
         for row in old_start..new_start {
-            stdout.execute(MoveTo(0, row))?;
+            self.exec(MoveTo(0, row))?;
             if let Some(bg) = self.input_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                let bg = self.color(bg);
+                write!(self.backend, "{}", SetBackgroundColor(bg))?;
             }
-            write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(stdout, "{}", ResetColor)?;
+            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+            write!(self.backend, "{}", ResetColor)?;
         }
         Ok(())
     }
 
-    fn draw_separator(&self, row: u16, cols: u16) -> io::Result<()> {
-        let mut stdout = io::stdout();
-        stdout.execute(MoveTo(0, row))?;
+    fn draw_separator(&mut self, row: u16, cols: u16) -> io::Result<()> {
+        self.exec(MoveTo(0, row))?;
         if let Some(bg) = self.input_bg {
-            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+            let bg = self.color(bg);
+            write!(self.backend, "{}", SetBackgroundColor(bg))?;
         }
-        write!(
-            stdout,
-            "{}",
-            SetForegroundColor(self.color(Color::DarkGrey))
-        )?;
+        let fg = self.color(Color::DarkGrey);
+        write!(self.backend, "{}", SetForegroundColor(fg))?;
         let sep: String = "─".repeat(cols as usize);
-        write!(stdout, "{}", sep)?;
-        write!(stdout, "{}", ResetColor)?;
+        write!(self.backend, "{}", sep)?;
+        write!(self.backend, "{}", ResetColor)?;
         Ok(())
     }
 
@@ -793,7 +907,7 @@ impl Renderer {
     /// expand to fill remaining width. Fewer lines than `statusline_height` leaves
     /// the upper statusline rows blank.
     fn draw_statusline(
-        &self,
+        &mut self,
         statusline: &[Vec<StatusSpan>],
         cols: u16,
         is_scrolling: bool,
@@ -816,35 +930,33 @@ impl Renderer {
     }
 
     fn draw_statusline_row(
-        &self,
+        &mut self,
         screen_row: u16,
         spans: &[StatusSpan],
         prefix: &str,
         cols: u16,
     ) -> io::Result<()> {
-        let mut stdout = io::stdout();
-        stdout.execute(MoveTo(0, screen_row))?;
+        self.exec(MoveTo(0, screen_row))?;
         if let Some(bg) = self.status_bg {
-            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+            let bg = self.color(bg);
+            write!(self.backend, "{}", SetBackgroundColor(bg))?;
         }
-        write!(stdout, "{}", Clear(ClearType::CurrentLine))?;
-        stdout.execute(MoveTo(0, screen_row))?;
+        write!(self.backend, "{}", Clear(ClearType::CurrentLine))?;
+        self.exec(MoveTo(0, screen_row))?;
         if let Some(bg) = self.status_bg {
-            write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+            let bg = self.color(bg);
+            write!(self.backend, "{}", SetBackgroundColor(bg))?;
         }
 
         let total = cols as usize;
         let mut budget = total;
 
         if !prefix.is_empty() {
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkYellow))
-            )?;
+            let fg = self.color(Color::DarkYellow);
+            write!(self.backend, "{}", SetForegroundColor(fg))?;
             let take = prefix.chars().take(budget).collect::<String>();
             budget -= display_width(&take);
-            write!(stdout, "{}", take)?;
+            write!(self.backend, "{}", take)?;
         }
 
         // Fixed width of all text spans; flex shares what is left.
@@ -870,16 +982,19 @@ impl Renderer {
                 StatusSpan::Text { text, fg, bg } => {
                     let bgc = bg.or(self.status_bg);
                     if let Some(c) = bgc {
-                        write!(stdout, "{}", SetBackgroundColor(self.color(c)))?;
+                        let c = self.color(c);
+                        write!(self.backend, "{}", SetBackgroundColor(c))?;
                     }
                     let fgc = fg.unwrap_or(Color::DarkGrey);
-                    write!(stdout, "{}", SetForegroundColor(self.color(fgc)))?;
+                    let fgc = self.color(fgc);
+                    write!(self.backend, "{}", SetForegroundColor(fgc))?;
                     let piece: String = text.chars().take(budget).collect();
                     budget = budget.saturating_sub(display_width(&piece));
-                    write!(stdout, "{}", piece)?;
-                    write!(stdout, "{}", ResetColor)?;
+                    write!(self.backend, "{}", piece)?;
+                    write!(self.backend, "{}", ResetColor)?;
                     if let Some(bg) = self.status_bg {
-                        write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                        let bg = self.color(bg);
+                        write!(self.backend, "{}", SetBackgroundColor(bg))?;
                     }
                 }
                 StatusSpan::Flex => {
@@ -897,13 +1012,13 @@ impl Renderer {
                     let width = (base + extra).min(budget);
                     flex_left = flex_left.saturating_sub(width);
                     budget = budget.saturating_sub(width);
-                    write!(stdout, "{}", " ".repeat(width))?;
+                    write!(self.backend, "{}", " ".repeat(width))?;
                 }
             }
         }
 
-        write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-        write!(stdout, "{}", ResetColor)?;
+        write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+        write!(self.backend, "{}", ResetColor)?;
         Ok(())
     }
 
@@ -984,18 +1099,17 @@ impl Renderer {
 
     /// Re-place the terminal caret where the last full bottom draw left it.
     /// Needed after a statusline-only redraw, which moves the cursor.
-    fn restore_bottom_cursor(&self) -> io::Result<()> {
-        let mut stdout = io::stdout();
+    fn restore_bottom_cursor(&mut self) -> io::Result<()> {
         match self.bottom_cursor {
             Some((x, row)) => {
-                stdout.execute(MoveTo(x, row))?;
-                write!(stdout, "{}", Show)?;
+                self.exec(MoveTo(x, row))?;
+                write!(self.backend, "{}", Show)?;
             }
             None => {
-                write!(stdout, "{}", Hide)?;
+                write!(self.backend, "{}", Hide)?;
             }
         }
-        stdout.flush()
+        self.backend.flush()
     }
 
     pub fn draw_bottom(
@@ -1005,7 +1119,7 @@ impl Renderer {
         statusline: &[Vec<StatusSpan>],
         is_running: bool,
     ) -> io::Result<()> {
-        let (cols, rows) = crossterm::terminal::size()?;
+        let (cols, rows) = self.backend.size()?;
         let snapshot =
             self.bottom_snapshot(input_line, cursor_pos, statusline, is_running, cols, rows);
         match Self::bottom_redraw_plan(
@@ -1023,10 +1137,12 @@ impl Renderer {
             BottomRedrawPlan::Full => {}
         }
         let reserve = self.statusline_reserve();
-        let mut stdout = io::stdout();
 
-        if let Some(ref pp) = self.permission_prompt {
-            let perm_lines = [pp.tool.as_str(), pp.options.as_str()];
+        let permission_lines = self
+            .permission_prompt
+            .as_ref()
+            .map(|pp| [pp.tool.to_string(), pp.options.to_string()]);
+        if let Some(perm_lines) = permission_lines {
             let line_count = 2usize;
             let input_top = rows
                 .saturating_sub(reserve)
@@ -1044,14 +1160,15 @@ impl Renderer {
             let perm_color = self.color(Color::DarkYellow);
             for (i, line) in perm_lines.iter().enumerate() {
                 let render_row = input_top + i as u16;
-                stdout.execute(MoveTo(0, render_row))?;
+                self.exec(MoveTo(0, render_row))?;
                 if let Some(bg) = self.input_bg {
-                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                    let bg = self.color(bg);
+                    write!(self.backend, "{}", SetBackgroundColor(bg))?;
                 }
-                write!(stdout, "{}", SetForegroundColor(perm_color))?;
-                write!(stdout, "{}", line)?;
-                write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-                write!(stdout, "{}", ResetColor)?;
+                write!(self.backend, "{}", SetForegroundColor(perm_color))?;
+                write!(self.backend, "{}", line)?;
+                write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+                write!(self.backend, "{}", ResetColor)?;
             }
 
             let sep_below = rows.saturating_sub(reserve - 1);
@@ -1060,20 +1177,22 @@ impl Renderer {
             }
 
             self.draw_statusline(statusline, cols, false)?;
-            write!(stdout, "{}", Hide)?;
-            stdout.flush()?;
+            write!(self.backend, "{}", Hide)?;
+            self.backend.flush()?;
             self.bottom_cursor = None;
             self.record_bottom_drawn(snapshot);
             return Ok(());
         }
 
-        if let Some(ref cp) = self.chain_prompt {
-            let question = cp.question.as_str();
+        let chain_lines = self.chain_prompt.as_ref().map(|cp| {
             let options = if self.chain_but_mode {
                 "[Enter] send  [Esc] cancel"
             } else {
                 "[Y] Yes  [N] No  [B] yes, But (add instruction)"
             };
+            [cp.question.to_string(), options.to_string()]
+        });
+        if let Some(render_lines) = chain_lines {
             let line_count = 2usize;
             let input_top = rows
                 .saturating_sub(reserve)
@@ -1089,17 +1208,17 @@ impl Renderer {
             }
 
             let chain_color = self.color(Color::DarkYellow);
-            let render_lines = [question, options];
             for (i, line) in render_lines.iter().enumerate() {
                 let render_row = input_top + i as u16;
-                stdout.execute(MoveTo(0, render_row))?;
+                self.exec(MoveTo(0, render_row))?;
                 if let Some(bg) = self.input_bg {
-                    write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                    let bg = self.color(bg);
+                    write!(self.backend, "{}", SetBackgroundColor(bg))?;
                 }
-                write!(stdout, "{}", SetForegroundColor(chain_color))?;
-                write!(stdout, "{}", line)?;
-                write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-                write!(stdout, "{}", ResetColor)?;
+                write!(self.backend, "{}", SetForegroundColor(chain_color))?;
+                write!(self.backend, "{}", line)?;
+                write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+                write!(self.backend, "{}", ResetColor)?;
             }
 
             let sep_below = rows.saturating_sub(reserve - 1);
@@ -1108,8 +1227,8 @@ impl Renderer {
             }
 
             self.draw_statusline(statusline, cols, false)?;
-            write!(stdout, "{}", Hide)?;
-            stdout.flush()?;
+            write!(self.backend, "{}", Hide)?;
+            self.backend.flush()?;
             self.bottom_cursor = None;
             self.record_bottom_drawn(snapshot);
             return Ok(());
@@ -1223,22 +1342,20 @@ impl Renderer {
         {
             let render_row = (rows.saturating_sub(reserve) - visible_line_count as u16 + 1)
                 + (i - first_visible) as u16;
-            stdout.execute(MoveTo(0, render_row))?;
+            self.exec(MoveTo(0, render_row))?;
 
             if let Some(bg) = self.input_bg {
-                write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
+                let bg = self.color(bg);
+                write!(self.backend, "{}", SetBackgroundColor(bg))?;
             }
 
             if i == first_visible {
-                write!(
-                    stdout,
-                    "{}",
-                    SetForegroundColor(self.color(Color::DarkYellow))
-                )?;
-                write!(stdout, "{}", prompt)?;
-                write!(stdout, "{}", SetForegroundColor(Color::Reset))?;
+                let fg = self.color(Color::DarkYellow);
+                write!(self.backend, "{}", SetForegroundColor(fg))?;
+                write!(self.backend, "{}", prompt)?;
+                write!(self.backend, "{}", SetForegroundColor(Color::Reset))?;
             } else {
-                write!(stdout, "{}", " ".repeat(prompt_width))?;
+                write!(self.backend, "{}", " ".repeat(prompt_width))?;
             }
 
             let line_chars: SmallVec<[char; 64]> = line.chars().collect();
@@ -1263,9 +1380,9 @@ impl Renderer {
                 .skip(skip_chars)
                 .take(visible_width)
                 .collect();
-            write!(stdout, "{}", display)?;
-            write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(stdout, "{}", ResetColor)?;
+            write!(self.backend, "{}", display)?;
+            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+            write!(self.backend, "{}", ResetColor)?;
         }
 
         // Thin separator line below input
@@ -1286,9 +1403,9 @@ impl Renderer {
         let cursor_row = (rows.saturating_sub(reserve) - visible_line_count as u16 + 1)
             + cursor_render_idx as u16;
         let cursor_x = (prompt_width + cursor_display_col.saturating_sub(h_scroll)) as u16;
-        stdout.execute(MoveTo(cursor_x, cursor_row))?;
-        write!(stdout, "{}", Show)?;
-        stdout.flush()?;
+        self.exec(MoveTo(cursor_x, cursor_row))?;
+        write!(self.backend, "{}", Show)?;
+        self.backend.flush()?;
         self.bottom_cursor = Some((cursor_x, cursor_row));
         // The draw itself settles `input_vscroll_offset` (cursor follow /
         // clamping); record the settled value so the next identical frame is
