@@ -235,14 +235,7 @@ async fn slash_clear_resets_session_and_feed() {
     .await;
     assert!(app.feed_text().contains("hi there"));
 
-    // Typing "/" opens the command picker; the first Enter only completes the
-    // highlighted command into the buffer ("/clear "), the second submits it —
-    // same as the interactive flow.
-    for c in "/clear".chars() {
-        app.inject(char_key(c)).await;
-    }
-    app.inject(enter_key()).await;
-    app.inject(enter_key()).await;
+    type_slash_and_submit(&app, "/clear").await;
     step_until(&mut app, |a| {
         a.session().messages.is_empty() && !a.feed_text().contains("hi there")
     })
@@ -274,6 +267,186 @@ async fn fake_backend_captures_output_and_paste_fills_input() {
     app.inject(UserEvent::Paste("a\nb".to_string())).await;
     pump(&mut app).await;
     assert_eq!(app.input_buffer(), "a\nb");
+
+    app.teardown().await;
+}
+
+/// Submit a slash command through the command picker: typing "/" opens it, so
+/// the first Enter only completes the highlighted command into the buffer (or,
+/// when the query has args and matches nothing, just closes the picker) and a
+/// second Enter submits — same as the interactive flow.
+async fn type_slash_and_submit(app: &App<'static>, text: &str) {
+    for c in text.chars() {
+        app.inject(char_key(c)).await;
+    }
+    app.inject(enter_key()).await;
+    app.inject(enter_key()).await;
+}
+
+#[tokio::test]
+async fn ctrl_c_aborts_running_agent() {
+    let _guard = acquire();
+    let (mut app, model) = headless_app(vec![vec!["second answer"]]).await;
+
+    type_and_submit(&app, "hello").await;
+    // Ctrl-C lands in the same FIFO channel right behind the Enter, so it is
+    // processed while the run is active (the agent task is never polled until
+    // the injected events are drained).
+    app.inject(UserEvent::Key(KeyEvent::new(
+        KeyCode::Char('c'),
+        KeyModifiers::CONTROL,
+    )))
+    .await;
+
+    step_until(&mut app, |a| {
+        !a.is_running() && a.feed_text().contains("interrupted")
+    })
+    .await;
+
+    // The aborted runner never reached the model; the aborted turn keeps the
+    // user message but adds no assistant reply.
+    assert!(model.requests().is_empty());
+    let messages = &app.session().messages;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].role, MessageRole::User);
+
+    // The loop is still usable: a fresh prompt starts a new run.
+    type_and_submit(&app, "again").await;
+    step_until(&mut app, |a| {
+        !a.is_running() && a.session().messages.len() == 3
+    })
+    .await;
+    let messages = &app.session().messages;
+    assert_eq!(messages[1].content.as_str(), "again");
+    assert_eq!(messages[2].content.as_str(), "second answer");
+
+    app.teardown().await;
+}
+
+#[tokio::test]
+async fn slash_rejected_while_running() {
+    let _guard = acquire();
+    let (mut app, _model) = headless_app(vec![vec!["answer"]]).await;
+
+    type_and_submit(&app, "hello").await;
+    type_slash_and_submit(&app, "/help").await;
+
+    step_until(&mut app, |a| {
+        a.feed_text()
+            .contains("agent is running — wait for it to finish")
+    })
+    .await;
+
+    // The running turn is unaffected and completes normally.
+    step_until(&mut app, |a| {
+        !a.is_running() && a.session().messages.len() == 2
+    })
+    .await;
+    assert_eq!(app.session().messages[1].content.as_str(), "answer");
+
+    app.teardown().await;
+}
+
+#[tokio::test]
+async fn queue_commands_list_and_pop() {
+    let _guard = acquire();
+    let (mut app, model) = headless_app(vec![vec!["answer a"]]).await;
+
+    type_and_submit(&app, "a").await;
+    type_and_submit(&app, "b").await;
+    type_slash_and_submit(&app, "/queue ls").await;
+    type_slash_and_submit(&app, "/queue pop").await;
+
+    step_until(&mut app, |a| a.feed_text().contains("  1. b")).await;
+    step_until(&mut app, |a| a.feed_text().contains("unqueued: b")).await;
+    step_until(&mut app, |a| !a.is_running()).await;
+
+    let feed = app.feed_text();
+    assert!(feed.contains("queued: b"), "feed: {feed}");
+    assert!(feed.contains("queued (1):"), "feed: {feed}");
+
+    // The popped input never ran: one model call, one exchange.
+    assert_eq!(model.requests().len(), 1);
+    let messages = &app.session().messages;
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0].content.as_str(), "a");
+
+    app.teardown().await;
+}
+
+#[tokio::test]
+async fn paste_multiline_submits_as_one_message() {
+    let _guard = acquire();
+    let (mut app, _model) = headless_app(vec![vec!["got it"]]).await;
+
+    app.inject(UserEvent::Paste("line1\nline2".to_string()))
+        .await;
+    app.inject(enter_key()).await;
+
+    step_until(&mut app, |a| {
+        !a.is_running() && a.session().messages.len() == 2
+    })
+    .await;
+
+    let messages = &app.session().messages;
+    assert_eq!(messages[0].role, MessageRole::User);
+    assert_eq!(messages[0].content.as_str(), "line1\nline2");
+
+    app.teardown().await;
+}
+
+#[tokio::test]
+async fn ctrl_r_toggles_reasoning_visibility() {
+    let _guard = acquire();
+    let (mut app, _model) = headless_app(vec![]).await;
+
+    let ctrl_r = || UserEvent::Key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+    app.inject(ctrl_r()).await;
+    step_until(&mut app, |a| {
+        a.feed_text().contains("reasoning visibility: on")
+    })
+    .await;
+
+    app.inject(ctrl_r()).await;
+    step_until(&mut app, |a| {
+        a.feed_text().contains("reasoning visibility: off")
+    })
+    .await;
+
+    app.teardown().await;
+}
+
+#[tokio::test]
+async fn scroll_and_resize_events() {
+    let _guard = acquire();
+    // A long response so the feed overflows the 80x24 fake terminal.
+    let long_response: String = (0..45)
+        .map(|i| format!("response line {i}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let (mut app, _model) = headless_app(vec![vec![long_response.as_str()]]).await;
+
+    type_and_submit(&app, "hello").await;
+    step_until(&mut app, |a| {
+        !a.is_running() && a.session().messages.len() == 2
+    })
+    .await;
+    assert!(!app.is_scrolling());
+
+    for _ in 0..3 {
+        app.inject(UserEvent::ScrollUp).await;
+    }
+    step_until(&mut app, |a| a.is_scrolling()).await;
+    assert!(
+        app.backend_output().contains("SCROLL"),
+        "scrolled viewport should paint a scroll indicator"
+    );
+
+    for _ in 0..3 {
+        app.inject(UserEvent::ScrollDown).await;
+    }
+    app.inject(UserEvent::Resize).await;
+    step_until(&mut app, |a| !a.is_scrolling()).await;
 
     app.teardown().await;
 }

@@ -531,6 +531,11 @@ impl<'a> App<'a> {
         self.run.is_running
     }
 
+    #[cfg(test)]
+    pub(crate) fn is_scrolling(&self) -> bool {
+        self.renderer.is_scrolling()
+    }
+
     /// All feed lines (wrapped to 80 cols) joined with newlines.
     #[cfg(test)]
     pub(crate) fn feed_text(&self) -> String {
