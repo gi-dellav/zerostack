@@ -620,6 +620,10 @@ pub enum AnyAgent {
     Anthropic(Agent<anthropic::completion::CompletionModel>),
     Gemini(Agent<gemini::completion::CompletionModel>),
     Ollama(Agent<ollama::CompletionModel>),
+    /// Scripted test double (`rig::test_utils::MockCompletionModel`), used by
+    /// headless main-loop integration tests; never constructed in production.
+    #[cfg(test)]
+    Mock(Agent<rig::test_utils::MockCompletionModel>),
 }
 
 /// Synthesizes an `AgentRunner` for a prompt blocked by a `UserPromptSubmit`
@@ -727,6 +731,19 @@ impl AnyAgent {
                 )
                 .await
             }
+            #[cfg(test)]
+            AnyAgent::Mock(a) => {
+                runner::run_print(
+                    a,
+                    prompt,
+                    pure_stdout,
+                    retry_config,
+                    history,
+                    #[cfg(feature = "hooks")]
+                    loop_info,
+                )
+                .await
+            }
         }
     }
 
@@ -757,6 +774,10 @@ impl AnyAgent {
                 runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
             }
             AnyAgent::Ollama(a) => {
+                runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
+            }
+            #[cfg(test)]
+            AnyAgent::Mock(a) => {
                 runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
             }
         }
@@ -833,6 +854,15 @@ impl AnyAgent {
                 #[cfg(feature = "hooks")]
                 loop_info,
             ),
+            #[cfg(test)]
+            AnyAgent::Mock(a) => runner::spawn_agent(
+                a,
+                prompt,
+                history,
+                retry_config,
+                #[cfg(feature = "hooks")]
+                loop_info,
+            ),
         }
     }
 
@@ -865,6 +895,8 @@ impl AnyAgent {
             AnyAgent::Ollama(a) => {
                 runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
             }
+            #[cfg(test)]
+            AnyAgent::Mock(a) => runner::spawn_btw(a, prompt, history, event_tx, id, retry_config),
         }
     }
 }

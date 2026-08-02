@@ -108,5 +108,7 @@ mod todo_tests;
 mod tools_filter_tests;
 #[cfg(test)]
 mod tools_mod_tests;
+#[cfg(test)]
+mod tui_loop_tests;
 #[cfg(all(test, feature = "git-worktree"))]
 mod worktree_tests;
