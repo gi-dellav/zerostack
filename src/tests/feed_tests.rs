@@ -131,25 +131,6 @@ fn line_at_visual_row_scrolled() {
 }
 
 #[test]
-fn selected_text_extracts_lines() {
-    let mut feed = Feed::new();
-    feed.push_line(BlockStyle::Plain, "alpha");
-    feed.push_line(BlockStyle::Plain, "beta");
-    feed.push_line(BlockStyle::Plain, "gamma");
-    let text = feed.selected_text(80, 0, 2);
-    assert_eq!(text.as_deref(), Some("alpha\nbeta\ngamma"));
-}
-
-#[test]
-fn selected_text_reversed_range() {
-    let mut feed = Feed::new();
-    feed.push_line(BlockStyle::Plain, "alpha");
-    feed.push_line(BlockStyle::Plain, "beta");
-    let text = feed.selected_text(80, 1, 0);
-    assert_eq!(text.as_deref(), Some("alpha\nbeta"));
-}
-
-#[test]
 fn append_to_last_extends_block() {
     let mut feed = Feed::new();
     feed.push_block(BlockStyle::Agent, "hello");
@@ -246,7 +227,6 @@ fn generation_not_bumped_by_reads() {
     let _ = feed.line_count(80);
     let _ = feed.visible_range(80, 0, 10);
     let _ = feed.line_at_visual_row(80, 0, 10, 0);
-    let _ = feed.selected_text(80, 0, 0);
     let _ = feed.is_empty();
     let _ = feed.block_count();
     assert_eq!(feed.generation(), before);
@@ -356,18 +336,17 @@ fn agent_layout_recomputes_on_width_change() {
 }
 
 #[test]
-fn scroll_and_selection_queries_reuse_prewrapped_rows() {
+fn scroll_queries_reuse_prewrapped_rows() {
     let mut feed = Feed::new();
     feed.push_line(BlockStyle::Plain, "hello");
     let _ = feed.lines(80);
     let _ = feed.line_count(80);
     let _ = feed.visible_range(80, 0, 10);
-    let _ = feed.selected_text(80, 0, 0);
     let _ = feed.line_at_visual_row(80, 0, 10, 9);
     assert_eq!(
         feed.layout_computes(),
         1,
-        "scroll/selection queries should reuse the pre-wrapped rows"
+        "scroll queries should reuse the pre-wrapped rows"
     );
 
     feed.push_line(BlockStyle::Plain, "world");

@@ -20,7 +20,6 @@ pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer) {
 fn run_tutor() -> anyhow::Result<()> {
     let _ = crossterm::terminal::disable_raw_mode();
     let mut stdout = std::io::stdout();
-    let _ = stdout.execute(crossterm::event::DisableMouseCapture);
     let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
     let _ = stdout.flush();
 
@@ -30,7 +29,6 @@ fn run_tutor() -> anyhow::Result<()> {
     let _ = stdout.execute(crossterm::terminal::Clear(
         crossterm::terminal::ClearType::All,
     ));
-    let _ = stdout.execute(crossterm::event::EnableMouseCapture);
     let _ = crossterm::terminal::enable_raw_mode();
 
     result
@@ -294,15 +292,6 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
         ctx.renderer,
         "  @<query>               file picker (Tab/Enter select, Esc cancel)",
     );
-    write_result(
-        ctx.renderer,
-        "  mouse drag             select text (copies to clipboard on release)",
-    );
-    write_result(
-        ctx.renderer,
-        "  Esc (while selected)   clear selection (no copy)",
-    );
     write_result(ctx.renderer, "  Ctrl+R                 toggle reasoning");
     write_result(ctx.renderer, "  Ctrl+C / Ctrl+D        interrupt/quit");
-    write_result(ctx.renderer, "  mouse scroll           scroll chat");
 }

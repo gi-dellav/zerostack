@@ -4,9 +4,7 @@ use std::sync::LazyLock;
 use compact_str::CompactString;
 use crossterm::ExecutableCommand;
 use crossterm::cursor::{Hide, MoveTo, Show};
-use crossterm::style::{
-    Attribute, Color, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
-};
+use crossterm::style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType};
 use regex::Regex;
 use smallvec::SmallVec;
@@ -58,9 +56,6 @@ struct ChatSnapshot {
     width: usize,
     visible_rows: usize,
     scroll_offset: usize,
-    selection_active: bool,
-    selection_start: Option<usize>,
-    selection_end: Option<usize>,
     partial: CompactString,
     partial_style: BlockStyle,
     chat_bg: Option<Color>,
@@ -121,22 +116,10 @@ pub struct Renderer {
     input_scroll_offset: usize,
     input_vscroll_offset: usize,
     input_max_vscroll: usize,
-    last_input_cursor: usize,
-    // Geometry of the last-rendered input area, used to map a mouse click to a
-    // cursor position inside the input buffer.
-    input_base_row: u16,
-    input_prompt_width: usize,
-    input_first_visible: usize,
-    input_visible_line_count: usize,
-    input_h_scroll: usize,
-    input_cursor_line: usize,
     monochrome: bool,
     chat_bg: Option<Color>,
     input_bg: Option<Color>,
     status_bg: Option<Color>,
-    pub selection_active: bool,
-    pub selection_start: Option<usize>,
-    pub selection_end: Option<usize>,
     prev_input_height: usize,
     /// Number of statusline rows (1-3), fixed by the statusline config at startup.
     statusline_height: usize,
@@ -168,20 +151,10 @@ impl Renderer {
             input_scroll_offset: 0,
             input_vscroll_offset: 0,
             input_max_vscroll: 0,
-            last_input_cursor: 0,
-            input_base_row: 0,
-            input_prompt_width: 0,
-            input_first_visible: 0,
-            input_visible_line_count: 0,
-            input_h_scroll: 0,
-            input_cursor_line: 0,
             monochrome: false,
             chat_bg: None,
             input_bg: None,
             status_bg: None,
-            selection_active: false,
-            selection_start: None,
-            selection_end: None,
             prev_input_height: 0,
             statusline_height: 1,
             chat_margin: 0,
@@ -288,9 +261,6 @@ impl Renderer {
             width: self.max_line_width(),
             visible_rows: self.visible_lines(),
             scroll_offset: self.scroll_offset,
-            selection_active: self.selection_active,
-            selection_start: self.selection_start,
-            selection_end: self.selection_end,
             partial: self.partial.clone(),
             partial_style: self.partial_style,
             chat_bg: self.chat_bg,
@@ -301,7 +271,7 @@ impl Renderer {
     /// Whether the chat viewport needs repainting: either a renderer-internal
     /// mutation marked it dirty, or the tracked state changed since the last
     /// recorded draw. The state comparison also catches feed mutations made
-    /// through `feed_mut()` and direct writes to the public selection fields.
+    /// through `feed_mut()`.
     pub fn chat_needs_redraw(&self) -> bool {
         if self.chat_dirty {
             return true;
@@ -362,80 +332,6 @@ impl Renderer {
         Ok(())
     }
 
-    pub fn buffer_line_at_row(&self, row: u16) -> Option<usize> {
-        let width = self.max_line_width();
-        let total = self.chat_lines(width).len();
-        if total == 0 {
-            return None;
-        }
-
-        let visible = self.visible_lines();
-        let auto_scroll = self.scroll_offset == 0;
-        let pad = if auto_scroll && total < visible {
-            visible - total
-        } else {
-            0
-        };
-        if (row as usize) < pad {
-            return None;
-        }
-
-        let start = if auto_scroll {
-            total.saturating_sub(visible)
-        } else {
-            total.saturating_sub((self.scroll_offset + visible).min(total))
-        };
-        let start = start.min(total.saturating_sub(visible));
-
-        Some(start + (row as usize) - pad)
-    }
-
-    pub fn clear_selection(&mut self) {
-        self.chat_dirty = true;
-        self.selection_active = false;
-        self.selection_start = None;
-        self.selection_end = None;
-    }
-
-    pub fn link_url_at(&self, buf_idx: usize, col: u16) -> Option<String> {
-        let lines = self.chat_lines(self.max_line_width());
-        let entry = lines.get(buf_idx)?;
-        let text: &str = &entry.text;
-        let click_col = col.saturating_sub(self.chat_margin) as usize;
-        for m in URL_RE.find_iter(text) {
-            let prefix = &text[..m.start()];
-            let url_start = display_width(prefix);
-            let url_end = url_start + display_width(m.as_str());
-            if click_col >= url_start && click_col < url_end {
-                return Some(m.as_str().to_string());
-            }
-        }
-        None
-    }
-
-    pub fn selected_text(&self) -> Option<String> {
-        let (start, end) = match (self.selection_start, self.selection_end) {
-            (Some(s), Some(e)) if s <= e => (s, e),
-            (Some(s), Some(e)) => (e, s),
-            _ => return None,
-        };
-        let lines = self.chat_lines(self.max_line_width());
-        let mut result = String::new();
-        for i in start..=end {
-            if let Some(entry) = lines.get(i) {
-                if !result.is_empty() {
-                    result.push('\n');
-                }
-                result.push_str(&entry.text);
-            }
-        }
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
-    }
-
     fn commit_partial(&mut self) {
         if !self.partial.is_empty() {
             self.feed
@@ -447,85 +343,6 @@ impl Renderer {
 
     pub fn is_scrolling(&self) -> bool {
         self.scroll_offset > 0
-    }
-
-    /// Map a mouse click at `(row, col)` to a cursor byte offset inside the
-    /// input buffer, or `None` if the click falls outside the input area.
-    pub fn input_cursor_for_click(&self, row: u16, col: u16, input_line: &str) -> Option<usize> {
-        let vlc = self.input_visible_line_count;
-        if vlc == 0 {
-            return None;
-        }
-        if row < self.input_base_row || row >= self.input_base_row + vlc as u16 {
-            return None;
-        }
-        let visible_idx = (row - self.input_base_row) as usize;
-        let line_idx = self.input_first_visible + visible_idx;
-        let lines: SmallVec<[&str; 4]> = input_line.split('\n').collect();
-        let line_text = lines.get(line_idx)?;
-
-        // Display column the click lands on, within the line's text. Clicks on
-        // the prompt (or to its left) snap to the start of the line.
-        let click_col = col as usize;
-        let mut target_display = click_col.saturating_sub(self.input_prompt_width);
-        if line_idx == self.input_cursor_line {
-            target_display += self.input_h_scroll;
-        }
-
-        // Walk the line accumulating display width until we pass the target,
-        // landing on the nearest character boundary.
-        let mut width = 0usize;
-        let mut col_chars = 0usize;
-        for ch in line_text.chars() {
-            let cw = char_display_width(ch);
-            if width + cw > target_display {
-                break;
-            }
-            width += cw;
-            col_chars += 1;
-        }
-        Some(crate::ui::input::line_col_to_cursor(
-            input_line, line_idx, col_chars,
-        ))
-    }
-
-    /// Scroll the multi-line input viewport up one line (toward earlier lines).
-    /// Returns false when the input is already showing its top line, so the
-    /// caller can fall through to scrolling the chat history instead.
-    pub fn input_scroll_up(&mut self) -> bool {
-        if self.input_vscroll_offset > 0 {
-            self.input_vscroll_offset -= 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    /// Scroll the multi-line input viewport down one line (toward the end).
-    /// Returns false when the input is already at the bottom.
-    pub fn input_scroll_down(&mut self) -> bool {
-        if self.input_vscroll_offset < self.input_max_vscroll {
-            self.input_vscroll_offset += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn scroll_line_up(&mut self) {
-        let visible = self.visible_lines();
-        let max_offset = self.buffer_len().saturating_sub(visible);
-        if self.scroll_offset < max_offset {
-            self.scroll_offset += 1;
-            self.chat_dirty = true;
-        }
-    }
-
-    pub fn scroll_line_down(&mut self) {
-        if self.scroll_offset > 0 {
-            self.scroll_offset -= 1;
-            self.chat_dirty = true;
-        }
     }
 
     pub fn scroll_page_up(&mut self) {
@@ -623,27 +440,12 @@ impl Renderer {
 
             stdout.execute(MoveTo(0, visual_row))?;
 
-            let is_selected = self.selection_active
-                && if let (Some(s), Some(e)) = (self.selection_start, self.selection_end) {
-                    let lo = s.min(e);
-                    let hi = s.max(e);
-                    buf_idx >= lo && buf_idx <= hi
-                } else {
-                    false
-                };
-
             if let Some(bg) = self.chat_bg {
                 write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
             }
             self.write_chat_margin(&mut stdout)?;
-            if is_selected {
-                write!(stdout, "{}", SetAttribute(Attribute::Reverse))?;
-            }
             write!(stdout, "{}", SetForegroundColor(self.color(entry.color)))?;
             write!(stdout, "{}", wrap_urls_osc8(chunk))?;
-            if is_selected {
-                write!(stdout, "{}", SetAttribute(Attribute::NoReverse))?;
-            }
             write!(stdout, "{}", Clear(ClearType::UntilNewLine))?;
             write!(stdout, "{}", ResetColor)?;
 
@@ -730,7 +532,6 @@ impl Renderer {
         self.feed.clear();
         self.partial.clear();
         self.scroll_offset = 0;
-        self.clear_selection();
         let mut stdout = io::stdout();
         if let Some(bg) = self.chat_bg {
             write!(stdout, "{}", SetBackgroundColor(self.color(bg)))?;
@@ -1140,18 +941,12 @@ impl Renderer {
 
         // Vertical scroll: keep the cursor's line within the visible window so
         // pressing Up/Down can reveal lines that don't fit on screen at once.
-        // Only follow the cursor when it actually moved, so mouse-wheel scrolling
-        // (which leaves the cursor put) is not snapped back every frame.
-        let cursor_moved = self.last_input_cursor != cursor_pos;
-        self.last_input_cursor = cursor_pos;
         let first_visible = if need_scroll {
             self.input_max_vscroll = line_count - max_input_rows;
-            if cursor_moved {
-                if cursor_line < self.input_vscroll_offset {
-                    self.input_vscroll_offset = cursor_line;
-                } else if cursor_line >= self.input_vscroll_offset + max_input_rows {
-                    self.input_vscroll_offset = cursor_line - max_input_rows + 1;
-                }
+            if cursor_line < self.input_vscroll_offset {
+                self.input_vscroll_offset = cursor_line;
+            } else if cursor_line >= self.input_vscroll_offset + max_input_rows {
+                self.input_vscroll_offset = cursor_line - max_input_rows + 1;
             }
             self.input_vscroll_offset = self.input_vscroll_offset.min(self.input_max_vscroll);
             self.input_vscroll_offset
@@ -1205,15 +1000,6 @@ impl Renderer {
         if sep_above < input_top {
             self.draw_separator(sep_above, cols)?;
         }
-
-        // Remember the input layout so a mouse click can be mapped back to a
-        // cursor position inside the input buffer.
-        self.input_base_row = input_top;
-        self.input_prompt_width = prompt_width;
-        self.input_first_visible = first_visible;
-        self.input_visible_line_count = visible_line_count;
-        self.input_h_scroll = h_scroll;
-        self.input_cursor_line = cursor_line;
 
         for (i, line) in lines
             .iter()
@@ -1301,63 +1087,14 @@ impl Renderer {
     }
 }
 
-/// Validate that a URL is safe to hand to the OS opener: an absolute
-/// http(s) URL with a non-empty host, no whitespace or control characters,
-/// and a sane length. Anything else (file:, javascript:, bare paths, ...)
-/// is rejected so a malicious or malformed link cannot reach the shell.
-pub(crate) fn is_safe_url(url: &str) -> bool {
-    let url = url.trim();
-    if url.is_empty() || url.len() > 2048 {
-        return false;
-    }
-    if url.chars().any(|c| c.is_control() || c.is_whitespace()) {
-        return false;
-    }
-    let Some(rest) = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-    else {
-        return false;
-    };
-    let host = rest.split(['/', '?', '#']).next().unwrap_or("");
-    !host.is_empty()
-}
-
-/// Open `url` in the system browser. The URL is validated first; the error
-/// describes why nothing was opened (rejected URL or no working opener), so
-/// callers can surface it instead of failing silently.
-pub fn open_url(url: &str) -> anyhow::Result<()> {
-    if !is_safe_url(url) {
-        let preview: String = url.chars().take(80).collect();
-        anyhow::bail!("refusing to open invalid or non-http(s) URL: {}", preview);
-    }
-    let openers: &[(&str, &[&str])] = &[
-        ("xdg-open", &[url]),
-        ("open", &[url]),               // macOS
-        ("cmd", &["/c", "start", url]), // Windows
-    ];
-    for &(cmd, args) in openers {
-        let Ok(mut child) = std::process::Command::new(cmd)
-            .args(args)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-        else {
-            continue; // opener not installed
-        };
-        // A spawned opener can still fail (e.g. xdg-open without a display);
-        // honor its exit status and fall through to the next one.
-        if matches!(child.wait(), Ok(status) if status.success()) {
-            return Ok(());
-        }
-    }
-    anyhow::bail!("no working opener found (tried xdg-open, open, cmd)")
-}
-
 /// Copy `text` to the system clipboard. Tries external tools (checking
 /// their exit status, so a tool that starts but fails — e.g. xclip without
 /// an X display — falls through) and finally the OSC 52 terminal escape.
 /// Errors only when even the escape cannot be written.
+///
+/// Only the MCP OAuth login flow copies to the clipboard today, so this is
+/// compiled just for that feature (and its tests).
+#[cfg(any(feature = "mcp", test))]
 pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     let cmds: &[(&str, &[&str])] = &[
         ("wl-copy", &[]),
@@ -1399,6 +1136,7 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
 }
 
 /// Minimal base64 encoder — avoids pulling in a crate just for clipboard support.
+#[cfg(any(feature = "mcp", test))]
 pub(crate) fn base64_encode(input: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(input.len().div_ceil(3) * 4);

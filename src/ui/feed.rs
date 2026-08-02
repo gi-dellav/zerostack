@@ -99,10 +99,10 @@ pub struct Feed {
     /// know whether the chat viewport needs a redraw, which also catches
     /// mutations made through `Renderer::feed_mut()`.
     generation: u64,
-    /// Pre-wrapped visual rows for the last requested width. Scroll and
-    /// selection queries reuse these rows instead of re-laying out the whole
-    /// feed each time; invalidated by any content mutation (generation bump)
-    /// or a width change.
+    /// Pre-wrapped visual rows for the last requested width. Scroll queries
+    /// reuse these rows instead of re-laying out the whole feed each time;
+    /// invalidated by any content mutation (generation bump) or a width
+    /// change.
     layout_cache: RefCell<Option<LayoutCache>>,
     /// Number of full layout passes; test-only proof that queries reuse the
     /// pre-wrapped rows.
@@ -224,9 +224,9 @@ impl Feed {
     /// memoized per block so repeated layouts at the same width don't re-parse.
     ///
     /// The laid-out rows are pre-wrapped and memoized per `(width,
-    /// generation)`, so scroll and selection queries (`line_count`,
-    /// `visible_range`, `line_at_visual_row`, `selected_text`) operate on the
-    /// cached visual rows instead of re-laying out the feed on every call.
+    /// generation)`, so scroll queries (`line_count`, `visible_range`,
+    /// `line_at_visual_row`) operate on the cached visual rows instead of
+    /// re-laying out the feed on every call.
     pub fn lines(&self, width: usize) -> Vec<LineEntry> {
         {
             let cache = self.layout_cache.borrow();
@@ -361,30 +361,6 @@ impl Feed {
             idx += 1;
         }
         None
-    }
-
-    /// Concatenate the text of all visible lines in the given range.
-    pub fn selected_text(&self, width: usize, start: usize, end: usize) -> Option<String> {
-        let lines = self.lines(width);
-        let (lo, hi) = if start <= end {
-            (start, end)
-        } else {
-            (end, start)
-        };
-        let mut result = String::new();
-        for i in lo..=hi {
-            if let Some(entry) = lines.get(i) {
-                if !result.is_empty() {
-                    result.push('\n');
-                }
-                result.push_str(&entry.text);
-            }
-        }
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
     }
 }
 

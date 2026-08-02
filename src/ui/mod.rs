@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crossterm::event;
-use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
+use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::style::Color;
 use tokio::sync::mpsc;
 
@@ -287,37 +287,6 @@ pub(crate) fn spawn_event_thread(
                         break;
                     }
                 }
-                Ok(event::Event::Mouse(m)) => match m.kind {
-                    MouseEventKind::ScrollUp => {
-                        if user_tx.blocking_send(UserEvent::ScrollUp).is_err() {
-                            break;
-                        }
-                    }
-                    MouseEventKind::ScrollDown => {
-                        if user_tx.blocking_send(UserEvent::ScrollDown).is_err() {
-                            break;
-                        }
-                    }
-                    MouseEventKind::Down(MouseButton::Left) => {
-                        let _ = user_tx.blocking_send(UserEvent::MouseDown {
-                            row: m.row,
-                            col: m.column,
-                        });
-                    }
-                    MouseEventKind::Drag(MouseButton::Left) => {
-                        let _ = user_tx.blocking_send(UserEvent::MouseDrag {
-                            row: m.row,
-                            col: m.column,
-                        });
-                    }
-                    MouseEventKind::Up(MouseButton::Left) => {
-                        let _ = user_tx.blocking_send(UserEvent::MouseUp {
-                            row: m.row,
-                            col: m.column,
-                        });
-                    }
-                    _ => {}
-                },
                 Ok(event::Event::Resize(_cols, _rows)) => {
                     let _ = user_tx.blocking_send(UserEvent::Resize);
                 }

@@ -30,11 +30,11 @@ Single crate, no workspace. All source under `src/`.
 - **`AnyClient`** (`src/provider.rs:153`) / **`AnyModel`** (`:545`) / **`AnyAgent`** (`:562`) — type-erased enums wrapping rig's provider-specific clients (OpenAI, Anthropic, Gemini, Ollama, OpenRouter). `AnyAgent` provides `run_print()` and `spawn_runner()`. No custom traits — enum dispatch replaces dynamic dispatch.
 - **`AgentRunner`** (`src/agent/runner.rs:17`) — holds `mpsc::Receiver<AgentEvent>`, spawned via `spawn_agent()`.
 - **`AgentEvent`** (`src/event.rs:4`) — `Token`, `Reasoning`, `ToolCall`, `ToolResult`, `SubagentToolCall`, `Error`, `Done`.
-- **`UserEvent`** (`src/event.rs:64`) — `Key`, `ScrollUp/Down`, `Resize`, `Paste`, `MouseDown/Drag/Up`.
+- **`UserEvent`** (`src/event.rs:64`) — `Key`, `Resize`, `Paste`.
 - **`Session`** (`src/session/mod.rs:61`) — serializable state: messages, compactions, costs, permission allowlist, model/provider info.
 - **`PermissionChecker`** (`src/permission/checker.rs:29`) — dual-layer (glob + regex) rules, doom-loop detection, `SecurityMode` dispatch.
-- **`TerminalGuard`** (`src/ui/terminal.rs:10`) — RAII for raw mode, alt screen, mouse capture.
-- **`Renderer`** (`src/ui/renderer.rs:52`) — line-buffered viewport, markdown rendering, scroll/selection.
+- **`TerminalGuard`** (`src/ui/terminal.rs:10`) — RAII for raw mode, alt screen.
+- **`Renderer`** (`src/ui/renderer.rs:52`) — line-buffered viewport, markdown rendering, scrolling.
 - **`InputEditor`** (`src/ui/input/mod.rs:21`) — text buffer, cursor, history, kill-ring, picker integration.
 - **`ContextFiles`** (`src/context/mod.rs:57`) — loaded agents, prompts, themes, architecture docs.
 - **`HookDispatcher`** (`src/extras/hooks/dispatcher.rs:60`, feature `hooks`) — merges `PreToolUse` verdicts (`Allow`/`Defer`/`Ask`/`Deny`, most severe wins) and applies `PostToolUse`/lifecycle `Decision`s (`Continue`/`Block`/`Rewrite`). Wraps every tool via `wrap_from_global()` (`src/agent/builder.rs:276`), outside each tool's own `PermissionChecker` check.
@@ -54,7 +54,7 @@ CLI parse (main.rs:150) → config load → context load → session load
 ### Interactive TUI Event Loop (`src/ui/mod.rs`)
 
 Single `tokio::select!` with 6 branches plus an `else` fallback (line 1119):
-1. **`UserEvent` from `user_rx`** — keyboard/mouse/resize/paste from background event thread (polls crossterm every 50ms idle, 10ms while coalescing a paste burst)
+1. **`UserEvent` from `user_rx`** — keyboard/resize/paste from background event thread (polls crossterm every 50ms idle, 10ms while coalescing a paste burst)
 2. **Background agent prebuild** from `prebuild_rx` — consumed once idle, so MCP connection notices land in the transcript instead of racing the alt-screen TUI
 3. **`AgentEvent` from `agent_rx`** — streaming LLM tokens, tool calls, errors
 4. **Permission `AskRequest` from `ask_rx`** — user must approve/reject tool calls
@@ -101,7 +101,7 @@ Session is serialized to JSON files in `$XDG_DATA_HOME/zerostack/sessions/`. Cha
 |---|---|
 | `rig 0.39` | Agent framework: prompt hooks, tool system, streaming, provider clients (OpenAI, Anthropic, Gemini, Ollama, OpenRouter) |
 | `clap 4` | Derive-based CLI argument parsing (`src/cli.rs:9`) |
-| `crossterm 0.29` | Terminal raw mode, color, cursor, mouse, paste events — TUI foundation |
+| `crossterm 0.29` | Terminal raw mode, color, cursor, paste events — TUI foundation |
 | `tokio 1` | Async runtime (current_thread default), channels (`mpsc`), process, fs |
 | `serde + serde_json + serde_yaml_ng + toml` | Config (TOML/YAML/JSON), session serialization (JSON) |
 | `chrono`, `uuid` | Session timestamps and IDs |

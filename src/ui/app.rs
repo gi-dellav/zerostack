@@ -20,7 +20,9 @@ use crate::ui::events::{render_session, sanitize_output};
 use crate::ui::input::InputEditor;
 use crate::ui::permission_handler::handle_permission_request;
 use crate::ui::pickers::rewind::RewindOutcome;
-use crate::ui::renderer::{self as renderer_mod, ChainPrompt, Renderer, copy_to_clipboard};
+#[cfg(feature = "mcp")]
+use crate::ui::renderer::copy_to_clipboard;
+use crate::ui::renderer::{ChainPrompt, Renderer};
 use crate::ui::slash::{apply_prompt_model, handle_compress, handle_slash};
 #[cfg(feature = "git-worktree")]
 use crate::ui::state::MergeRequest;
@@ -470,60 +472,6 @@ impl<'a> App<'a> {
             UserEvent::Resize => {
                 self.renderer.resize();
             }
-            UserEvent::ScrollUp => {
-                if !self.renderer.input_scroll_up() {
-                    self.renderer.scroll_line_up();
-                }
-            }
-            UserEvent::ScrollDown => {
-                if self.renderer.is_scrolling() {
-                    self.renderer.scroll_line_down();
-                } else {
-                    self.renderer.input_scroll_down();
-                }
-            }
-            UserEvent::MouseDown { row, col } => {
-                if let Some(pos) =
-                    self.renderer
-                        .input_cursor_for_click(row, col, &self.input.buffer)
-                {
-                    self.input.set_cursor(pos);
-                } else if row < self.renderer.visible_lines() as u16
-                    && let Some(idx) = self.renderer.buffer_line_at_row(row)
-                {
-                    if let Some(url) = self.renderer.link_url_at(idx, col) {
-                        if let Err(e) = renderer_mod::open_url(&url) {
-                            self.renderer
-                                .write_line(&format!("cannot open link: {}", e), C_ERROR)?;
-                        }
-                    } else {
-                        self.renderer.selection_active = true;
-                        self.renderer.selection_start = Some(idx);
-                        self.renderer.selection_end = Some(idx);
-                    }
-                }
-            }
-            UserEvent::MouseDrag { row, col: _ } => {
-                if self.renderer.selection_active
-                    && let Some(idx) = self.renderer.buffer_line_at_row(row)
-                {
-                    self.renderer.selection_end = Some(idx);
-                }
-            }
-            UserEvent::MouseUp { row, col: _ } => {
-                if self.renderer.selection_active {
-                    if let Some(idx) = self.renderer.buffer_line_at_row(row) {
-                        self.renderer.selection_end = Some(idx);
-                    }
-                    if let Some(text) = self.renderer.selected_text()
-                        && let Err(e) = copy_to_clipboard(&text)
-                    {
-                        self.renderer
-                            .write_line(&format!("copy to clipboard failed: {}", e), C_ERROR)?;
-                    }
-                    self.renderer.clear_selection();
-                }
-            }
             UserEvent::Paste(data) => {
                 self.input.handle_paste(data);
             }
@@ -568,26 +516,6 @@ impl<'a> App<'a> {
     }
 
     async fn handle_key_event(&mut self, key: KeyEvent) -> anyhow::Result<()> {
-        if self.renderer.selection_active && key.code == KeyCode::Char('y') {
-            if let Some(text) = self.renderer.selected_text() {
-                match copy_to_clipboard(&text) {
-                    Ok(()) => {
-                        self.renderer.write_line("copied selection", Color::Green)?;
-                    }
-                    Err(e) => {
-                        self.renderer
-                            .write_line(&format!("copy to clipboard failed: {}", e), C_ERROR)?;
-                    }
-                }
-            }
-            self.renderer.clear_selection();
-            return Ok(());
-        }
-        if self.renderer.selection_active && key.code == KeyCode::Esc {
-            self.renderer.clear_selection();
-            return Ok(());
-        }
-
         let ctrl_r =
             key.code == KeyCode::Char('r') && key.modifiers.contains(KeyModifiers::CONTROL);
         if ctrl_r {
@@ -1534,7 +1462,6 @@ impl<'a> App<'a> {
                     .unwrap_or_else(|| "editor".to_string());
                 let _ = crossterm::terminal::disable_raw_mode();
                 let mut stdout = std::io::stdout();
-                let _ = stdout.execute(crossterm::event::DisableMouseCapture);
                 let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
                 let _ = stdout.flush();
                 let _ = std::process::Command::new("sh")
@@ -1547,7 +1474,6 @@ impl<'a> App<'a> {
                 let _ = stdout.execute(crossterm::terminal::Clear(
                     crossterm::terminal::ClearType::All,
                 ));
-                let _ = stdout.execute(crossterm::event::EnableMouseCapture);
                 let _ = crossterm::terminal::enable_raw_mode();
                 render_session(
                     &mut self.renderer,
@@ -1843,7 +1769,6 @@ impl<'a> App<'a> {
         }
         let _ = crossterm::terminal::disable_raw_mode();
         let mut stdout = std::io::stdout();
-        let _ = stdout.execute(crossterm::event::DisableMouseCapture);
         let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
         let _ = stdout.flush();
         let _ = std::process::Command::new("lazygit").status();
@@ -1851,7 +1776,6 @@ impl<'a> App<'a> {
         let _ = stdout.execute(crossterm::terminal::Clear(
             crossterm::terminal::ClearType::All,
         ));
-        let _ = stdout.execute(crossterm::event::EnableMouseCapture);
         let _ = crossterm::terminal::enable_raw_mode();
         self.rebind_event_thread();
         Ok(())

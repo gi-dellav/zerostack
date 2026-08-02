@@ -1,4 +1,4 @@
-use crate::ui::renderer::{base64_encode, copy_to_clipboard, is_safe_url};
+use crate::ui::renderer::{base64_encode, copy_to_clipboard};
 
 #[test]
 fn base64_encode_empty() {
@@ -46,41 +46,6 @@ fn copy_to_clipboard_does_not_panic() {
 #[test]
 fn copy_to_clipboard_empty_string() {
     copy_to_clipboard("").expect("copy should succeed");
-}
-
-#[test]
-fn safe_url_accepts_http_and_https() {
-    assert!(is_safe_url("https://example.com"));
-    assert!(is_safe_url("http://example.com/path?q=1#frag"));
-    assert!(is_safe_url("https://user@example.com:8080/x"));
-}
-
-#[test]
-fn safe_url_rejects_non_http_schemes() {
-    assert!(!is_safe_url("file:///etc/passwd"));
-    assert!(!is_safe_url("javascript:alert(1)"));
-    assert!(!is_safe_url("ftp://example.com"));
-    assert!(!is_safe_url("example.com/no-scheme"));
-    assert!(!is_safe_url(""));
-}
-
-#[test]
-fn safe_url_rejects_missing_host() {
-    assert!(!is_safe_url("https://"));
-    assert!(!is_safe_url("http:///path"));
-}
-
-#[test]
-fn safe_url_rejects_whitespace_and_control_chars() {
-    assert!(!is_safe_url("https://example.com/a b"));
-    assert!(!is_safe_url("https://example.com/\nevil"));
-    assert!(!is_safe_url("https://example.com/\x07"));
-}
-
-#[test]
-fn safe_url_rejects_overlong_urls() {
-    let long = format!("https://example.com/{}", "a".repeat(2100));
-    assert!(!is_safe_url(&long));
 }
 
 #[test]
@@ -153,7 +118,7 @@ mod dirty {
         }
         r.mark_chat_clean();
         assert!(!r.chat_needs_redraw());
-        r.scroll_line_up();
+        r.scroll_page_up();
         assert!(r.chat_needs_redraw());
     }
 
@@ -162,22 +127,6 @@ mod dirty {
         let mut r = Renderer::new().unwrap();
         r.mark_chat_clean();
         r.resize();
-        assert!(r.chat_needs_redraw());
-    }
-
-    #[test]
-    fn selection_change_triggers_chat_redraw() {
-        let mut r = Renderer::new().unwrap();
-        r.feed_mut().push_line(BlockStyle::Plain, "selectable");
-        r.mark_chat_clean();
-        assert!(!r.chat_needs_redraw());
-        // Selection fields are public and mutated directly by callers.
-        r.selection_active = true;
-        r.selection_start = Some(0);
-        r.selection_end = Some(0);
-        assert!(r.chat_needs_redraw());
-        r.mark_chat_clean();
-        r.clear_selection();
         assert!(r.chat_needs_redraw());
     }
 
