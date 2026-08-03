@@ -207,6 +207,48 @@ pub(crate) fn commit_count(
     committed + spill
 }
 
+/// Soft-wrap one hard input line at `width` display columns, returning the
+/// `(start_byte, end_byte)` slice of each display row. Wraps at character
+/// boundaries (no word logic — the input is raw text); a row always holds at
+/// least one character, even one wider than `width`. An empty line yields one
+/// empty segment.
+pub(crate) fn wrap_input_segments(line: &str, width: usize) -> Vec<(usize, usize)> {
+    let width = width.max(1);
+    let mut segments = Vec::new();
+    let mut start = 0usize;
+    let mut col = 0usize;
+    for (i, ch) in line.char_indices() {
+        let cw = char_display_width(ch);
+        if col > 0 && col + cw > width {
+            segments.push((start, i));
+            start = i;
+            col = 0;
+        }
+        col += cw;
+    }
+    segments.push((start, line.len()));
+    segments
+}
+
+/// Map a cursor byte offset within a hard line to its `(wrapped_row,
+/// display_col)` across the segments from [`wrap_input_segments`]. A cursor
+/// sitting exactly on a wrap boundary lands at the start of the next row.
+pub(crate) fn wrapped_cursor(
+    segments: &[(usize, usize)],
+    line: &str,
+    cursor_byte: usize,
+) -> (usize, usize) {
+    let mut row = 0usize;
+    for (i, &(start, _)) in segments.iter().enumerate() {
+        if start > cursor_byte {
+            break;
+        }
+        row = i;
+    }
+    let col = display_width(&line[segments[row].0..cursor_byte]);
+    (row, col)
+}
+
 /// Which prompt mode `draw_live_block` paints in the input area.
 #[derive(Clone, PartialEq)]
 pub(crate) enum PromptSnapshot {
@@ -290,7 +332,6 @@ pub struct Renderer {
     feed: Feed,
     partial: CompactString,
     partial_style: BlockStyle,
-    input_scroll_offset: usize,
     input_vscroll_offset: usize,
     input_max_vscroll: usize,
     monochrome: bool,
@@ -345,7 +386,6 @@ impl Renderer {
             feed: Feed::new(),
             partial: CompactString::new(""),
             partial_style: BlockStyle::Plain,
-            input_scroll_offset: 0,
             input_vscroll_offset: 0,
             input_max_vscroll: 0,
             monochrome: false,
@@ -495,9 +535,17 @@ impl Renderer {
         if self.permission_prompt.is_some() || self.chain_prompt.is_some() {
             return 2;
         }
+        let (cols, _) = self.terminal_size();
+        // The prompt ("> " or a spinner frame) takes two columns; the text
+        // soft-wraps at the rest.
+        let text_width = (cols.saturating_sub(2) as usize).max(1);
         let available_rows = rows.saturating_sub(self.statusline_reserve()) as usize;
         let max_input_rows = available_rows.min((available_rows * 3 / 10).max(5));
-        input_line.split('\n').count().min(max_input_rows).max(1)
+        let wrapped_rows: usize = input_line
+            .split('\n')
+            .map(|line| wrap_input_segments(line, text_width).len())
+            .sum();
+        wrapped_rows.min(max_input_rows).max(1)
     }
 
     /// Rows available above the input area for the streaming region (tail of
@@ -1113,7 +1161,6 @@ impl Renderer {
         }
 
         let lines: SmallVec<[&str; 4]> = input_line.split('\n').collect();
-        let line_count = lines.len();
 
         let reserve = self.statusline_reserve();
         let available_rows = (rows.saturating_sub(reserve) as usize).max(1);
@@ -1121,7 +1168,6 @@ impl Renderer {
         // region stays visible above a tall input instead of being squeezed
         // to nothing.
         let max_input_rows = available_rows.min((available_rows * 3 / 10).max(5));
-        let need_scroll = line_count > max_input_rows;
 
         const SPINNER: &[&str] = &["⠋ ", "⠙ ", "⠹ ", "⠸ ", "⠼ ", "⠴ ", "⠦ ", "⠧ ", "⠇ ", "⠏ "];
         let prompt = if is_running {
@@ -1132,18 +1178,46 @@ impl Renderer {
             "> "
         };
         let prompt_width = display_width(prompt);
+        let text_width = (cols.saturating_sub(prompt_width as u16) as usize).max(1);
 
         let (cursor_line, cursor_col) =
             crate::ui::input::cursor_to_line_col(input_line, cursor_pos);
 
-        // Vertical scroll: keep the cursor's line within the visible window so
-        // pressing Up/Down can reveal lines that don't fit on screen at once.
+        // Soft-wrap each hard line at the text width: long lines occupy extra
+        // display rows instead of scrolling horizontally. Locate the cursor's
+        // wrapped row and column-in-row while flattening.
+        let mut wrapped: Vec<(&str, usize, usize)> = Vec::new();
+        let mut cursor_row = 0usize;
+        let mut cursor_col_in_row = 0usize;
+        for (i, line) in lines.iter().enumerate() {
+            let segments = wrap_input_segments(line, text_width);
+            if i == cursor_line {
+                // Convert the cursor's char-index within the hard line to a
+                // byte offset, then to a wrapped row + display column.
+                let cursor_byte = line
+                    .char_indices()
+                    .nth(cursor_col)
+                    .map(|(b, _)| b)
+                    .unwrap_or(line.len());
+                let (row, col) = wrapped_cursor(&segments, line, cursor_byte);
+                cursor_row = wrapped.len() + row;
+                cursor_col_in_row = col;
+            }
+            for &(start, end) in &segments {
+                wrapped.push((line, start, end));
+            }
+        }
+        let row_count = wrapped.len();
+        let need_scroll = row_count > max_input_rows;
+
+        // Vertical scroll: keep the cursor's display row within the visible
+        // window so pressing Up/Down can reveal rows that don't fit at once.
         let first_visible = if need_scroll {
-            self.input_max_vscroll = line_count - max_input_rows;
-            if cursor_line < self.input_vscroll_offset {
-                self.input_vscroll_offset = cursor_line;
-            } else if cursor_line >= self.input_vscroll_offset + max_input_rows {
-                self.input_vscroll_offset = cursor_line - max_input_rows + 1;
+            self.input_max_vscroll = row_count - max_input_rows;
+            if cursor_row < self.input_vscroll_offset {
+                self.input_vscroll_offset = cursor_row;
+            } else if cursor_row >= self.input_vscroll_offset + max_input_rows {
+                self.input_vscroll_offset = cursor_row - max_input_rows + 1;
             }
             self.input_vscroll_offset = self.input_vscroll_offset.min(self.input_max_vscroll);
             self.input_vscroll_offset
@@ -1153,42 +1227,17 @@ impl Renderer {
             0
         };
 
-        let visible_width = cols.saturating_sub(prompt_width as u16) as usize;
-        let cursor_line_text = lines.get(cursor_line).unwrap_or(&"");
-
-        // Convert cursor char-index to display column
-        let cursor_byte = cursor_line_text
-            .char_indices()
-            .nth(cursor_col)
-            .map(|(i, _)| i)
-            .unwrap_or(cursor_line_text.len());
-        let cursor_display_col = display_width(&cursor_line_text[..cursor_byte]);
-
-        let cursor_line_len = display_width(cursor_line_text);
-        let mut h_scroll = 0usize;
-        if cursor_line_len > visible_width {
-            if cursor_display_col < self.input_scroll_offset {
-                self.input_scroll_offset = cursor_display_col;
-            } else if cursor_display_col >= self.input_scroll_offset + visible_width {
-                self.input_scroll_offset = cursor_display_col - visible_width + 1;
-            }
-            let max_h_scroll = cursor_line_len.saturating_sub(visible_width);
-            h_scroll = self.input_scroll_offset.min(max_h_scroll);
-        } else {
-            self.input_scroll_offset = 0;
-        }
-
         let visible_line_count = if need_scroll {
             max_input_rows
         } else {
-            line_count
+            row_count
         };
 
         // Thin separator line above input
         self.draw_separator_line(cols)?;
         writeln!(self.backend)?;
 
-        for (i, line) in lines
+        for (i, &(line, start, end)) in wrapped
             .iter()
             .enumerate()
             .skip(first_visible)
@@ -1210,29 +1259,7 @@ impl Renderer {
                 write!(self.backend, "{}", " ".repeat(prompt_width))?;
             }
 
-            let line_chars: SmallVec<[char; 64]> = line.chars().collect();
-            // Skip chars to reach display column h_scroll, then take enough to fill visible_width
-            let skip_chars: usize = if i == cursor_line {
-                let mut w = 0usize;
-                let mut skip = 0usize;
-                for &ch in &line_chars {
-                    let cw = char_display_width(ch);
-                    if w + cw > h_scroll {
-                        break;
-                    }
-                    w += cw;
-                    skip += 1;
-                }
-                skip
-            } else {
-                0
-            };
-            let display: String = line_chars
-                .iter()
-                .skip(skip_chars)
-                .take(visible_width)
-                .collect();
-            write!(self.backend, "{}", display)?;
+            write!(self.backend, "{}", &line[start..end])?;
             write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
             write!(self.backend, "{}", ResetColor)?;
             writeln!(self.backend)?;
@@ -1246,13 +1273,14 @@ impl Renderer {
         self.draw_statusline_rows(statusline, cols)?;
 
         // Caret. Clamp to the visible input rows so that when the input is
-        // scrolled away from the cursor line, the terminal caret stays inside
+        // scrolled away from the cursor row, the terminal caret stays inside
         // the input box instead of spilling onto the separator or status bar.
-        let cursor_render_idx = cursor_line
+        let cursor_render_idx = cursor_row
             .saturating_sub(first_visible)
             .min(visible_line_count.saturating_sub(1));
         let caret_off = stream_len + 1 + cursor_render_idx;
-        let cursor_x = (prompt_width + cursor_display_col.saturating_sub(h_scroll)) as u16;
+        let cursor_x = (prompt_width + cursor_col_in_row) as u16;
+        let cursor_x = cursor_x.min(cols.saturating_sub(1));
         let total = stream_len + 1 + visible_line_count + 1 + self.statusline_height;
         // The cursor sits at the end of the last statusline row; move it up
         // to the caret row.

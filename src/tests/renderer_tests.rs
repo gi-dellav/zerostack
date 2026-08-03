@@ -218,7 +218,7 @@ mod dirty {
     }
 
     #[test]
-    fn bottom_plan_full_on_input_scroll_change() {
+    fn bottom_plan_full_on_input_vscroll_change() {
         let prev = bottom_snapshot();
         let mut next = bottom_snapshot();
         next.input_vscroll_offset = 1;
@@ -471,5 +471,95 @@ mod watermark {
         r.note_feed_rebuilt();
         r.flush_committed("").unwrap();
         assert_eq!(r.captured_output(), before, "rebuilt feed must not reprint");
+    }
+}
+
+/// Input soft-wrap math: the pure segment/cursor-mapping functions plus one
+/// end-to-end draw against a `FakeBackend`.
+mod input_wrap {
+    use crate::ui::renderer::{FakeBackend, Renderer, wrap_input_segments, wrapped_cursor};
+
+    #[test]
+    fn segments_short_line_fits_one_row() {
+        assert_eq!(wrap_input_segments("hello", 10), vec![(0, 5)]);
+    }
+
+    #[test]
+    fn segments_empty_line_is_one_empty_row() {
+        assert_eq!(wrap_input_segments("", 10), vec![(0, 0)]);
+    }
+
+    #[test]
+    fn segments_wrap_at_char_boundaries() {
+        assert_eq!(
+            wrap_input_segments("abcdefghij", 4),
+            vec![(0, 4), (4, 8), (8, 10)]
+        );
+    }
+
+    #[test]
+    fn segments_exact_multiple_has_no_trailing_row() {
+        assert_eq!(wrap_input_segments("abcd", 2), vec![(0, 2), (2, 4)]);
+    }
+
+    #[test]
+    fn segments_never_split_a_wide_char() {
+        // '界' is 2 columns wide and 3 bytes long.
+        assert_eq!(wrap_input_segments("a界b", 2), vec![(0, 1), (1, 4), (4, 5)]);
+    }
+
+    #[test]
+    fn segments_wide_char_wider_than_row_still_gets_a_row() {
+        assert_eq!(wrap_input_segments("界", 1), vec![(0, 3)]);
+    }
+
+    #[test]
+    fn segments_zero_width_is_clamped() {
+        assert_eq!(wrap_input_segments("ab", 0), vec![(0, 1), (1, 2)]);
+    }
+
+    #[test]
+    fn cursor_in_middle_of_row() {
+        let segs = wrap_input_segments("abcdefghij", 4);
+        assert_eq!(wrapped_cursor(&segs, "abcdefghij", 6), (1, 2));
+    }
+
+    #[test]
+    fn cursor_on_wrap_boundary_starts_next_row() {
+        let segs = wrap_input_segments("abcdefghij", 4);
+        assert_eq!(wrapped_cursor(&segs, "abcdefghij", 4), (1, 0));
+    }
+
+    #[test]
+    fn cursor_at_line_end_sits_on_last_row() {
+        let segs = wrap_input_segments("abcdefghij", 4);
+        assert_eq!(wrapped_cursor(&segs, "abcdefghij", 10), (2, 2));
+    }
+
+    #[test]
+    fn cursor_after_wide_char_uses_display_columns() {
+        // "a界b" at width 2: rows are "a", "界", "b". After '界' (byte 4) the
+        // row is exactly full, so the boundary rule lands on the next row.
+        let segs = wrap_input_segments("a界b", 2);
+        assert_eq!(wrapped_cursor(&segs, "a界b", 4), (2, 0));
+        // After 'b' (end): row 2, display column 1.
+        assert_eq!(wrapped_cursor(&segs, "a界b", 5), (2, 1));
+        // Inside a row, columns are display widths, not bytes: after 'a'
+        // (byte 1) sits at display column 1 of row 0... but '界' starts row
+        // 1, so the boundary rule wins and the caret starts row 1.
+        assert_eq!(wrapped_cursor(&segs, "a界b", 1), (1, 0));
+    }
+
+    #[test]
+    fn long_input_soft_wraps_instead_of_scrolling() {
+        // 78 a's fill the first text row (80 cols - 2 prompt), then 22 b's.
+        let input = format!("{}{}", "a".repeat(78), "b".repeat(22));
+        let mut r = Renderer::with_backend(Box::new(FakeBackend::new(80, 24)));
+        // Cursor at the start: with horizontal scrolling only the tail or the
+        // head would be visible; wrapped, both halves must be painted.
+        r.draw_live_block(&input, 0, &[], false).unwrap();
+        let out = r.captured_output();
+        assert!(out.contains(&"a".repeat(78)), "first wrapped row: {out}");
+        assert!(out.contains(&"b".repeat(22)), "second wrapped row: {out}");
     }
 }

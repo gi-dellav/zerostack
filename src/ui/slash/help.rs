@@ -283,6 +283,14 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
         ctx.renderer,
         "  @<query>               file picker (Tab/Enter select, Esc cancel)",
     );
+    write_result(
+        ctx.renderer,
+        "  Alt/Ctrl+Left/Right    move cursor one word",
+    );
+    write_result(
+        ctx.renderer,
+        "  Ctrl+Backspace         delete previous word",
+    );
     write_result(ctx.renderer, "  Ctrl+R                 toggle reasoning");
     write_result(ctx.renderer, "  Ctrl+C / Ctrl+D        interrupt/quit");
 }

@@ -529,6 +529,14 @@ impl InputEditor {
 
                 None
             }
+            KeyCode::Backspace if ctrl => {
+                let deleted = self.delete_prev_word();
+                if !deleted.is_empty() {
+                    self.push_kill(deleted);
+                }
+                self.yank_pos = None;
+                None
+            }
             KeyCode::Backspace => {
                 if self.cursor > 0 {
                     self.cursor = prev_char_boundary(&self.buffer, self.cursor);
@@ -541,6 +549,16 @@ impl InputEditor {
                 if self.cursor < self.buffer.len() {
                     self.buffer.remove(self.cursor);
                 }
+                self.yank_pos = None;
+                None
+            }
+            KeyCode::Left if alt || ctrl => {
+                self.cursor = self.prev_word_start();
+                self.yank_pos = None;
+                None
+            }
+            KeyCode::Right if alt || ctrl => {
+                self.cursor = self.next_word_end();
                 self.yank_pos = None;
                 None
             }

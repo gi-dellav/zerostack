@@ -271,6 +271,9 @@ message, and after the response restores the previous prompt and
 | `Tab` | Activate file picker / auto-complete paths. |
 | `Up / Down` | Navigate command history. |
 | `Home / End` | Jump to start/end of input. |
+| `Alt+Left / Alt+Right` | Move cursor one word backward/forward. |
+| `Ctrl+Left / Ctrl+Right` | Move cursor one word backward/forward (same as Alt). |
+| `Ctrl+Backspace` | Delete word backwards (like `Ctrl+W`). |
 | `Alt+Enter` | Retry last prompt. |
 | `Escape` | Close active picker / cancel. |
 
