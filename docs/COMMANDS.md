@@ -262,18 +262,22 @@ message, and after the response restores the previous prompt and
 | `Shift+Enter` | Insert newline. |
 | `Ctrl+C` | Cancel current agent response or quit. |
 | `Ctrl+D` | Send message (alternative). |
-| `Ctrl+W` | Delete word backwards. |
-| `Ctrl+U` | Delete to beginning of line. |
+| `Home / End` | Jump to start/end of the current line. |
+| `Ctrl+A / Ctrl+E` | Jump to start/end of the current line. |
+| `Ctrl+Left / Ctrl+Right` | Move cursor one word backward/forward. |
+| `Alt+Left / Alt+Right` | Move cursor one word backward/forward (same as Ctrl). |
+| `Ctrl+Backspace` | Delete word backwards. |
+| `Ctrl+W` | Delete word backwards (same as Ctrl+Backspace). |
+| `Ctrl+U` | Kill from cursor to start of current line (yank with Ctrl+Y). |
+| `Ctrl+K` | Kill from cursor to end of current line (yank with Ctrl+Y). |
+| `Ctrl+Y` | Yank last killed text. |
+| `Alt+Y` | Cycle through kill ring after a yank. |
 | `Ctrl+L` | Clear terminal. |
 | `Ctrl+G` | Open the current input in the system editor (`$EDITOR`). |
 | `Ctrl+H` | Launch `lazygit` (git TUI) in the project directory. |
 | `Ctrl+S` | Save session. |
 | `Tab` | Activate file picker / auto-complete paths. |
-| `Up / Down` | Navigate command history. |
-| `Home / End` | Jump to start/end of input. |
-| `Alt+Left / Alt+Right` | Move cursor one word backward/forward. |
-| `Ctrl+Left / Ctrl+Right` | Move cursor one word backward/forward (same as Alt). |
-| `Ctrl+Backspace` | Delete word backwards (like `Ctrl+W`). |
+| `Up / Down` | Navigate command history (or move between input lines when multi-line). |
 | `Alt+Enter` | Retry last prompt. |
 | `Escape` | Close active picker / cancel. |
 

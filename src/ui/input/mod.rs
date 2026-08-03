@@ -293,25 +293,29 @@ impl InputEditor {
                     return None;
                 }
                 KeyCode::Char('u') => {
-                    if self.cursor > 0 {
-                        let deleted: String = self.buffer.chars().take(self.cursor).collect();
-                        let remaining: String = self.buffer.chars().skip(self.cursor).collect();
-                        self.buffer = CompactString::new(&remaining);
-                        self.cursor = 0;
+                    let start = line_start(&self.buffer, self.cursor);
+                    if self.cursor > start {
+                        let deleted: CompactString = self.buffer[start..self.cursor].into();
+                        let before = &self.buffer[..start];
+                        let after = &self.buffer[self.cursor..];
+                        self.buffer = CompactString::new(format!("{}{}", before, after));
+                        self.cursor = start;
                         if !deleted.is_empty() {
-                            self.push_kill(CompactString::new(&deleted));
+                            self.push_kill(deleted);
                         }
                     }
                     self.yank_pos = None;
                     return None;
                 }
                 KeyCode::Char('k') => {
-                    if self.cursor < self.buffer.len() {
-                        let deleted: String = self.buffer.chars().skip(self.cursor).collect();
-                        let before: String = self.buffer.chars().take(self.cursor).collect();
-                        self.buffer = CompactString::new(&before);
+                    let end = line_end(&self.buffer, self.cursor);
+                    if self.cursor < end {
+                        let deleted: CompactString = self.buffer[self.cursor..end].into();
+                        let before = &self.buffer[..self.cursor];
+                        let after = &self.buffer[end..];
+                        self.buffer = CompactString::new(format!("{}{}", before, after));
                         if !deleted.is_empty() {
-                            self.push_kill(CompactString::new(&deleted));
+                            self.push_kill(deleted);
                         }
                     }
                     self.yank_pos = None;
@@ -568,12 +572,12 @@ impl InputEditor {
                 self.cursor_down()
             }
             KeyCode::Home => {
-                self.cursor = 0;
+                self.cursor = line_start(&self.buffer, self.cursor);
                 self.yank_pos = None;
                 None
             }
             KeyCode::End => {
-                self.cursor = self.buffer.len();
+                self.cursor = line_end(&self.buffer, self.cursor);
                 self.yank_pos = None;
                 None
             }

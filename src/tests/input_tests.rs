@@ -178,3 +178,86 @@ fn plain_backspace_still_deletes_one_char() {
     editor.handle_key(press(KeyCode::Backspace));
     assert_eq!(editor.buffer.as_str(), "foo ba");
 }
+
+#[test]
+fn ctrl_a_moves_to_current_line_start() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "foo\nbar");
+    // cursor at end of buffer (after 'r')
+    editor.handle_key(press_mod(KeyCode::Char('a'), KeyModifiers::CONTROL));
+    assert_eq!(editor.cursor, 4); // start of "bar"
+}
+
+#[test]
+fn ctrl_e_moves_to_current_line_end() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "foo\nbar");
+    editor.cursor = 4; // start of "bar"
+    editor.handle_key(press_mod(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    assert_eq!(editor.cursor, 7); // end of "bar"
+}
+
+#[test]
+fn home_and_end_move_within_current_line() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "foo\nbar");
+    editor.cursor = 6; // middle of "bar"
+    editor.handle_key(press(KeyCode::Home));
+    assert_eq!(editor.cursor, 4);
+    editor.handle_key(press(KeyCode::End));
+    assert_eq!(editor.cursor, 7);
+}
+
+#[test]
+fn ctrl_u_kills_to_start_of_current_line() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "foo\nbar baz");
+    editor.cursor = 11; // end of "baz"
+    editor.handle_key(press_mod(KeyCode::Char('u'), KeyModifiers::CONTROL));
+    assert_eq!(editor.buffer.as_str(), "foo\n");
+    assert_eq!(editor.cursor, 4);
+    // Yank restores the killed line content.
+    editor.handle_key(press_mod(KeyCode::Char('y'), KeyModifiers::CONTROL));
+    assert_eq!(editor.buffer.as_str(), "foo\nbar baz");
+    assert_eq!(editor.cursor, 11);
+}
+
+#[test]
+fn ctrl_k_kills_to_end_of_current_line() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "foo\nbar baz");
+    editor.cursor = 4; // start of "bar"
+    editor.handle_key(press_mod(KeyCode::Char('k'), KeyModifiers::CONTROL));
+    assert_eq!(editor.buffer.as_str(), "foo\n");
+    assert_eq!(editor.cursor, 4);
+    editor.handle_key(press_mod(KeyCode::Char('y'), KeyModifiers::CONTROL));
+    assert_eq!(editor.buffer.as_str(), "foo\nbar baz");
+    assert_eq!(editor.cursor, 11);
+}
+
+#[test]
+fn ctrl_u_on_first_line_keeps_following_lines() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "foo\nbar");
+    editor.cursor = 3; // end of "foo"
+    editor.handle_key(press_mod(KeyCode::Char('u'), KeyModifiers::CONTROL));
+    assert_eq!(editor.buffer.as_str(), "\nbar");
+    assert_eq!(editor.cursor, 0);
+}
+
+#[test]
+fn alt_y_cycles_kill_ring_after_yank() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "foo bar baz");
+    // Kill two words individually.
+    editor.handle_key(press_mod(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    assert_eq!(editor.buffer.as_str(), "foo bar ");
+    editor.handle_key(press_mod(KeyCode::Char('w'), KeyModifiers::CONTROL));
+    assert_eq!(editor.buffer.as_str(), "foo ");
+    // Yank the most recent kill.
+    editor.handle_key(press_mod(KeyCode::Char('y'), KeyModifiers::CONTROL));
+    assert_eq!(editor.buffer.as_str(), "foo bar ");
+    // Cycle back to the older kill.
+    editor.handle_key(press_mod(KeyCode::Char('y'), KeyModifiers::ALT));
+    assert_eq!(editor.buffer.as_str(), "foo baz");
+}

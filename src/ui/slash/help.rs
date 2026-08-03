@@ -291,6 +291,22 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
         ctx.renderer,
         "  Ctrl+Backspace         delete previous word",
     );
+    write_result(
+        ctx.renderer,
+        "  Home / End             start / end of current line",
+    );
+    write_result(
+        ctx.renderer,
+        "  Ctrl+A / Ctrl+E        start / end of current line",
+    );
+    write_result(
+        ctx.renderer,
+        "  Ctrl+U / Ctrl+K        kill to line start / line end",
+    );
+    write_result(
+        ctx.renderer,
+        "  Ctrl+Y / Alt+Y         yank / cycle kill ring",
+    );
     write_result(ctx.renderer, "  Ctrl+R                 toggle reasoning");
     write_result(ctx.renderer, "  Ctrl+C / Ctrl+D        interrupt/quit");
 }
