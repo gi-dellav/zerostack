@@ -903,6 +903,73 @@ mod timestamps {
     }
 }
 
+/// Fenced code block styling (header + background).
+mod code_blocks {
+    use crate::ui::feed::BlockStyle;
+    use crate::ui::renderer::{FakeBackend, Renderer};
+
+    fn headless(cols: u16, rows: u16) -> Renderer {
+        Renderer::with_backend(Box::new(FakeBackend::new(cols, rows)))
+    }
+
+    #[test]
+    fn code_block_header_and_content_emitted() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_block(
+            BlockStyle::Agent,
+            "```rust\nfn main() {\n    println!();\n}\n```",
+        );
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(
+            out.contains("rust"),
+            "language header should be printed: {out}"
+        );
+        assert!(
+            out.contains("fn main"),
+            "code content should be printed: {out}"
+        );
+        // The line should be padded to the full content width (80 - 1 - 0 margin).
+        assert!(
+            out.contains("── rust ──"),
+            "header text should be present: {out}"
+        );
+    }
+
+    #[test]
+    fn code_block_is_monochrome_safe() {
+        let mut r = headless(80, 24);
+        r.set_monochrome(true);
+        r.feed_mut()
+            .push_block(BlockStyle::Agent, "```rust\nfn main() {}\n```");
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(
+            out.contains("rust"),
+            "language header should still print in monochrome: {out}"
+        );
+        // Reverse-video attribute is used instead of background color.
+        assert!(
+            out.contains("[7m"),
+            "reverse video should be used for code blocks in monochrome: {out}"
+        );
+    }
+
+    #[test]
+    fn no_agent_prefix_on_code_block_header() {
+        let mut r = headless(80, 24);
+        r.feed_mut()
+            .push_block(BlockStyle::Agent, "```rust\nfn main() {}\n```");
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        // The code header should appear without the agent "< " prefix.
+        assert!(
+            !out.contains("<   ── rust"),
+            "code header should not be prefixed with agent marker: {out}"
+        );
+    }
+}
+
 /// OSC 133 shell integration marks (prompt/output region annotations).
 mod osc_133 {
     use crate::ui::feed::BlockStyle;

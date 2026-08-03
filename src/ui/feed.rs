@@ -22,6 +22,7 @@ pub enum BlockStyle {
     System,
     Welcome,
     Permission,
+    Code,
     Plain,
 }
 
@@ -354,7 +355,7 @@ fn block_layout(block: &Block, width: usize) -> Vec<LineEntry> {
     let mut result = match block.style {
         BlockStyle::Agent => {
             let mut styled = agent_block_lines(block, width);
-            if !styled.is_empty() {
+            if !styled.is_empty() && styled[0].style != BlockStyle::Code {
                 styled[0].text = CompactString::from(format!("< {}", styled[0].text));
             }
             styled

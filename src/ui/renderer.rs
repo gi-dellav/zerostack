@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 use compact_str::CompactString;
 use crossterm::QueueableCommand;
 use crossterm::cursor::{Hide, MoveDown, MoveRight, MoveTo, MoveUp, Show};
-use crossterm::style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor};
+use crossterm::style::{
+    Attribute, Color, ResetColor, SetAttribute, SetBackgroundColor, SetForegroundColor,
+};
 use crossterm::terminal::{Clear, ClearType};
 use regex::Regex;
 use smallvec::SmallVec;
@@ -777,26 +779,54 @@ impl Renderer {
     /// OSC8-wrapped text) at the current cursor position; no trailing newline.
     /// When `prefix` is provided it is painted in dark grey before the row text.
     fn write_chat_row(&mut self, entry: &LineEntry, prefix: Option<&str>) -> io::Result<()> {
+        let is_code = entry.style == BlockStyle::Code;
         write!(self.backend, "\r")?;
-        if let Some(bg) = self.chat_bg {
+        if is_code {
+            if self.monochrome {
+                write!(self.backend, "{}", SetAttribute(Attribute::Reverse))?;
+            } else {
+                let bg = self.color(Color::DarkGrey);
+                write!(self.backend, "{}", SetBackgroundColor(bg))?;
+            }
+        } else if let Some(bg) = self.chat_bg {
             let bg = self.color(bg);
             write!(self.backend, "{}", SetBackgroundColor(bg))?;
         }
         Self::write_chat_margin(self.chat_margin, &mut self.backend)?;
         if let Some(prefix) = prefix {
-            let prefix_color = self.color(Color::DarkGrey);
-            write!(self.backend, "{}", SetForegroundColor(prefix_color))?;
-            write!(self.backend, "{}", prefix)?;
-            write!(self.backend, "{}", ResetColor)?;
-            if let Some(bg) = self.chat_bg {
-                let bg = self.color(bg);
-                write!(self.backend, "{}", SetBackgroundColor(bg))?;
+            if is_code {
+                // Timestamps should not appear inside code blocks; ignore the
+                // prefix so the header/code lines stay visually clean.
+            } else {
+                let prefix_color = self.color(Color::DarkGrey);
+                write!(self.backend, "{}", SetForegroundColor(prefix_color))?;
+                write!(self.backend, "{}", prefix)?;
+                write!(self.backend, "{}", ResetColor)?;
+                if let Some(bg) = self.chat_bg {
+                    let bg = self.color(bg);
+                    write!(self.backend, "{}", SetBackgroundColor(bg))?;
+                }
             }
         }
         let fg = self.color(entry.color);
         write!(self.backend, "{}", SetForegroundColor(fg))?;
         write!(self.backend, "{}", wrap_urls_osc8(&entry.text))?;
-        write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+        if is_code {
+            // Fill the rest of the content area so the background spans the
+            // full line width.
+            let pad = self
+                .max_line_width()
+                .saturating_sub(display_width(&entry.text));
+            if pad > 0 {
+                write!(self.backend, "{}", " ".repeat(pad))?;
+            }
+            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+            if self.monochrome {
+                write!(self.backend, "{}", SetAttribute(Attribute::Reset))?;
+            }
+        } else {
+            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+        }
         write!(self.backend, "{}", ResetColor)?;
         Ok(())
     }

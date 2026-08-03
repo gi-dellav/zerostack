@@ -1,6 +1,6 @@
 use compact_str::CompactString;
 use crossterm::style::Color;
-use pulldown_cmark::{Alignment, Event, Options, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, Options, Tag, TagEnd};
 use smallvec::{SmallVec, smallvec};
 
 use super::renderer::LineEntry;
@@ -127,6 +127,7 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
 
     let mut in_heading = false;
     let mut in_code_block = false;
+    let mut code_lang: Option<String> = None;
     let mut in_blockquote = false;
     let mut ordered_list = false;
     let mut list_item_count: u64 = 0;
@@ -146,10 +147,14 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                     acc.clear();
                     in_heading = true;
                 }
-                Tag::CodeBlock(_kind) => {
+                Tag::CodeBlock(kind) => {
                     flush_acc(&acc, Color::White, max_width, &mut result);
                     acc.clear();
                     in_code_block = true;
+                    code_lang = match kind {
+                        CodeBlockKind::Fenced(lang) if !lang.is_empty() => Some(lang.to_string()),
+                        _ => None,
+                    };
                 }
                 Tag::BlockQuote(_) => {
                     flush_acc(&acc, Color::White, max_width, &mut result);
@@ -215,19 +220,33 @@ pub fn markdown_to_styled(text: &str, max_width: usize) -> Vec<LineEntry> {
                     ));
                 }
                 TagEnd::CodeBlock => {
+                    if let Some(lang) = code_lang.take() {
+                        let header = format!("  ── {} ──", lang);
+                        result.push(LineEntry::new(
+                            CompactString::from(header),
+                            Color::DarkGrey,
+                            super::feed::BlockStyle::Code,
+                        ));
+                    } else {
+                        result.push(LineEntry::new(
+                            CompactString::new("  ── code ──"),
+                            Color::DarkGrey,
+                            super::feed::BlockStyle::Code,
+                        ));
+                    }
                     for line in acc.split('\n') {
                         let trimmed = line.trim_end_matches('\r');
                         if trimmed.is_empty() {
                             result.push(LineEntry::new(
                                 CompactString::new(""),
                                 Color::DarkYellow,
-                                super::feed::BlockStyle::Agent,
+                                super::feed::BlockStyle::Code,
                             ));
                         } else {
                             result.push(LineEntry::new(
                                 CompactString::from(trimmed),
                                 Color::DarkYellow,
-                                super::feed::BlockStyle::Agent,
+                                super::feed::BlockStyle::Code,
                             ));
                         }
                     }

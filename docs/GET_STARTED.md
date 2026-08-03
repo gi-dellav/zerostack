@@ -151,6 +151,8 @@ Here is some keybindings to speed up your coding experience:
 
 Chat history scrolls into the terminal's native scrollback — use your terminal's own scrolling (scrollbar / wheel / trackpad) and native mouse text selection. zerostack also emits [OSC 133](https://iterm2.com/documentation-escape-codes.html) shell-integration marks so supported terminals (iTerm2, kitty, WezTerm, etc.) can label prompt and output regions in scrollback.
 
+Fenced code blocks (`` ```lang ... ``` ``) are rendered with a faint language header and a subtle background so they stand out from surrounding prose. No syntax highlighting is applied, keeping output fast and dependency-free.
+
 ## 5. CLI flags
 
 If you want to use zerostack from scripts, from other programs, or if you just want to load up the agent in whatever way you prefer, there are some CLI flags you might want to know about:

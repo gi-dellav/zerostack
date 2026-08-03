@@ -31,6 +31,7 @@ pub(crate) fn default_color(role: BlockStyle) -> Color {
         BlockStyle::System => Color::DarkGrey,
         BlockStyle::Welcome => Color::Cyan,
         BlockStyle::Permission => C_PERM,
+        BlockStyle::Code => Color::DarkYellow,
         BlockStyle::Plain => Color::White,
     }
 }
@@ -58,6 +59,7 @@ fn role_from_name(name: &str) -> Option<BlockStyle> {
         "system" => Some(BlockStyle::System),
         "welcome" => Some(BlockStyle::Welcome),
         "permission" => Some(BlockStyle::Permission),
+        "code" => Some(BlockStyle::Code),
         "plain" => Some(BlockStyle::Plain),
         _ => None,
     }
@@ -106,6 +108,7 @@ mod tests {
         assert_eq!(role_from_name("agent"), Some(BlockStyle::Agent));
         assert_eq!(role_from_name("TOOL_RESULT"), Some(BlockStyle::ToolResult));
         assert_eq!(role_from_name("permission"), Some(BlockStyle::Permission));
+        assert_eq!(role_from_name("code"), Some(BlockStyle::Code));
         assert_eq!(role_from_name("nope"), None);
     }
 

@@ -81,6 +81,7 @@ fn block_style_color_mapping() {
     assert_eq!(BlockStyle::System.color(), Color::DarkGrey);
     assert_eq!(BlockStyle::Welcome.color(), Color::Cyan);
     assert_eq!(BlockStyle::Permission.color(), Color::Magenta);
+    assert_eq!(BlockStyle::Code.color(), Color::DarkYellow);
     assert_eq!(BlockStyle::Plain.color(), Color::White);
 }
 
@@ -139,6 +140,51 @@ fn agent_block_gets_prefix_and_markdown() {
         joined.contains("world"),
         "bold text should be present: {}",
         joined
+    );
+}
+
+#[test]
+fn fenced_code_block_gets_header_and_code_style() {
+    let mut feed = Feed::new();
+    feed.push_block(
+        BlockStyle::Agent,
+        "```rust\nfn main() {\n    println!();\n}\n```",
+    );
+    let lines = feed.lines(80);
+    assert!(
+        lines.iter().any(|l| l.style == BlockStyle::Code),
+        "code block lines should be BlockStyle::Code"
+    );
+    assert!(
+        lines.iter().any(|l| l.text.contains("rust")),
+        "language header should mention rust: {:?}",
+        lines.iter().map(|l| &l.text).collect::<Vec<_>>()
+    );
+    assert!(
+        lines.iter().any(|l| l.text.contains("fn main")),
+        "code content should be present"
+    );
+    // Agent blocks that start with a code block should not get the '< ' prefix
+    // on the code header.
+    assert!(
+        !lines[0].text.starts_with("< "),
+        "code header should not get agent prefix: {:?}",
+        lines[0].text
+    );
+}
+
+#[test]
+fn indented_code_block_uses_plain_code_header() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Agent, "    fn hi() {}\n    fn bye() {}");
+    let lines = feed.lines(80);
+    assert!(
+        lines.iter().any(|l| l.style == BlockStyle::Code),
+        "indented code block lines should be styled as code"
+    );
+    assert!(
+        lines.iter().any(|l| l.text.contains("code")),
+        "indented code block should have generic header"
     );
 }
 
