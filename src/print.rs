@@ -74,6 +74,8 @@ pub(crate) fn print_config(cli: &cli::Cli, cfg: &config::Config) {
     };
     let no_context_files = cli.resolve_no_context_files(cfg);
     let sandbox = cli.resolve_sandbox(cfg);
+    let sandbox_required = cli.resolve_sandbox_required(cfg);
+    let sandbox_backend = cli.resolve_sandbox_backend(cfg);
     let shell = cli.resolve_shell(cfg);
     let edit_system = cli.resolve_edit_system(cfg);
     let compact = cfg.resolve_compact_enabled();
@@ -175,6 +177,8 @@ pub(crate) fn print_config(cli: &cli::Cli, cfg: &config::Config) {
             ("shell", shell.to_string()),
             ("edit-system", edit_system.to_string()),
             ("sandbox", sandbox.to_string()),
+            ("sandbox-backend", sandbox_backend),
+            ("sandbox-required", sandbox_required.to_string()),
             ("no-tools", no_tools.to_string()),
             ("tools", tools_allowlist),
             ("no-context-files", no_context_files.to_string()),
