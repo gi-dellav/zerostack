@@ -441,6 +441,9 @@ pub struct Renderer {
     /// True when a streaming repaint was requested but deferred because the
     /// 16 ms frame budget had not elapsed yet.
     repaint_pending: bool,
+    /// Whether the terminal window currently has focus. The spinner is paused
+    /// while focus is lost to avoid purely cosmetic redraws.
+    focused: bool,
 }
 
 impl Renderer {
@@ -483,6 +486,7 @@ impl Renderer {
             last_live_args: None,
             last_repaint: std::time::Instant::now(),
             repaint_pending: false,
+            focused: true,
         }
     }
 
@@ -883,6 +887,18 @@ impl Renderer {
     /// call on every streamed token; the actual paint is throttled to ~60 Hz.
     pub fn request_repaint(&mut self) {
         self.repaint_pending = true;
+    }
+
+    /// Set whether the terminal window has focus. When focus is lost the
+    /// spinner frame is frozen to avoid cosmetic redraws.
+    pub(crate) fn set_focused(&mut self, focused: bool) {
+        self.focused = focused;
+    }
+
+    /// Current spinner frame, for tests that verify focus pauses the spinner.
+    #[cfg(test)]
+    pub(crate) fn spinner_frame(&self) -> u8 {
+        self.spinner_frame
     }
 
     /// True when a streaming repaint was requested but not yet painted.
@@ -1430,7 +1446,9 @@ impl Renderer {
         const SPINNER: &[&str] = &["⠋ ", "⠙ ", "⠹ ", "⠸ ", "⠼ ", "⠴ ", "⠦ ", "⠧ ", "⠇ ", "⠏ "];
         let prompt = if is_running {
             let frame = SPINNER[self.spinner_frame as usize];
-            self.spinner_frame = (self.spinner_frame + 1) % SPINNER.len() as u8;
+            if self.focused {
+                self.spinner_frame = (self.spinner_frame + 1) % SPINNER.len() as u8;
+            }
             frame
         } else {
             "> "

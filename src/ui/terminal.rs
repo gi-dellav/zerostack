@@ -3,8 +3,8 @@ use std::io::Write;
 use crossterm::ExecutableCommand;
 use crossterm::cursor::MoveTo;
 use crossterm::event::{
-    DisableBracketedPaste, EnableBracketedPaste, KeyboardEnhancementFlags,
-    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    DisableBracketedPaste, DisableFocusChange, EnableBracketedPaste, EnableFocusChange,
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::terminal;
 
@@ -17,6 +17,7 @@ impl TerminalGuard {
     pub fn new() -> std::io::Result<Self> {
         let mut stdout = std::io::stdout();
         stdout.execute(EnableBracketedPaste)?;
+        stdout.execute(EnableFocusChange)?;
         let _ = stdout.execute(PushKeyboardEnhancementFlags(
             KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
         ));
@@ -36,6 +37,7 @@ impl Drop for TerminalGuard {
         let mut stdout = std::io::stdout();
         let _ = stdout.execute(PopKeyboardEnhancementFlags);
         let _ = stdout.execute(DisableBracketedPaste);
+        let _ = stdout.execute(DisableFocusChange);
         let _ = stdout.flush();
     }
 }

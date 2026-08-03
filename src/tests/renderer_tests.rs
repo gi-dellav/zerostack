@@ -1038,3 +1038,62 @@ mod osc_133 {
         assert!(out.contains("\x1b]133;D\x1b\\"), "output end: {out:?}");
     }
 }
+
+mod focus {
+    use crate::ui::renderer::{FakeBackend, Renderer};
+    use crate::ui::statusline::StatusSpan;
+
+    fn headless(cols: u16, rows: u16) -> Renderer {
+        let mut r = Renderer::with_backend(Box::new(FakeBackend::new(cols, rows)));
+        r.set_statusline_height(1);
+        r
+    }
+
+    fn statusline() -> Vec<Vec<StatusSpan>> {
+        vec![vec![StatusSpan::Text {
+            text: "model".to_string(),
+            fg: None,
+            bg: None,
+        }]]
+    }
+
+    #[test]
+    fn spinner_advances_when_focused() {
+        let mut r = headless(80, 24);
+        r.set_focused(true);
+        let before = r.spinner_frame();
+        r.draw_live_block("", 0, &statusline(), true, None).unwrap();
+        assert_ne!(
+            r.spinner_frame(),
+            before,
+            "spinner should advance while focused"
+        );
+    }
+
+    #[test]
+    fn spinner_paused_when_unfocused() {
+        let mut r = headless(80, 24);
+        r.set_focused(true);
+        r.draw_live_block("", 0, &statusline(), true, None).unwrap();
+        let frame = r.spinner_frame();
+
+        r.set_focused(false);
+        r.draw_live_block("", 0, &statusline(), true, None).unwrap();
+        assert_eq!(
+            r.spinner_frame(),
+            frame,
+            "spinner should stay paused when unfocused"
+        );
+
+        // When focus returns together with a real change, the spinner advances
+        // again; a no-change refocus does not redraw, so the frame stays put.
+        r.set_focused(true);
+        r.draw_live_block("changed", 0, &statusline(), true, None)
+            .unwrap();
+        assert_ne!(
+            r.spinner_frame(),
+            frame,
+            "spinner should resume when focus returns with a content change"
+        );
+    }
+}

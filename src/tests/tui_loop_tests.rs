@@ -495,3 +495,21 @@ async fn resize_event_keeps_committed_lines() {
 
     app.teardown().await;
 }
+
+#[tokio::test]
+async fn focus_events_pause_and_resume_spinner_redraws() {
+    let _guard = acquire();
+    let (mut app, _model) = headless_app(vec![]).await;
+
+    assert!(app.focused(), "app starts focused");
+
+    app.inject(UserEvent::FocusLost).await;
+    pump(&mut app).await;
+    assert!(!app.focused(), "FocusLost sets focused false");
+
+    app.inject(UserEvent::FocusGained).await;
+    pump(&mut app).await;
+    assert!(app.focused(), "FocusGained sets focused true");
+
+    app.teardown().await;
+}

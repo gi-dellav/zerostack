@@ -77,6 +77,9 @@ pub(crate) struct App<'a> {
     /// 16 ms interval for coalescing deferred live-block repaints during fast
     /// token streams. Only enabled when `renderer.needs_redraw()` is true.
     repaint_interval: tokio::time::Interval,
+    /// Whether the terminal window currently has focus. Spinner-driven redraws
+    /// are paused while focus is lost.
+    focused: bool,
 }
 
 impl<'a> App<'a> {
@@ -436,6 +439,7 @@ impl<'a> App<'a> {
             prebuild_rx,
             _terminal_guard,
             repaint_interval: tokio::time::interval(Duration::from_millis(16)),
+            focused: true,
         })
     }
 
@@ -497,7 +501,7 @@ impl<'a> App<'a> {
                 _ = tokio::time::sleep(Duration::from_millis(100)), if self.run.is_running => {
                     self.refresh()?;
                 }
-                _ = self.repaint_interval.tick(), if self.renderer.needs_redraw() => {
+                _ = self.repaint_interval.tick(), if self.renderer.needs_redraw() && self.focused => {
                     self.renderer.repaint(false)?;
                 }
                 else => {
@@ -537,6 +541,11 @@ impl<'a> App<'a> {
     #[cfg(test)]
     pub(crate) fn is_running(&self) -> bool {
         self.run.is_running
+    }
+
+    #[cfg(test)]
+    pub(crate) fn focused(&self) -> bool {
+        self.focused
     }
 
     /// All feed lines (wrapped to 80 cols) joined with newlines.
@@ -599,6 +608,15 @@ impl<'a> App<'a> {
         match ev {
             UserEvent::Resize => {
                 self.renderer.resize();
+            }
+            UserEvent::FocusGained => {
+                self.focused = true;
+                self.renderer.set_focused(true);
+                self.renderer.request_repaint();
+            }
+            UserEvent::FocusLost => {
+                self.focused = false;
+                self.renderer.set_focused(false);
             }
             UserEvent::Paste(data) => {
                 self.input.handle_paste(data);
