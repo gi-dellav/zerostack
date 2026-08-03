@@ -125,6 +125,7 @@ fn wrap_urls_osc8(text: &str) -> String {
 pub struct LineEntry {
     pub text: CompactString,
     pub color: Color,
+    pub style: BlockStyle,
 }
 
 pub struct PermissionPrompt {
@@ -391,6 +392,8 @@ pub struct Renderer {
     live_input_rows: usize,
     /// Picker-overlay rows of the last full draw (0 = no picker painted).
     live_picker_rows: usize,
+    /// Whether an OSC 133 output region (C...D) is currently open.
+    output_mark_open: bool,
     /// Set when the live block was erased externally (`suspend`/`finish` or a
     /// flush that printed over it): the cursor already sits where the next
     /// draw must start, so no upward move is needed.
@@ -434,6 +437,7 @@ impl Renderer {
             live_stream_rows: 0,
             live_input_rows: 0,
             live_picker_rows: 0,
+            output_mark_open: false,
             live_erased: false,
             bottom_dirty: true,
             last_bottom_snapshot: None,
@@ -586,6 +590,35 @@ impl Renderer {
         self.input_visible_height(input_line, rows) + self.statusline_height + 2
     }
 
+    /// Emit an OSC 133 shell-integration sequence through the backend.
+    /// `code` is the single-letter phase (A/B/C/D); `args` is appended after
+    /// a semicolon when non-empty. The 7-bit ST (`ESC \\`) terminator is used.
+    pub(crate) fn osc_133(&mut self, code: char, args: &str) -> io::Result<()> {
+        if args.is_empty() {
+            write!(self.backend, "\x1b]133;{}\x1b\\", code)
+        } else {
+            write!(self.backend, "\x1b]133;{};{}\x1b\\", code, args)
+        }
+    }
+
+    /// Open an OSC 133 output region (C) if one is not already open.
+    pub(crate) fn start_output_mark(&mut self) -> io::Result<()> {
+        if !self.output_mark_open {
+            self.osc_133('C', "")?;
+            self.output_mark_open = true;
+        }
+        Ok(())
+    }
+
+    /// Close the current OSC 133 output region (D).
+    pub(crate) fn end_output_mark(&mut self) -> io::Result<()> {
+        if self.output_mark_open {
+            self.osc_133('D', "")?;
+            self.output_mark_open = false;
+        }
+        Ok(())
+    }
+
     fn commit_partial(&mut self) {
         if !self.partial.is_empty() {
             self.feed
@@ -604,7 +637,11 @@ impl Renderer {
         let color = self.partial_style.color();
         word_wrap(&self.partial, width)
             .into_iter()
-            .map(|text| LineEntry { text, color })
+            .map(|text| LineEntry {
+                text,
+                color,
+                style: self.partial_style,
+            })
             .collect()
     }
 
@@ -707,6 +744,9 @@ impl Renderer {
             let mut lines = split.committed;
             lines.extend(split.live.iter().take(spill).cloned());
             for entry in &lines {
+                if !self.output_mark_open && entry.style != BlockStyle::User {
+                    self.start_output_mark()?;
+                }
                 self.write_chat_row(entry)?;
                 writeln!(self.backend)?;
             }
@@ -791,6 +831,7 @@ impl Renderer {
         self.live_cursor_off = 0;
         self.live_caret = None;
         self.live_picker_rows = 0;
+        self.output_mark_open = false;
         self.live_erased = false;
         self.bottom_dirty = true;
         Ok(())
@@ -1208,6 +1249,7 @@ impl Renderer {
             let prompt_color = self.color(Color::DarkYellow);
             self.draw_separator_line(cols)?;
             writeln!(self.backend)?;
+            self.osc_133('A', "")?;
             for line in &perm_lines {
                 write!(self.backend, "\r")?;
                 if let Some(bg) = self.input_bg {
@@ -1311,6 +1353,9 @@ impl Renderer {
         // Thin separator line above input
         self.draw_separator_line(cols)?;
         writeln!(self.backend)?;
+
+        // OSC 133 prompt start: right before the input prompt row.
+        self.osc_133('A', "")?;
 
         for (i, &(line, start, end)) in wrapped
             .iter()

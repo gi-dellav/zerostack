@@ -306,8 +306,8 @@ fn block_layout(block: &Block, width: usize) -> Vec<LineEntry> {
             }
             styled
         }
-        _ => {
-            let color = block.style.color();
+        style => {
+            let color = style.color();
             let mut result = Vec::new();
             for line in block.text.split('\n') {
                 let trimmed = line.trim_end_matches('\r');
@@ -315,10 +315,15 @@ fn block_layout(block: &Block, width: usize) -> Vec<LineEntry> {
                     result.push(LineEntry {
                         text: CompactString::new(""),
                         color,
+                        style,
                     });
                 } else {
                     for chunk in word_wrap(trimmed, width) {
-                        result.push(LineEntry { text: chunk, color });
+                        result.push(LineEntry {
+                            text: chunk,
+                            color,
+                            style,
+                        });
                     }
                 }
             }
@@ -368,7 +373,11 @@ fn agent_block_lines(block: &Block, width: usize) -> Vec<LineEntry> {
         if !tail.is_empty() {
             let color = BlockStyle::Agent.color();
             for chunk in word_wrap(tail, width) {
-                lines.push(LineEntry { text: chunk, color });
+                lines.push(LineEntry {
+                    text: chunk,
+                    color,
+                    style: BlockStyle::Agent,
+                });
             }
         }
     }

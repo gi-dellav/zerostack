@@ -687,3 +687,72 @@ mod picker_overlay {
         );
     }
 }
+
+/// OSC 133 shell integration marks (prompt/output region annotations).
+mod osc_133 {
+    use crate::ui::feed::BlockStyle;
+    use crate::ui::renderer::{FakeBackend, Renderer};
+
+    fn headless(cols: u16, rows: u16) -> Renderer {
+        Renderer::with_backend(Box::new(FakeBackend::new(cols, rows)))
+    }
+
+    #[test]
+    fn helper_emits_7bit_osc_sequence() {
+        let mut r = headless(80, 24);
+        r.osc_133('A', "").unwrap();
+        r.osc_133('B', "").unwrap();
+        r.osc_133('C', "").unwrap();
+        r.osc_133('D', "done=true").unwrap();
+        let out = r.captured_output();
+        assert!(out.contains("\x1b]133;A\x1b\\"), "A: {out:?}");
+        assert!(out.contains("\x1b]133;B\x1b\\"), "B: {out:?}");
+        assert!(out.contains("\x1b]133;C\x1b\\"), "C: {out:?}");
+        assert!(out.contains("\x1b]133;D;done=true\x1b\\"), "D: {out:?}");
+    }
+
+    #[test]
+    fn draw_live_block_emits_prompt_start() {
+        let mut r = headless(80, 24);
+        r.draw_live_block("hello", 5, &[], false, None).unwrap();
+        let out = r.captured_output();
+        assert!(out.contains("\x1b]133;A\x1b\\"), "prompt start: {out:?}");
+    }
+
+    #[test]
+    fn flush_committed_opens_output_mark_for_non_user_lines() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_line(BlockStyle::Agent, "assistant line");
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(
+            out.contains("\x1b]133;C\x1b\\"),
+            "output start before assistant line: {out:?}"
+        );
+        assert!(out.contains("assistant line"), "line printed: {out:?}");
+    }
+
+    #[test]
+    fn flush_committed_does_not_open_mark_for_user_lines() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_line(BlockStyle::User, "> user line");
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(
+            !out.contains("\x1b]133;C\x1b\\"),
+            "user echo should not open output region: {out:?}"
+        );
+        assert!(out.contains("> user line"), "user line printed: {out:?}");
+    }
+
+    #[test]
+    fn end_output_mark_emits_d_and_closes_state() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_line(BlockStyle::Agent, "assistant line");
+        r.flush_committed("").unwrap();
+        r.end_output_mark().unwrap();
+        let out = r.captured_output();
+        assert!(out.contains("\x1b]133;C\x1b\\"), "output start: {out:?}");
+        assert!(out.contains("\x1b]133;D\x1b\\"), "output end: {out:?}");
+    }
+}

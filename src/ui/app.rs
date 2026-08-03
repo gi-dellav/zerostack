@@ -752,6 +752,7 @@ impl<'a> App<'a> {
         }
 
         if let Some(mut text) = self.input.handle_key(key) {
+            self.renderer.osc_133('B', "")?;
             #[cfg(feature = "loop")]
             if self.chain.loop_state.as_ref().is_some_and(|ls| ls.active) && !text.starts_with('/')
             {

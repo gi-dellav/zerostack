@@ -302,6 +302,7 @@ pub async fn handle_agent_event(
             run.response_buf.clear();
             run.response_start_block = None;
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
+            renderer.end_output_mark()?;
         }
     }
     Ok(())
@@ -559,6 +560,10 @@ async fn handle_agent_done(
                 )?;
             }
         }
+    }
+
+    if run.agent_rx.is_none() {
+        renderer.end_output_mark()?;
     }
 
     Ok(())

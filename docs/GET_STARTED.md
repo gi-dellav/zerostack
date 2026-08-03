@@ -148,7 +148,7 @@ Here is some keybindings to speed up your coding experience:
 | `Ctrl+S` | Force-save session |
 | `Ctrl+C` | Interrupt the agent |
 
-Chat history scrolls into the terminal's native scrollback — use your terminal's own scrolling (scrollbar / wheel / trackpad) and native mouse text selection.
+Chat history scrolls into the terminal's native scrollback — use your terminal's own scrolling (scrollbar / wheel / trackpad) and native mouse text selection. zerostack also emits [OSC 133](https://iterm2.com/documentation-escape-codes.html) shell-integration marks so supported terminals (iTerm2, kitty, WezTerm, etc.) can label prompt and output regions in scrollback.
 
 ## 5. CLI flags
 
