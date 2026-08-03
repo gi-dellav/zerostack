@@ -15,7 +15,7 @@ Single crate, no workspace. All source under `src/`.
 | `src/agent/` | Agent lifecycle: `builder.rs` (rig Agent construction + tool injection), `runner.rs` (spawn, stream), `prompt.rs` (system prompts), `tools/` (8 core tool impls: read, write, edit, bash, grep, find_files, list_dir, todo; plus feature-gated `TaskTool` and `AdvisorTool`) |
 | `src/session/` | Session state: `mod.rs` (messages, compactions, costs), `storage.rs` (JSON file I/O), `chat_history.rs` |
 | `src/permission/` | Security: `checker.rs` (glob+regex rules, doom-loop detection), `ask.rs` (user prompt UI), `pattern.rs` |
-| `src/ui/` | Custom TUI on crossterm (no ratatui): `mod.rs` (event loop), `terminal.rs` (raw mode guard), `renderer.rs` (line buffer + viewport), `input/` (text editor + pickers), `status.rs`, `markdown.rs`, `event_handler.rs`, `state.rs` (grouped TUI state: `UiContext`, `AgentRunState`, `ChainState`, `SlashState`), `cmd_picker.rs` |
+| `src/ui/` | Custom TUI on crossterm (no ratatui): `mod.rs` (event loop), `terminal.rs` (raw mode guard), `renderer.rs` (inline renderer: print watermark + live block), `input/` (text editor + pickers), `status.rs`, `markdown.rs`, `event_handler.rs`, `state.rs` (grouped TUI state: `UiContext`, `AgentRunState`, `ChainState`, `SlashState`), `cmd_picker.rs` |
 | `src/context/` | Context gathering: embedded prompt themes (`prompts.rs`, `themes.rs`), AGENTS.md/ARCHITECTURE.md loading |
 | `src/config/` | Configuration: `load.rs` (TOML/YAML/JSON from disk+env), `types.rs` (QuickModel, CustomProvider, Colors, EditSystem) |
 | `src/extras/` | Feature-gated extensions: `loop/` (headless), `mcp/` (MCP client), `acp/` (ACP server), `memory/` (persistent memory), `subagents/` (parallel task delegation), `git_worktree/`, `archmd/`, `advisor/` (external model consultation, `/advisor`), `multimodal/` (image/PDF ingestion, gated separately by `multimodal`/`pdf`), `hooks/` (lifecycle hook dispatch: `PreToolUse`/`PostToolUse`/`Stop`/`UserPromptSubmit`/session+subagent events, trust-hash confirmation). Two subsystems are always compiled (not feature-gated): `chain/` (brainstorm→plan→code prompt transitions) and `status_signals` (Unix-socket start/stop/git-conflict signals, itself gated by the `status-signals` feature at the call site) |
@@ -33,8 +33,8 @@ Single crate, no workspace. All source under `src/`.
 - **`UserEvent`** (`src/event.rs:64`) — `Key`, `Resize`, `Paste`.
 - **`Session`** (`src/session/mod.rs:61`) — serializable state: messages, compactions, costs, permission allowlist, model/provider info.
 - **`PermissionChecker`** (`src/permission/checker.rs:29`) — dual-layer (glob + regex) rules, doom-loop detection, `SecurityMode` dispatch.
-- **`TerminalGuard`** (`src/ui/terminal.rs:10`) — RAII for raw mode, alt screen.
-- **`Renderer`** (`src/ui/renderer.rs:52`) — line-buffered viewport, markdown rendering, scrolling. All terminal I/O (ANSI writes, size reads) goes through the `RenderBackend` trait: `CrosstermBackend` in production, `FakeBackend` (fixed geometry, captures frames) in tests.
+- **`TerminalGuard`** (`src/ui/terminal.rs:13`) — RAII for raw mode, bracketed paste, keyboard enhancement flags. No alternate screen: output prints inline so the terminal's native scrollback and text selection work.
+- **`Renderer`** (`src/ui/renderer.rs:270`) — terminal-native inline renderer. Finalized feed lines are *committed* (printed once) into native scrollback, tracked by a `(block, line, width)` print watermark; the only redrawn region is the bottom-anchored *live block* (streaming tail + input + statusline), repainted relatively (cursor-up + clear-below). All terminal I/O (ANSI writes, size reads) goes through the `RenderBackend` trait: `CrosstermBackend` in production, `FakeBackend` (fixed geometry, captures frames) in tests.
 - **`InputEditor`** (`src/ui/input/mod.rs:21`) — text buffer, cursor, history, kill-ring, picker integration.
 - **`ContextFiles`** (`src/context/mod.rs:57`) — loaded agents, prompts, themes, architecture docs.
 - **`HookDispatcher`** (`src/extras/hooks/dispatcher.rs:60`, feature `hooks`) — merges `PreToolUse` verdicts (`Allow`/`Defer`/`Ask`/`Deny`, most severe wins) and applies `PostToolUse`/lifecycle `Decision`s (`Continue`/`Block`/`Rewrite`). Wraps every tool via `wrap_from_global()` (`src/agent/builder.rs:276`), outside each tool's own `PermissionChecker` check.
@@ -60,7 +60,7 @@ CLI parse (main.rs:150) → config load → context load → session load
 
 Single `tokio::select!` with 6 branches plus an `else` fallback (line 1119):
 1. **`UserEvent` from `user_rx`** — keyboard/resize/paste from background event thread (polls crossterm every 50ms idle, 10ms while coalescing a paste burst)
-2. **Background agent prebuild** from `prebuild_rx` — consumed once idle, so MCP connection notices land in the transcript instead of racing the alt-screen TUI
+2. **Background agent prebuild** from `prebuild_rx` — consumed once idle, so MCP connection notices land in the transcript instead of racing the UI's first paint
 3. **`AgentEvent` from `agent_rx`** — streaming LLM tokens, tool calls, errors
 4. **Permission `AskRequest` from `ask_rx`** — user must approve/reject tool calls
 5. **`BtwEvent` from `btw_rx`** — parallel `/btw` side-question results, rendered but never written to the session
@@ -80,7 +80,7 @@ Agent (rig) → CompletionModel (LLM API)
   ▼ streaming
 AgentEvent stream (Token, ToolCall, ToolResult, ...)
   │
-  ├── handle_agent_event() → Renderer (viewport buffer) → crossterm draw commands
+  ├── handle_agent_event() → Renderer (feed + watermark/live-block redraw) → crossterm draw commands
   ├── ToolCall → [feature `hooks`] HookDispatcher PreToolUse → {Allow, Ask, Deny, rewritten input}
   │     └── tool.call() → PermissionChecker.check() → {Allowed, Ask, Denied}
   │           ├── Ask → permission_handler (user approves/rejects via UI)
@@ -92,7 +92,7 @@ Session is serialized to JSON files in `$XDG_DATA_HOME/zerostack/sessions/`. Cha
 
 ## Design Decisions
 
-1. **Custom TUI over crossterm (no ratatui)** — keeps binary size minimal; project has its own line buffer, markdown renderer, scroll/selection. No widget tree overhead.
+1. **Custom TUI over crossterm (no ratatui), terminal-native inline rendering** — keeps binary size minimal; project has its own feed buffer and markdown renderer. No alternate screen: committed lines live in the terminal's native scrollback (native scrolling and mouse text selection), and only the bottom live block is ever redrawn. No widget tree overhead.
 2. **Type-erased enums, not trait objects** — `AnyAgent` enum wraps each provider variant. Avoids `dyn CompletionModel` lifetime issues; matching on enum is faster than vtable dispatch. (`src/provider.rs:153`, `:545`, `:562`)
 3. **Permission: dual-layer (glob + regex) rules** — glob for fast path, regex for complex patterns. Doom-loop detection tracks repeated identical tool calls. (`src/permission/checker.rs:29`)
 4. **Session compaction** — when token count approaches context window, old messages are summarized and dropped, preserving a summary prefix. (`Compaction` struct at `src/session/mod.rs:46`, gate at `:528`)

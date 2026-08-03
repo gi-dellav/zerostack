@@ -91,43 +91,36 @@ fn line_count_matches_lines() {
 }
 
 #[test]
-fn visible_range_bottom_aligned_when_short() {
+fn block_lines_matches_flat_layout() {
     let mut feed = Feed::new();
     feed.push_line(BlockStyle::Plain, "one");
-    feed.push_line(BlockStyle::Plain, "two");
-    let (start, end) = feed.visible_range(80, 0, 10);
-    assert_eq!(start, 0);
-    assert_eq!(end, 2);
+    feed.push_block(BlockStyle::Agent, "two **bold**");
+    feed.push_line(BlockStyle::Plain, "three");
+
+    let flat = feed.lines(80);
+    let mut per_block = feed.block_lines(0, 80);
+    per_block.extend(feed.block_lines(1, 80));
+    per_block.extend(feed.block_lines(2, 80));
+    assert_eq!(
+        flat.iter().map(|l| l.text.as_str()).collect::<Vec<_>>(),
+        per_block
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+    );
+    // Out-of-range blocks lay out to nothing.
+    assert!(feed.block_lines(3, 80).is_empty());
 }
 
 #[test]
-fn visible_range_scrolled() {
+fn last_block_running_tracks_streaming_state() {
     let mut feed = Feed::new();
-    for i in 0..20 {
-        feed.push_line(BlockStyle::Plain, format!("line {}", i));
-    }
-    let (start, end) = feed.visible_range(80, 5, 10);
-    assert_eq!(end - start, 10);
-    assert_eq!(start, 5);
-}
-
-#[test]
-fn line_at_visual_row_bottom_pad() {
-    let mut feed = Feed::new();
-    feed.push_line(BlockStyle::Plain, "one");
-    // viewport height 10, auto-scroll, content shorter than viewport -> padding
-    assert_eq!(feed.line_at_visual_row(80, 0, 10, 0), None);
-    assert_eq!(feed.line_at_visual_row(80, 0, 10, 9), Some(0));
-}
-
-#[test]
-fn line_at_visual_row_scrolled() {
-    let mut feed = Feed::new();
-    for i in 0..20 {
-        feed.push_line(BlockStyle::Plain, format!("line {}", i));
-    }
-    assert_eq!(feed.line_at_visual_row(80, 5, 10, 0), Some(5));
-    assert_eq!(feed.line_at_visual_row(80, 5, 10, 9), Some(14));
+    feed.push_line(BlockStyle::Plain, "done");
+    assert!(!feed.last_block_running());
+    feed.push_streaming_block(BlockStyle::Agent);
+    assert!(feed.last_block_running());
+    feed.finalize_last();
+    assert!(!feed.last_block_running());
 }
 
 #[test]
@@ -225,8 +218,8 @@ fn generation_not_bumped_by_reads() {
     let before = feed.generation();
     let _ = feed.lines(80);
     let _ = feed.line_count(80);
-    let _ = feed.visible_range(80, 0, 10);
-    let _ = feed.line_at_visual_row(80, 0, 10, 0);
+    let _ = feed.block_lines(0, 80);
+    let _ = feed.last_block_running();
     let _ = feed.is_empty();
     let _ = feed.block_count();
     assert_eq!(feed.generation(), before);
@@ -336,17 +329,16 @@ fn agent_layout_recomputes_on_width_change() {
 }
 
 #[test]
-fn scroll_queries_reuse_prewrapped_rows() {
+fn layout_queries_reuse_prewrapped_rows() {
     let mut feed = Feed::new();
     feed.push_line(BlockStyle::Plain, "hello");
     let _ = feed.lines(80);
     let _ = feed.line_count(80);
-    let _ = feed.visible_range(80, 0, 10);
-    let _ = feed.line_at_visual_row(80, 0, 10, 9);
+    let _ = feed.block_lines(0, 80);
     assert_eq!(
         feed.layout_computes(),
         1,
-        "scroll queries should reuse the pre-wrapped rows"
+        "layout queries should reuse the pre-wrapped rows"
     );
 
     feed.push_line(BlockStyle::Plain, "world");

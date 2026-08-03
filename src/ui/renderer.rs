@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 
 use compact_str::CompactString;
 use crossterm::QueueableCommand;
-use crossterm::cursor::{Hide, MoveTo, Show};
+use crossterm::cursor::{Hide, MoveDown, MoveRight, MoveTo, MoveUp, Show};
 use crossterm::style::{Color, ResetColor, SetBackgroundColor, SetForegroundColor};
 use crossterm::terminal::{Clear, ClearType};
 use regex::Regex;
@@ -27,6 +27,10 @@ pub(crate) trait RenderBackend: io::Write + Send {
     fn captured(&self) -> Option<String> {
         None
     }
+
+    /// Resize the pinned geometry (test backends only).
+    #[cfg(test)]
+    fn set_size(&mut self, _cols: u16, _rows: u16) {}
 }
 
 /// Production backend: plain stdout plus `crossterm::terminal::size`.
@@ -91,6 +95,11 @@ impl RenderBackend for FakeBackend {
     fn captured(&self) -> Option<String> {
         Some(String::from_utf8_lossy(&self.buf).into_owned())
     }
+
+    fn set_size(&mut self, cols: u16, rows: u16) {
+        self.cols = cols;
+        self.rows = rows;
+    }
 }
 
 static URL_RE: LazyLock<Regex> =
@@ -127,21 +136,78 @@ pub struct ChainPrompt {
     pub question: CompactString,
 }
 
-/// Everything that affects what the chat viewport paints. Compared between
-/// frames to decide whether `render_viewport` can skip drawing.
-#[derive(Clone, PartialEq)]
-struct ChatSnapshot {
-    feed_generation: u64,
-    width: usize,
-    visible_rows: usize,
-    scroll_offset: usize,
-    partial: CompactString,
-    partial_style: BlockStyle,
-    chat_bg: Option<Color>,
-    monochrome: bool,
+/// Print watermark: the position in the feed up to which lines have been
+/// committed (printed) to the terminal's native scrollback. Tracked per block
+/// (`block` = first block with unprinted lines, `line` = lines of that block
+/// already printed) so it survives feed truncation and width remapping.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Watermark {
+    /// Feed width the printed lines were laid out at.
+    pub(crate) width: usize,
+    pub(crate) block: usize,
+    pub(crate) line: usize,
 }
 
-/// Which prompt mode `draw_bottom` paints in the input area.
+/// Clamp a watermark after the feed was truncated: positions past the new end
+/// collapse to "everything printed".
+pub(crate) fn clamp_watermark(wm: Watermark, block_count: usize) -> Watermark {
+    if wm.block >= block_count {
+        Watermark {
+            block: block_count,
+            line: 0,
+            ..wm
+        }
+    } else {
+        wm
+    }
+}
+
+/// Advance a watermark after `printed` lines were committed, given the line
+/// counts of the blocks from `wm.block` onward in the current layout.
+pub(crate) fn advance_watermark(wm: Watermark, counts: &[usize], printed: usize) -> Watermark {
+    let mut block = wm.block;
+    let mut line = wm.line;
+    let mut left = printed;
+    for (i, &count) in counts.iter().enumerate() {
+        if line >= count {
+            // Already fully printed (including zero-line blocks such as an
+            // empty agent block), or the layout shrank underneath the
+            // watermark: move to the next block.
+            block = wm.block + i + 1;
+            line = 0;
+        }
+        if left == 0 {
+            break;
+        }
+        let take = (count - line).min(left);
+        line += take;
+        left -= take;
+        if line == count {
+            block = wm.block + i + 1;
+            line = 0;
+        }
+    }
+    Watermark { block, line, ..wm }
+}
+
+/// How many pending feed lines to commit (print) this frame: all `committed`
+/// finalized lines, plus the part of the live tail (the still-running
+/// streaming block's `live_feed` lines) — counting the partial scratch rows
+/// too — that overflows the live block's streaming region. The partial
+/// scratch itself is never printed; `live_feed` caps the spill.
+pub(crate) fn commit_count(
+    committed: usize,
+    live_feed: usize,
+    partial_rows: usize,
+    stream_rows: usize,
+) -> usize {
+    let spill = (live_feed + partial_rows)
+        .saturating_sub(stream_rows)
+        .min(live_feed);
+    committed + spill
+}
+
+/// Which prompt mode `draw_live_block` paints in the input area.
 #[derive(Clone, PartialEq)]
 pub(crate) enum PromptSnapshot {
     Input,
@@ -155,8 +221,9 @@ pub(crate) enum PromptSnapshot {
     },
 }
 
-/// Everything `draw_bottom` paints, compared between frames to decide how much
-/// of the bottom region (input area + statusline) needs repainting.
+/// Everything `draw_live_block` paints, compared between frames to decide how
+/// much of the live block (streaming region + input area + statusline) needs
+/// repainting.
 #[derive(Clone, PartialEq)]
 pub(crate) struct BottomSnapshot {
     pub(crate) cols: u16,
@@ -169,21 +236,52 @@ pub(crate) struct BottomSnapshot {
     pub(crate) input_vscroll_offset: usize,
     pub(crate) prompt: PromptSnapshot,
     pub(crate) statusline: Vec<Vec<StatusSpan>>,
-    pub(crate) scroll_indicator: bool,
+    pub(crate) feed_generation: u64,
+    pub(crate) watermark: Option<Watermark>,
+    pub(crate) partial: CompactString,
+    pub(crate) partial_style: BlockStyle,
     pub(crate) monochrome: bool,
+    pub(crate) chat_bg: Option<Color>,
+    pub(crate) chat_margin: u16,
     pub(crate) input_bg: Option<Color>,
     pub(crate) status_bg: Option<Color>,
 }
 
-/// How much of the bottom region a `draw_bottom` call must repaint.
+/// How much of the live block a `draw_live_block` call must repaint.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BottomRedrawPlan {
     /// Nothing changed since the last frame; draw nothing.
     Skip,
     /// Only the statusline content changed; redraw just the statusline rows.
     StatuslineOnly,
-    /// Input area (or the geometry it sits in) changed; full bottom redraw.
+    /// Anything else changed; full live-block redraw.
     Full,
+}
+
+/// Pending (unprinted) feed content, split for a frame.
+struct PendingSplit {
+    /// Finalized lines past the watermark, ready to commit.
+    committed: Vec<LineEntry>,
+    /// Lines shown in the live block's streaming region: the still-running
+    /// streaming block's unprinted lines plus the partial scratch.
+    live: Vec<LineEntry>,
+    /// How many of `live` come from the feed (the rest is partial scratch,
+    /// which must never be printed).
+    live_feed: usize,
+    /// Full line counts of the blocks from the watermark onward, in the
+    /// current layout; drives [`advance_watermark`].
+    counts: Vec<usize>,
+}
+
+/// Last arguments passed to [`Renderer::draw_live_block`], cached so internal
+/// repaints (streaming flushes) can redraw the live block without the
+/// caller's input/statusline state.
+#[derive(Clone)]
+struct LiveArgs {
+    input: String,
+    cursor: usize,
+    statusline: Vec<Vec<StatusSpan>>,
+    is_running: bool,
 }
 
 pub struct Renderer {
@@ -192,7 +290,6 @@ pub struct Renderer {
     feed: Feed,
     partial: CompactString,
     partial_style: BlockStyle,
-    scroll_offset: usize,
     input_scroll_offset: usize,
     input_vscroll_offset: usize,
     input_max_vscroll: usize,
@@ -200,24 +297,38 @@ pub struct Renderer {
     chat_bg: Option<Color>,
     input_bg: Option<Color>,
     status_bg: Option<Color>,
-    prev_input_height: usize,
     /// Number of statusline rows (1-3), fixed by the statusline config at startup.
     statusline_height: usize,
-    /// Left padding (columns) for the chat buffer area only. Input and status
+    /// Left padding (columns) for the chat output only. Input and status
     /// rows are unaffected.
     chat_margin: u16,
     pub permission_prompt: Option<PermissionPrompt>,
     pub chain_prompt: Option<ChainPrompt>,
     pub chain_but_mode: bool,
-    /// Dirty-region tracking: explicit invalidation flags plus snapshots of
-    /// the state recorded after the last successful draw of each region.
-    chat_dirty: bool,
-    last_chat_snapshot: Option<ChatSnapshot>,
+    /// Print watermark: feed lines before it are committed to scrollback.
+    /// `None` means nothing has been printed yet.
+    watermark: Option<Watermark>,
+    /// Rows occupied by the live block after the last draw (0 = never drawn).
+    live_height: usize,
+    /// Offset of the post-draw cursor within the live block, counted from the
+    /// block's first row. Moving up this many rows reaches the block start.
+    live_cursor_off: usize,
+    /// Screen column + block-row offset of the input caret after the last
+    /// full draw; `None` when the caret is hidden (permission/chain prompts).
+    live_caret: Option<(u16, usize)>,
+    /// Streaming-region and input rows of the last full draw, used by the
+    /// statusline-only redraw to locate the statusline rows relatively.
+    live_stream_rows: usize,
+    live_input_rows: usize,
+    /// Set when the live block was erased externally (`suspend`/`finish` or a
+    /// flush that printed over it): the cursor already sits where the next
+    /// draw must start, so no upward move is needed.
+    live_erased: bool,
+    /// Dirty flag plus snapshot of the state recorded after the last
+    /// successful live-block draw.
     bottom_dirty: bool,
     last_bottom_snapshot: Option<BottomSnapshot>,
-    /// Screen position of the input caret after the last full bottom draw;
-    /// `None` when the caret is hidden (permission/chain prompts).
-    bottom_cursor: Option<(u16, u16)>,
+    last_live_args: Option<LiveArgs>,
 }
 
 impl Renderer {
@@ -234,7 +345,6 @@ impl Renderer {
             feed: Feed::new(),
             partial: CompactString::new(""),
             partial_style: BlockStyle::Plain,
-            scroll_offset: 0,
             input_scroll_offset: 0,
             input_vscroll_offset: 0,
             input_max_vscroll: 0,
@@ -242,17 +352,21 @@ impl Renderer {
             chat_bg: None,
             input_bg: None,
             status_bg: None,
-            prev_input_height: 0,
             statusline_height: 1,
             chat_margin: 0,
             permission_prompt: None,
             chain_prompt: None,
             chain_but_mode: false,
-            chat_dirty: true,
-            last_chat_snapshot: None,
+            watermark: None,
+            live_height: 0,
+            live_cursor_off: 0,
+            live_caret: None,
+            live_stream_rows: 0,
+            live_input_rows: 0,
+            live_erased: false,
             bottom_dirty: true,
             last_bottom_snapshot: None,
-            bottom_cursor: None,
+            last_live_args: None,
         }
     }
 
@@ -277,7 +391,7 @@ impl Renderer {
         self.monochrome = monochrome;
     }
 
-    /// Set the chat buffer's left padding in columns. Clamped so content keeps
+    /// Set the chat output's left padding in columns. Clamped so content keeps
     /// at least a few usable columns.
     pub fn set_chat_margin(&mut self, margin: u16) {
         let (cols, _) = self.terminal_size();
@@ -323,21 +437,6 @@ impl Renderer {
         self.max_line_width()
     }
 
-    fn chat_lines(&self, width: usize) -> Vec<LineEntry> {
-        let mut lines = self.feed.lines(width);
-        if !self.partial.is_empty() {
-            let color = self.partial_style.color();
-            for chunk in word_wrap(&self.partial, width) {
-                lines.push(LineEntry { text: chunk, color });
-            }
-        }
-        lines
-    }
-
-    pub fn buffer_len(&self) -> usize {
-        self.chat_lines(self.max_line_width()).len()
-    }
-
     /// Access the underlying feed for callers that want to push semantic blocks
     /// directly (e.g., session rendering or streaming agent responses).
     pub fn feed(&self) -> &Feed {
@@ -348,52 +447,23 @@ impl Renderer {
         &mut self.feed
     }
 
-    /// Snapshot of everything the chat viewport currently paints.
-    fn chat_snapshot(&self) -> ChatSnapshot {
-        ChatSnapshot {
-            feed_generation: self.feed.generation(),
-            width: self.max_line_width(),
-            visible_rows: self.visible_lines(),
-            scroll_offset: self.scroll_offset,
-            partial: self.partial.clone(),
-            partial_style: self.partial_style,
-            chat_bg: self.chat_bg,
-            monochrome: self.monochrome,
-        }
-    }
-
-    /// Whether the chat viewport needs repainting: either a renderer-internal
-    /// mutation marked it dirty, or the tracked state changed since the last
-    /// recorded draw. The state comparison also catches feed mutations made
-    /// through `feed_mut()`.
-    pub fn chat_needs_redraw(&self) -> bool {
-        if self.chat_dirty {
-            return true;
-        }
-        match &self.last_chat_snapshot {
-            Some(prev) => *prev != self.chat_snapshot(),
-            None => true,
-        }
-    }
-
-    /// Record the current chat state as freshly drawn.
-    fn record_chat_drawn(&mut self) {
-        self.last_chat_snapshot = Some(self.chat_snapshot());
-        self.chat_dirty = false;
-    }
-
-    /// Test helper: mark the chat viewport clean without drawing, as if a
-    /// `render_viewport` had just completed.
-    #[cfg(test)]
-    pub fn mark_chat_clean(&mut self) {
-        self.record_chat_drawn();
-    }
-
     /// Test helper: everything written to a [`FakeBackend`] so far (empty on
     /// real backends).
     #[cfg(test)]
     pub(crate) fn captured_output(&self) -> String {
         self.backend.captured().unwrap_or_default()
+    }
+
+    /// Test helper: the current print watermark.
+    #[cfg(test)]
+    pub(crate) fn watermark(&self) -> Option<Watermark> {
+        self.watermark
+    }
+
+    /// Test helper: resize the pinned test backend geometry.
+    #[cfg(test)]
+    pub(crate) fn resize_backend(&mut self, cols: u16, rows: u16) {
+        self.backend.set_size(cols, rows);
     }
 
     /// Whether the renderer drives a headless test backend instead of a real
@@ -411,22 +481,16 @@ impl Renderer {
         }
     }
 
-    /// Mark both regions dirty, forcing a full repaint on the next frame.
-    /// Used when something painted over the screen outside the tracked paths
-    /// (e.g. an active picker overlay).
+    /// Force a full live-block redraw on the next frame. Used when something
+    /// painted over the screen outside the tracked paths (e.g. an active
+    /// picker overlay).
     pub fn invalidate(&mut self) {
-        self.chat_dirty = true;
         self.bottom_dirty = true;
     }
 
-    pub fn visible_lines(&self) -> usize {
-        let (_, rows) = self.terminal_size();
-        let input_height = self.prev_input_height.max(1);
-        rows.saturating_sub(input_height as u16 + self.statusline_reserve()) as usize
-    }
-
     /// Number of rows the input area will occupy for the given content. Kept in
-    /// sync with the height logic used while drawing the input in `draw_bottom`.
+    /// sync with the height logic used while drawing the input in
+    /// `draw_live_block`.
     fn input_visible_height(&self, input_line: &str, rows: u16) -> usize {
         if self.permission_prompt.is_some() || self.chain_prompt.is_some() {
             return 2;
@@ -436,16 +500,17 @@ impl Renderer {
         input_line.split('\n').count().min(max_input_rows).max(1)
     }
 
-    /// Recompute the input height and reconcile `prev_input_height` before the
-    /// chat viewport is drawn, so the chat is sized against the height the input
-    /// is about to use. Without this, a height change (e.g. clearing or pasting
-    /// text) leaves the viewport drawn for the old size until the next redraw.
-    pub fn sync_input_height(&mut self, input_line: &str) -> io::Result<()> {
-        let (_, rows) = self.terminal_size();
-        let new_height = self.input_visible_height(input_line, rows);
-        self.clear_shrunk_rows(self.prev_input_height, new_height)?;
-        self.prev_input_height = new_height;
-        Ok(())
+    /// Rows available above the input area for the streaming region (tail of
+    /// the running block + partial scratch).
+    fn streaming_rows(&self, input_line: &str, rows: u16) -> usize {
+        let input_h = self.input_visible_height(input_line, rows);
+        (rows as usize).saturating_sub(input_h + self.statusline_height + 2)
+    }
+
+    /// Rows the live block currently occupies (0 before the first draw).
+    /// Pickers use it to paint just above the block.
+    pub fn live_block_height(&self) -> usize {
+        self.live_height
     }
 
     fn commit_partial(&mut self) {
@@ -453,167 +518,151 @@ impl Renderer {
             self.feed
                 .push_block(self.partial_style, self.partial.as_str());
             self.partial.clear();
-            self.chat_dirty = true;
         }
     }
 
-    pub fn is_scrolling(&self) -> bool {
-        self.scroll_offset > 0
+    /// The partial scratch (an incomplete line accumulating via
+    /// [`Renderer::write`]) laid out at `width`; shown in the live block's
+    /// streaming region but never committed.
+    fn partial_lines(&self, width: usize) -> Vec<LineEntry> {
+        if self.partial.is_empty() {
+            return Vec::new();
+        }
+        let color = self.partial_style.color();
+        word_wrap(&self.partial, width)
+            .into_iter()
+            .map(|text| LineEntry { text, color })
+            .collect()
     }
 
-    pub fn scroll_page_up(&mut self) {
-        let visible = self.visible_lines();
-        let page = visible.saturating_sub(2).max(1);
-        let max_offset = self.buffer_len().saturating_sub(visible);
-        let new_offset = (self.scroll_offset + page).min(max_offset);
-        if new_offset != self.scroll_offset {
-            self.scroll_offset = new_offset;
-            self.chat_dirty = true;
-        }
+    /// The watermark clamped to the current feed, defaulting to the start of
+    /// the feed when nothing was printed yet.
+    fn current_watermark(&self, width: usize) -> Watermark {
+        let wm = self.watermark.unwrap_or(Watermark {
+            width,
+            block: 0,
+            line: 0,
+        });
+        clamp_watermark(wm, self.feed.block_count())
     }
 
-    pub fn scroll_page_down(&mut self) {
-        let visible = self.visible_lines();
-        let page = visible.saturating_sub(2).max(1);
-        let new_offset = if self.scroll_offset <= page {
-            0
-        } else {
-            self.scroll_offset.saturating_sub(page)
-        };
-        if new_offset != self.scroll_offset {
-            self.scroll_offset = new_offset;
-            self.chat_dirty = true;
-        }
-    }
-
-    pub fn scroll_to_top(&mut self) {
-        let visible = self.visible_lines();
-        let new_offset = self.buffer_len().saturating_sub(visible);
-        if new_offset != self.scroll_offset {
-            self.scroll_offset = new_offset;
-            self.chat_dirty = true;
-        }
-    }
-
-    pub fn scroll_to_bottom(&mut self) -> io::Result<()> {
-        if self.scroll_offset != 0 {
-            self.scroll_offset = 0;
-            self.chat_dirty = true;
-        }
-        self.sync_to_buffer()
-    }
-
-    fn sync_to_buffer(&mut self) -> io::Result<()> {
-        self.commit_partial();
-        self.render_viewport()
-    }
-
-    pub fn render_viewport(&mut self) -> io::Result<()> {
-        if !self.chat_needs_redraw() {
-            return Ok(());
-        }
-        let (cols, _rows) = self.terminal_size();
-        let max_width = cols.saturating_sub(1 + self.chat_margin) as usize;
-        let visible = self.visible_lines();
-        let buffer = self.chat_lines(max_width);
-        let total = buffer.len();
-        write!(self.backend, "{}", Hide)?;
-
-        let auto_scroll = self.scroll_offset == 0;
-        let start = if auto_scroll {
-            total.saturating_sub(visible)
-        } else {
-            total.saturating_sub(self.scroll_offset + visible)
-        };
-        let start = start.min(total.saturating_sub(visible));
-
-        let mut visual_row: u16 = 0;
-        let mut buf_idx = start;
-
-        // Bottom-align: when auto-scrolling and content is shorter than viewport,
-        // render empty rows first so content hugs the input area.
-        if auto_scroll && total < visible {
-            let pad = visible - total;
-            for _ in 0..pad {
-                self.exec(MoveTo(0, visual_row))?;
-                if let Some(bg) = self.chat_bg {
-                    let bg = self.color(bg);
-                    write!(self.backend, "{}", SetBackgroundColor(bg))?;
-                }
-                write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
-                write!(self.backend, "{}", ResetColor)?;
-                visual_row += 1;
-            }
-        }
-
-        while (visual_row as usize) < visible && buf_idx < total {
-            let entry = &buffer[buf_idx];
-            let chunk = &entry.text;
-
-            if (visual_row as usize) >= visible {
-                break;
-            }
-
-            self.exec(MoveTo(0, visual_row))?;
-
-            if let Some(bg) = self.chat_bg {
-                let bg = self.color(bg);
-                write!(self.backend, "{}", SetBackgroundColor(bg))?;
-            }
-            Self::write_chat_margin(self.chat_margin, &mut self.backend)?;
-            let fg = self.color(entry.color);
-            write!(self.backend, "{}", SetForegroundColor(fg))?;
-            write!(self.backend, "{}", wrap_urls_osc8(chunk))?;
-            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(self.backend, "{}", ResetColor)?;
-
-            visual_row += 1;
-            buf_idx += 1;
-        }
-
-        while (visual_row as usize) < visible {
-            self.exec(MoveTo(0, visual_row))?;
-            if let Some(bg) = self.chat_bg {
-                let bg = self.color(bg);
-                write!(self.backend, "{}", SetBackgroundColor(bg))?;
-            }
-            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(self.backend, "{}", ResetColor)?;
-            visual_row += 1;
-        }
-
-        if self.scroll_offset > 0 {
-            let pct = if total > visible {
-                ((total - self.scroll_offset - visible) * 100 / (total - visible)).min(100)
+    /// Split the pending (unprinted) content into committed candidates and
+    /// the live tail at the current layout.
+    fn pending_split(&self, width: usize, wm: Watermark) -> PendingSplit {
+        let mut feed_lines: Vec<LineEntry> = Vec::new();
+        let mut counts = Vec::new();
+        let mut pushed = Vec::new();
+        for b in wm.block..self.feed.block_count() {
+            let lines = self.feed.block_lines(b, width);
+            counts.push(lines.len());
+            let start = if b == wm.block {
+                wm.line.min(lines.len())
             } else {
                 0
             };
-            let indicator = format!(" SCROLL {}% ", pct);
-            let x = cols.saturating_sub(indicator.len() as u16);
-            self.exec(MoveTo(x, 0))?;
-            if let Some(bg) = self.chat_bg {
-                let bg = self.color(bg);
-                write!(self.backend, "{}", SetBackgroundColor(bg))?;
-            }
-            let fg = self.color(Color::DarkYellow);
-            write!(self.backend, "{}", SetForegroundColor(fg))?;
-            write!(self.backend, "{}", indicator)?;
-            write!(self.backend, "{}", ResetColor)?;
+            pushed.push(lines.len() - start);
+            feed_lines.extend(lines.into_iter().skip(start));
         }
+        let running_tail = if self.feed.last_block_running() {
+            pushed.last().copied().unwrap_or(0)
+        } else {
+            0
+        };
+        let running_tail = running_tail.min(feed_lines.len());
+        let mut live = feed_lines.split_off(feed_lines.len() - running_tail);
+        let live_feed = live.len();
+        live.extend(self.partial_lines(width));
+        PendingSplit {
+            committed: feed_lines,
+            live,
+            live_feed,
+            counts,
+        }
+    }
 
-        self.backend.flush()?;
-        self.record_chat_drawn();
+    /// Move the cursor to the first row of the live block, relatively (never
+    /// above it). No-op when the block was never drawn or was just erased.
+    fn move_to_block_start(&mut self) -> io::Result<()> {
+        if self.live_height == 0 || self.live_erased {
+            return Ok(());
+        }
+        if self.live_cursor_off > 0 {
+            write!(self.backend, "{}", MoveUp(self.live_cursor_off as u16))?;
+        }
+        write!(self.backend, "\r")?;
         Ok(())
+    }
+
+    /// Write one chat-style row (chat background, left margin, role color,
+    /// OSC8-wrapped text) at the current cursor position; no trailing newline.
+    fn write_chat_row(&mut self, entry: &LineEntry) -> io::Result<()> {
+        write!(self.backend, "\r")?;
+        if let Some(bg) = self.chat_bg {
+            let bg = self.color(bg);
+            write!(self.backend, "{}", SetBackgroundColor(bg))?;
+        }
+        Self::write_chat_margin(self.chat_margin, &mut self.backend)?;
+        let fg = self.color(entry.color);
+        write!(self.backend, "{}", SetForegroundColor(fg))?;
+        write!(self.backend, "{}", wrap_urls_osc8(&entry.text))?;
+        write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+        write!(self.backend, "{}", ResetColor)?;
+        Ok(())
+    }
+
+    /// Commit pending feed lines to the terminal's native scrollback: print
+    /// the finalized lines past the watermark (plus any live-tail overflow)
+    /// once, starting at the live block's top edge. The caller redraws the
+    /// live block right after.
+    pub fn flush_committed(&mut self, input_line: &str) -> io::Result<()> {
+        let (_, rows) = self.terminal_size();
+        let width = self.max_line_width();
+        let stream_rows = self.streaming_rows(input_line, rows);
+        let wm = self.current_watermark(width);
+        let split = self.pending_split(width, wm);
+        let partial_rows = split.live.len() - split.live_feed;
+        let print = commit_count(
+            split.committed.len(),
+            split.live_feed,
+            partial_rows,
+            stream_rows,
+        );
+        if print > 0 {
+            write!(self.backend, "{}", Hide)?;
+            self.move_to_block_start()?;
+            let spill = print - split.committed.len();
+            let mut lines = split.committed;
+            lines.extend(split.live.iter().take(spill).cloned());
+            for entry in &lines {
+                self.write_chat_row(entry)?;
+                writeln!(self.backend)?;
+            }
+            self.backend.flush()?;
+            self.watermark = Some(advance_watermark(wm, &split.counts, print));
+            // The printed lines overwrote (or scrolled past) the old live
+            // block; the next draw starts right where the cursor is.
+            self.live_erased = true;
+        } else {
+            self.watermark = Some(Watermark { width, ..wm });
+        }
+        Ok(())
+    }
+
+    /// Flush committed lines and redraw the live block with the most recent
+    /// draw arguments; used by streaming, which mutates the feed between
+    /// frames.
+    pub fn repaint(&mut self) -> io::Result<()> {
+        let Some(args) = self.last_live_args.clone() else {
+            return self.flush_committed("");
+        };
+        self.flush_committed(&args.input)?;
+        self.draw_live_block(&args.input, args.cursor, &args.statusline, args.is_running)
     }
 
     pub fn write_line(&mut self, text: &str, color: Color) -> io::Result<()> {
         self.commit_partial();
         let style = style_from_color(color);
         self.feed.push_block(style, text);
-        self.chat_dirty = true;
-        if self.scroll_offset == 0 {
-            self.render_viewport()?;
-        }
         Ok(())
     }
 
@@ -637,61 +686,97 @@ impl Renderer {
                 self.partial.push_str(segment);
             }
         }
-        self.chat_dirty = true;
-        if self.scroll_offset == 0 {
-            self.render_viewport()?;
-        }
         Ok(())
     }
 
-    pub fn clear_content(&mut self) -> io::Result<()> {
-        self.chat_dirty = true;
-        self.feed.clear();
-        self.partial.clear();
-        self.scroll_offset = 0;
-        if let Some(bg) = self.chat_bg {
-            let bg = self.color(bg);
-            write!(self.backend, "{}", SetBackgroundColor(bg))?;
-        }
+    /// Terminal resized: printed lines keep their old wrap; the watermark
+    /// keeps the same `(block, line)` position and is remapped to the new
+    /// width on the next flush; only the live block is redrawn against the
+    /// new geometry.
+    pub fn resize(&mut self) {
+        self.bottom_dirty = true;
+    }
+
+    /// `/clear`: erase the live block, wipe the visible screen shell-style
+    /// (native scrollback is kept), and reset the print watermark so the
+    /// rebuilt feed prints once from the top.
+    pub fn clear_screen(&mut self) -> io::Result<()> {
+        write!(self.backend, "{}", Hide)?;
+        self.move_to_block_start()?;
+        write!(self.backend, "{}", Clear(ClearType::FromCursorDown))?;
         self.exec(Clear(ClearType::All))?;
-        write!(self.backend, "{}", ResetColor)?;
         self.exec(MoveTo(0, 0))?;
         self.backend.flush()?;
+        self.watermark = None;
+        self.live_height = 0;
+        self.live_cursor_off = 0;
+        self.live_caret = None;
+        self.live_erased = false;
+        self.bottom_dirty = true;
         Ok(())
     }
 
-    pub fn resize(&mut self) {
-        self.chat_dirty = true;
-        let visible = self.visible_lines();
-        let max_offset = self.buffer_len().saturating_sub(visible);
-        if self.scroll_offset > max_offset {
-            self.scroll_offset = max_offset;
+    /// Drop all feed content and the partial scratch in preparation for a
+    /// rebuild from the session (see `events::render_session`).
+    pub fn reset_feed_for_rebuild(&mut self) {
+        self.feed.clear();
+        self.partial.clear();
+    }
+
+    /// Reconcile the watermark after the feed was rebuilt from the session
+    /// (resume/undo/redo/rewind). Already-printed content cannot be unprinted
+    /// and must not print twice, so when anything was committed the whole
+    /// rebuilt feed is marked as printed; the caller is expected to print a
+    /// banner explaining the change. At startup (nothing printed yet) the
+    /// watermark stays unset so the transcript prints once.
+    pub fn note_feed_rebuilt(&mut self) {
+        if let Some(wm) = self.watermark {
+            self.watermark = Some(Watermark {
+                block: self.feed.block_count(),
+                line: 0,
+                ..wm
+            });
         }
     }
 
-    fn clear_shrunk_rows(&mut self, old_height: usize, new_height: usize) -> io::Result<()> {
-        if new_height >= old_height {
-            return Ok(());
-        }
-        let (_, rows) = self.terminal_size();
-        let reserve = self.statusline_reserve();
-        let avail = rows.saturating_sub(reserve);
-        let old_start = avail.saturating_sub(old_height as u16).saturating_add(1);
-        let new_start = avail.saturating_sub(new_height as u16).saturating_add(1);
-        for row in old_start..new_start {
-            self.exec(MoveTo(0, row))?;
-            if let Some(bg) = self.input_bg {
-                let bg = self.color(bg);
-                write!(self.backend, "{}", SetBackgroundColor(bg))?;
-            }
-            write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
-            write!(self.backend, "{}", ResetColor)?;
-        }
+    /// Suspend the inline UI to run a full-screen external program ($EDITOR,
+    /// lazygit, less): erase the live block and leave raw mode. Pair with
+    /// [`Renderer::resume`].
+    pub fn suspend(&mut self) -> io::Result<()> {
+        self.move_to_block_start()?;
+        write!(self.backend, "{}", Clear(ClearType::FromCursorDown))?;
+        write!(self.backend, "{}", Show)?;
+        self.backend.flush()?;
+        self.live_erased = true;
+        crossterm::terminal::disable_raw_mode()
+    }
+
+    /// Re-enter raw mode after [`Renderer::suspend`]; the next
+    /// `draw_live_block` repaints the live block where the cursor sits
+    /// (external full-screen programs restore the cursor to where they
+    /// started, i.e. the live block's former top edge).
+    pub fn resume(&mut self) -> io::Result<()> {
+        crossterm::terminal::enable_raw_mode()?;
+        self.bottom_dirty = true;
         Ok(())
     }
 
-    fn draw_separator(&mut self, row: u16, cols: u16) -> io::Result<()> {
-        self.exec(MoveTo(0, row))?;
+    /// Erase the live block and leave the cursor on a fresh line below the
+    /// UI, for program exit (before the terminal guard restores the screen).
+    pub fn finish(&mut self) -> io::Result<()> {
+        self.move_to_block_start()?;
+        write!(self.backend, "{}", Clear(ClearType::FromCursorDown))?;
+        write!(self.backend, "{}", Show)?;
+        self.backend.flush()?;
+        self.live_height = 0;
+        self.live_erased = true;
+        Ok(())
+    }
+
+    /// Write the thin separator row at the current cursor position; no
+    /// trailing newline.
+    fn draw_separator_line(&mut self, cols: u16) -> io::Result<()> {
+        write!(self.backend, "\r")?;
         if let Some(bg) = self.input_bg {
             let bg = self.color(bg);
             write!(self.backend, "{}", SetBackgroundColor(bg))?;
@@ -704,46 +789,31 @@ impl Renderer {
         Ok(())
     }
 
-    /// Draw the statusline (1-3 lines) at the bottom rows. Each line's `Flex` spans
-    /// expand to fill remaining width. Fewer lines than `statusline_height` leaves
-    /// the upper statusline rows blank.
-    fn draw_statusline(
+    /// Draw the statusline (1-3 rows) at the current cursor position. Each
+    /// `Flex` span expands to fill the remaining width. Every row except the
+    /// last is followed by a newline. Fewer lines than `statusline_height`
+    /// leaves the upper statusline rows blank.
+    fn draw_statusline_rows(
         &mut self,
         statusline: &[Vec<StatusSpan>],
         cols: u16,
-        is_scrolling: bool,
     ) -> io::Result<()> {
-        let (_, rows) = self.terminal_size();
-        let h = self.statusline_height as u16;
+        let h = self.statusline_height;
         for row_idx in 0..h {
-            let screen_row = rows.saturating_sub(h - row_idx);
             let empty: Vec<StatusSpan> = Vec::new();
-            let spans = statusline.get(row_idx as usize).unwrap_or(&empty);
-            // Scroll indicator on the top statusline row only.
-            let prefix = if is_scrolling && row_idx == 0 {
-                "-- SCROLL -- "
-            } else {
-                ""
-            };
-            self.draw_statusline_row(screen_row, spans, prefix, cols)?;
+            let spans = statusline.get(row_idx).unwrap_or(&empty);
+            self.write_statusline_row(spans, cols)?;
+            if row_idx + 1 < h {
+                writeln!(self.backend)?;
+            }
         }
         Ok(())
     }
 
-    fn draw_statusline_row(
-        &mut self,
-        screen_row: u16,
-        spans: &[StatusSpan],
-        prefix: &str,
-        cols: u16,
-    ) -> io::Result<()> {
-        self.exec(MoveTo(0, screen_row))?;
-        if let Some(bg) = self.status_bg {
-            let bg = self.color(bg);
-            write!(self.backend, "{}", SetBackgroundColor(bg))?;
-        }
-        write!(self.backend, "{}", Clear(ClearType::CurrentLine))?;
-        self.exec(MoveTo(0, screen_row))?;
+    /// Write one statusline row at the current cursor position; no trailing
+    /// newline.
+    fn write_statusline_row(&mut self, spans: &[StatusSpan], cols: u16) -> io::Result<()> {
+        write!(self.backend, "\r")?;
         if let Some(bg) = self.status_bg {
             let bg = self.color(bg);
             write!(self.backend, "{}", SetBackgroundColor(bg))?;
@@ -751,14 +821,6 @@ impl Renderer {
 
         let total = cols as usize;
         let mut budget = total;
-
-        if !prefix.is_empty() {
-            let fg = self.color(Color::DarkYellow);
-            write!(self.backend, "{}", SetForegroundColor(fg))?;
-            let take = prefix.chars().take(budget).collect::<String>();
-            budget -= display_width(&take);
-            write!(self.backend, "{}", take)?;
-        }
 
         // Fixed width of all text spans; flex shares what is left.
         let fixed: usize = spans
@@ -823,7 +885,56 @@ impl Renderer {
         Ok(())
     }
 
-    /// Snapshot of everything `draw_bottom` would paint for these arguments.
+    /// Repaint only the statusline rows. Valid right after a full draw whose
+    /// geometry matches the current frame (enforced by `bottom_redraw_plan`).
+    fn redraw_statusline_only(
+        &mut self,
+        statusline: &[Vec<StatusSpan>],
+        cols: u16,
+    ) -> io::Result<()> {
+        let status_start = self.live_stream_rows + 1 + self.live_input_rows + 1;
+        // Move from the post-draw cursor position to the first statusline row.
+        if status_start > self.live_cursor_off {
+            write!(
+                self.backend,
+                "{}",
+                MoveDown((status_start - self.live_cursor_off) as u16)
+            )?;
+        } else if status_start < self.live_cursor_off {
+            write!(
+                self.backend,
+                "{}",
+                MoveUp((self.live_cursor_off - status_start) as u16)
+            )?;
+        }
+        write!(self.backend, "\r{}", Hide)?;
+        self.draw_statusline_rows(statusline, cols)?;
+        Ok(())
+    }
+
+    /// Re-place the terminal caret where the last full draw left it. Needed
+    /// after a statusline-only redraw, which moves the cursor.
+    fn restore_live_cursor(&mut self) -> io::Result<()> {
+        match self.live_caret {
+            Some((x, off)) => {
+                let up = self.live_height.saturating_sub(1).saturating_sub(off);
+                if up > 0 {
+                    write!(self.backend, "{}", MoveUp(up as u16))?;
+                }
+                write!(self.backend, "\r")?;
+                if x > 0 {
+                    write!(self.backend, "{}", MoveRight(x))?;
+                }
+                write!(self.backend, "{}", Show)?;
+            }
+            None => {
+                write!(self.backend, "{}", Hide)?;
+            }
+        }
+        self.backend.flush()
+    }
+
+    /// Snapshot of everything `draw_live_block` would paint for these arguments.
     fn bottom_snapshot(
         &self,
         input_line: &str,
@@ -855,19 +966,24 @@ impl Renderer {
             is_running,
             spinner_frame: self.spinner_frame,
             input_vscroll_offset: self.input_vscroll_offset,
-            scroll_indicator: matches!(prompt, PromptSnapshot::Input) && self.scroll_offset > 0,
             prompt,
             statusline: statusline.to_vec(),
+            feed_generation: self.feed.generation(),
+            watermark: self.watermark,
+            partial: self.partial.clone(),
+            partial_style: self.partial_style,
             monochrome: self.monochrome,
+            chat_bg: self.chat_bg,
+            chat_margin: self.chat_margin,
             input_bg: self.input_bg,
             status_bg: self.status_bg,
         }
     }
 
-    /// Pure redraw decision for the bottom region: compare the state recorded
+    /// Pure redraw decision for the live block: compare the state recorded
     /// after the last draw with the state about to be drawn. When only the
-    /// statusline content (or the scroll indicator painted inside it) differs,
-    /// the input area is untouched and only the statusline rows need a repaint.
+    /// statusline content differs, the rest of the block is untouched and
+    /// only the statusline rows need a repaint.
     pub(crate) fn bottom_redraw_plan(
         prev: Option<&BottomSnapshot>,
         next: &BottomSnapshot,
@@ -884,7 +1000,6 @@ impl Renderer {
         }
         let mut status_only = next.clone();
         status_only.statusline = prev.statusline.clone();
-        status_only.scroll_indicator = prev.scroll_indicator;
         if status_only == *prev {
             BottomRedrawPlan::StatuslineOnly
         } else {
@@ -892,34 +1007,31 @@ impl Renderer {
         }
     }
 
-    /// Record the bottom region as freshly drawn.
+    /// Record the live block as freshly drawn.
     fn record_bottom_drawn(&mut self, snapshot: BottomSnapshot) {
         self.last_bottom_snapshot = Some(snapshot);
         self.bottom_dirty = false;
     }
 
-    /// Re-place the terminal caret where the last full bottom draw left it.
-    /// Needed after a statusline-only redraw, which moves the cursor.
-    fn restore_bottom_cursor(&mut self) -> io::Result<()> {
-        match self.bottom_cursor {
-            Some((x, row)) => {
-                self.exec(MoveTo(x, row))?;
-                write!(self.backend, "{}", Show)?;
-            }
-            None => {
-                write!(self.backend, "{}", Hide)?;
-            }
-        }
-        self.backend.flush()
-    }
-
-    pub fn draw_bottom(
+    /// Draw the live block — the only region ever redrawn: streaming region
+    /// (tail of the running feed block + partial scratch), then the input
+    /// box (or a permission/chain prompt) between two separators, then the
+    /// statusline. All positioning is relative to the block's previous
+    /// position: the cursor never moves above the block's start, so
+    /// committed lines above it are left untouched in native scrollback.
+    pub fn draw_live_block(
         &mut self,
         input_line: &str,
         cursor_pos: usize,
         statusline: &[Vec<StatusSpan>],
         is_running: bool,
     ) -> io::Result<()> {
+        self.last_live_args = Some(LiveArgs {
+            input: input_line.to_string(),
+            cursor: cursor_pos,
+            statusline: statusline.to_vec(),
+            is_running,
+        });
         let (cols, rows) = self.backend.size()?;
         let snapshot =
             self.bottom_snapshot(input_line, cursor_pos, statusline, is_running, cols, rows);
@@ -930,107 +1042,72 @@ impl Renderer {
         ) {
             BottomRedrawPlan::Skip => return Ok(()),
             BottomRedrawPlan::StatuslineOnly => {
-                self.draw_statusline(statusline, cols, snapshot.scroll_indicator)?;
-                self.restore_bottom_cursor()?;
+                self.redraw_statusline_only(statusline, cols)?;
+                self.restore_live_cursor()?;
                 self.record_bottom_drawn(snapshot);
                 return Ok(());
             }
             BottomRedrawPlan::Full => {}
         }
-        let reserve = self.statusline_reserve();
 
-        let permission_lines = self
-            .permission_prompt
-            .as_ref()
-            .map(|pp| [pp.tool.to_string(), pp.options.to_string()]);
-        if let Some(perm_lines) = permission_lines {
-            let line_count = 2usize;
-            let input_top = rows
-                .saturating_sub(reserve)
-                .saturating_sub(line_count as u16)
-                .saturating_add(1);
-            let sep_above = input_top.saturating_sub(1);
+        write!(self.backend, "{}", Hide)?;
+        self.move_to_block_start()?;
+        self.live_erased = false;
+        write!(self.backend, "{}", Clear(ClearType::FromCursorDown))?;
 
-            self.clear_shrunk_rows(self.prev_input_height, line_count)?;
-            self.prev_input_height = line_count;
+        let width = cols.saturating_sub(1 + self.chat_margin) as usize;
+        let stream_rows = self.streaming_rows(input_line, rows);
+        let wm = self.current_watermark(width);
+        let split = self.pending_split(width, wm);
+        let skip = split.live.len().saturating_sub(stream_rows);
+        let stream = &split.live[skip..];
 
-            if sep_above < input_top {
-                self.draw_separator(sep_above, cols)?;
-            }
-
-            let perm_color = self.color(Color::DarkYellow);
-            for (i, line) in perm_lines.iter().enumerate() {
-                let render_row = input_top + i as u16;
-                self.exec(MoveTo(0, render_row))?;
-                if let Some(bg) = self.input_bg {
-                    let bg = self.color(bg);
-                    write!(self.backend, "{}", SetBackgroundColor(bg))?;
-                }
-                write!(self.backend, "{}", SetForegroundColor(perm_color))?;
-                write!(self.backend, "{}", line)?;
-                write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
-                write!(self.backend, "{}", ResetColor)?;
-            }
-
-            let sep_below = rows.saturating_sub(reserve - 1);
-            if sep_below < rows.saturating_sub(1) {
-                self.draw_separator(sep_below, cols)?;
-            }
-
-            self.draw_statusline(statusline, cols, false)?;
-            write!(self.backend, "{}", Hide)?;
-            self.backend.flush()?;
-            self.bottom_cursor = None;
-            self.record_bottom_drawn(snapshot);
-            return Ok(());
+        // Streaming region: tail of the running block plus the partial scratch.
+        for entry in stream {
+            self.write_chat_row(entry)?;
+            writeln!(self.backend)?;
         }
+        let stream_len = stream.len();
 
-        let chain_lines = self.chain_prompt.as_ref().map(|cp| {
-            let options = if self.chain_but_mode {
-                "[Enter] send  [Esc] cancel"
-            } else {
-                "[Y] Yes  [N] No  [B] yes, But (add instruction)"
-            };
-            [cp.question.to_string(), options.to_string()]
-        });
-        if let Some(render_lines) = chain_lines {
-            let line_count = 2usize;
-            let input_top = rows
-                .saturating_sub(reserve)
-                .saturating_sub(line_count as u16)
-                .saturating_add(1);
-            let sep_above = input_top.saturating_sub(1);
+        let prompt_lines: Option<[String; 2]> = if let Some(ref pp) = self.permission_prompt {
+            Some([pp.tool.to_string(), pp.options.to_string()])
+        } else {
+            self.chain_prompt.as_ref().map(|cp| {
+                let options = if self.chain_but_mode {
+                    "[Enter] send  [Esc] cancel"
+                } else {
+                    "[Y] Yes  [N] No  [B] yes, But (add instruction)"
+                };
+                [cp.question.to_string(), options.to_string()]
+            })
+        };
 
-            self.clear_shrunk_rows(self.prev_input_height, line_count)?;
-            self.prev_input_height = line_count;
-
-            if sep_above < input_top {
-                self.draw_separator(sep_above, cols)?;
-            }
-
-            let chain_color = self.color(Color::DarkYellow);
-            for (i, line) in render_lines.iter().enumerate() {
-                let render_row = input_top + i as u16;
-                self.exec(MoveTo(0, render_row))?;
+        if let Some(perm_lines) = prompt_lines {
+            let prompt_color = self.color(Color::DarkYellow);
+            self.draw_separator_line(cols)?;
+            writeln!(self.backend)?;
+            for line in &perm_lines {
+                write!(self.backend, "\r")?;
                 if let Some(bg) = self.input_bg {
                     let bg = self.color(bg);
                     write!(self.backend, "{}", SetBackgroundColor(bg))?;
                 }
-                write!(self.backend, "{}", SetForegroundColor(chain_color))?;
+                write!(self.backend, "{}", SetForegroundColor(prompt_color))?;
                 write!(self.backend, "{}", line)?;
                 write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
                 write!(self.backend, "{}", ResetColor)?;
+                writeln!(self.backend)?;
             }
-
-            let sep_below = rows.saturating_sub(reserve - 1);
-            if sep_below < rows.saturating_sub(1) {
-                self.draw_separator(sep_below, cols)?;
-            }
-
-            self.draw_statusline(statusline, cols, false)?;
-            write!(self.backend, "{}", Hide)?;
+            self.draw_separator_line(cols)?;
+            writeln!(self.backend)?;
+            self.draw_statusline_rows(statusline, cols)?;
             self.backend.flush()?;
-            self.bottom_cursor = None;
+            let total = stream_len + 1 + 2 + 1 + self.statusline_height;
+            self.live_height = total;
+            self.live_stream_rows = stream_len;
+            self.live_input_rows = 2;
+            self.live_cursor_off = total - 1;
+            self.live_caret = None;
             self.record_bottom_drawn(snapshot);
             return Ok(());
         }
@@ -1038,10 +1115,11 @@ impl Renderer {
         let lines: SmallVec<[&str; 4]> = input_line.split('\n').collect();
         let line_count = lines.len();
 
+        let reserve = self.statusline_reserve();
         let available_rows = (rows.saturating_sub(reserve) as usize).max(1);
-        // Cap the input height to roughly 30% of the area so the chat history
-        // stays visible (and therefore scrollable) above a tall input instead
-        // of being squeezed to nothing.
+        // Cap the input height to roughly 30% of the area so the streaming
+        // region stays visible above a tall input instead of being squeezed
+        // to nothing.
         let max_input_rows = available_rows.min((available_rows * 3 / 10).max(5));
         let need_scroll = line_count > max_input_rows;
 
@@ -1100,25 +1178,15 @@ impl Renderer {
             self.input_scroll_offset = 0;
         }
 
-        // Clear and draw input area
         let visible_line_count = if need_scroll {
             max_input_rows
         } else {
             line_count
         };
 
-        self.clear_shrunk_rows(self.prev_input_height, visible_line_count)?;
-        self.prev_input_height = visible_line_count;
-
         // Thin separator line above input
-        let input_top = rows
-            .saturating_sub(reserve)
-            .saturating_sub(visible_line_count as u16)
-            .saturating_add(1);
-        let sep_above = input_top.saturating_sub(1);
-        if sep_above < input_top {
-            self.draw_separator(sep_above, cols)?;
-        }
+        self.draw_separator_line(cols)?;
+        writeln!(self.backend)?;
 
         for (i, line) in lines
             .iter()
@@ -1126,9 +1194,7 @@ impl Renderer {
             .skip(first_visible)
             .take(visible_line_count)
         {
-            let render_row = (rows.saturating_sub(reserve) - visible_line_count as u16 + 1)
-                + (i - first_visible) as u16;
-            self.exec(MoveTo(0, render_row))?;
+            write!(self.backend, "\r")?;
 
             if let Some(bg) = self.input_bg {
                 let bg = self.color(bg);
@@ -1169,30 +1235,42 @@ impl Renderer {
             write!(self.backend, "{}", display)?;
             write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
             write!(self.backend, "{}", ResetColor)?;
+            writeln!(self.backend)?;
         }
 
         // Thin separator line below input
-        let sep_below = rows.saturating_sub(reserve - 1);
-        if sep_below < rows.saturating_sub(1) {
-            self.draw_separator(sep_below, cols)?;
-        }
+        self.draw_separator_line(cols)?;
+        writeln!(self.backend)?;
 
-        // Status line
-        self.draw_statusline(statusline, cols, self.scroll_offset > 0)?;
+        // Statusline rows (no trailing newline after the last one).
+        self.draw_statusline_rows(statusline, cols)?;
 
-        // Cursor. Clamp to the visible input rows so that when the viewport is
+        // Caret. Clamp to the visible input rows so that when the input is
         // scrolled away from the cursor line, the terminal caret stays inside
         // the input box instead of spilling onto the separator or status bar.
         let cursor_render_idx = cursor_line
             .saturating_sub(first_visible)
             .min(visible_line_count.saturating_sub(1));
-        let cursor_row = (rows.saturating_sub(reserve) - visible_line_count as u16 + 1)
-            + cursor_render_idx as u16;
+        let caret_off = stream_len + 1 + cursor_render_idx;
         let cursor_x = (prompt_width + cursor_display_col.saturating_sub(h_scroll)) as u16;
-        self.exec(MoveTo(cursor_x, cursor_row))?;
+        let total = stream_len + 1 + visible_line_count + 1 + self.statusline_height;
+        // The cursor sits at the end of the last statusline row; move it up
+        // to the caret row.
+        let up = (total - 1).saturating_sub(caret_off);
+        if up > 0 {
+            write!(self.backend, "{}", MoveUp(up as u16))?;
+        }
+        write!(self.backend, "\r")?;
+        if cursor_x > 0 {
+            write!(self.backend, "{}", MoveRight(cursor_x))?;
+        }
         write!(self.backend, "{}", Show)?;
         self.backend.flush()?;
-        self.bottom_cursor = Some((cursor_x, cursor_row));
+        self.live_height = total;
+        self.live_stream_rows = stream_len;
+        self.live_input_rows = visible_line_count;
+        self.live_cursor_off = caret_off;
+        self.live_caret = Some((cursor_x, caret_off));
         // The draw itself settles `input_vscroll_offset` (cursor follow /
         // clamping); record the settled value so the next identical frame is
         // recognized as unchanged. `spinner_frame` deliberately keeps the

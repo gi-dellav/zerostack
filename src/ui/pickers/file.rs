@@ -200,7 +200,7 @@ impl FilePicker {
         self.loading = false;
     }
 
-    pub fn draw(&mut self) -> std::io::Result<()> {
+    pub fn draw(&mut self, live_rows: u16) -> std::io::Result<()> {
         if !self.active {
             return Ok(());
         }
@@ -210,10 +210,10 @@ impl FilePicker {
         let (cols, rows) = crossterm::terminal::size()?;
         let mut stdout = std::io::stdout();
 
-        let max_items = (rows.saturating_sub(4)).min(10) as usize;
+        let max_items = (rows.saturating_sub(live_rows)).min(10) as usize;
 
         if self.loading && self.matches.is_empty() {
-            let r = rows.saturating_sub(3);
+            let r = rows.saturating_sub(live_rows).saturating_sub(1);
             stdout.execute(MoveTo(0, r))?;
             write!(
                 stdout,
@@ -227,7 +227,7 @@ impl FilePicker {
         }
 
         if self.matches.is_empty() {
-            let r = rows.saturating_sub(4);
+            let r = rows.saturating_sub(live_rows).saturating_sub(1);
             stdout.execute(MoveTo(0, r))?;
             write!(
                 stdout,
@@ -247,7 +247,9 @@ impl FilePicker {
             .min(self.matches.len().saturating_sub(list_height));
         let end_idx = (start_idx + list_height).min(self.matches.len());
 
-        let top_row = rows.saturating_sub(3).saturating_sub(list_height as u16);
+        let top_row = rows
+            .saturating_sub(live_rows)
+            .saturating_sub(list_height as u16);
 
         for i in start_idx..end_idx {
             let render_row = top_row + (i - start_idx) as u16;

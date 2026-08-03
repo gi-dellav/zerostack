@@ -270,7 +270,8 @@ message, and after the response restores the previous prompt and
 | `Ctrl+S` | Save session. |
 | `Tab` | Activate file picker / auto-complete paths. |
 | `Up / Down` | Navigate command history. |
-| `PageUp / PageDown` | Scroll viewport. |
 | `Home / End` | Jump to start/end of input. |
 | `Alt+Enter` | Retry last prompt. |
 | `Escape` | Close active picker / cancel. |
+
+Chat history lives in the terminal's native scrollback: scroll with your terminal's own scrollbar / mouse wheel / trackpad, and copy text with native mouse selection. There are no in-app scroll keys.

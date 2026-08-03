@@ -417,13 +417,13 @@ async fn ctrl_r_toggles_reasoning_visibility() {
 }
 
 #[tokio::test]
-async fn scroll_and_resize_events() {
+async fn resize_event_keeps_committed_lines() {
     let _guard = acquire();
     // A long response so the feed overflows the 80x24 fake terminal.
     let long_response: String = (0..45)
         .map(|i| format!("response line {i}"))
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("\n\n");
     let (mut app, _model) = headless_app(vec![vec![long_response.as_str()]]).await;
 
     type_and_submit(&app, "hello").await;
@@ -431,26 +431,33 @@ async fn scroll_and_resize_events() {
         !a.is_running() && a.session().messages.len() == 2
     })
     .await;
-    assert!(!app.is_scrolling());
 
-    app.inject(UserEvent::Key(KeyEvent::new(
-        KeyCode::PageUp,
-        KeyModifiers::NONE,
-    )))
-    .await;
-    step_until(&mut app, |a| a.is_scrolling()).await;
+    // The response was committed to (fake) scrollback exactly once.
+    let out = app.backend_output();
     assert!(
-        app.backend_output().contains("SCROLL"),
-        "scrolled viewport should paint a scroll indicator"
+        out.contains("response line 0"),
+        "response should be printed inline: {out}"
+    );
+    assert!(out.contains("response line 44"), "full response printed");
+    assert!(
+        !out.contains("SCROLL"),
+        "the inline model has no in-app scroll indicator"
     );
 
-    app.inject(UserEvent::Key(KeyEvent::new(
-        KeyCode::PageDown,
-        KeyModifiers::NONE,
-    )))
-    .await;
+    // Resize: printed lines keep their old wrap and never reprint; the loop
+    // keeps working afterwards.
     app.inject(UserEvent::Resize).await;
-    step_until(&mut app, |a| !a.is_scrolling()).await;
+    pump(&mut app).await;
+    let after = app.backend_output();
+    assert!(
+        !after.contains("SCROLL"),
+        "resize must not paint a scroll indicator"
+    );
+    assert_eq!(
+        after.matches("response line 44").count(),
+        1,
+        "committed lines must not reprint on resize"
+    );
 
     app.teardown().await;
 }

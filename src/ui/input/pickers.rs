@@ -35,20 +35,22 @@ impl Picker {
         }
     }
 
-    pub fn draw(&mut self) -> std::io::Result<()> {
+    /// Paint the picker over the rows just above the live block
+    /// (`live_rows` = the block's current height in rows).
+    pub fn draw(&mut self, live_rows: u16) -> std::io::Result<()> {
         match self {
-            Picker::File(p) => p.draw(),
-            Picker::Command(p) => p.draw(None),
+            Picker::File(p) => p.draw(live_rows),
+            Picker::Command(p) => p.draw(None, live_rows),
             Picker::Prefixed(p, prefix) => {
                 let msg = if *prefix == "/provider " {
                     Some("no matches  (type a registered custom gateway name)")
                 } else {
                     None
                 };
-                p.draw(msg)
+                p.draw(msg, live_rows)
             }
-            Picker::Models(p) => p.draw(),
-            Picker::Rewind(p) => p.draw(),
+            Picker::Models(p) => p.draw(live_rows),
+            Picker::Rewind(p) => p.draw(live_rows),
         }
     }
 }

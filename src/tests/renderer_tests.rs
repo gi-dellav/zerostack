@@ -80,62 +80,16 @@ mod dirty {
                 fg: None,
                 bg: None,
             }]],
-            scroll_indicator: false,
+            feed_generation: 0,
+            watermark: None,
+            partial: "".into(),
+            partial_style: BlockStyle::Plain,
             monochrome: false,
+            chat_bg: None,
+            chat_margin: 0,
             input_bg: None,
             status_bg: None,
         }
-    }
-
-    #[test]
-    fn fresh_renderer_needs_chat_redraw() {
-        let r = Renderer::new().unwrap();
-        assert!(r.chat_needs_redraw());
-    }
-
-    #[test]
-    fn chat_clean_after_mark_clean() {
-        let mut r = Renderer::new().unwrap();
-        r.mark_chat_clean();
-        assert!(!r.chat_needs_redraw());
-    }
-
-    #[test]
-    fn feed_mut_mutation_triggers_chat_redraw() {
-        let mut r = Renderer::new().unwrap();
-        r.mark_chat_clean();
-        r.feed_mut().push_block(BlockStyle::Plain, "hello");
-        assert!(r.chat_needs_redraw());
-    }
-
-    #[test]
-    fn scroll_triggers_chat_redraw() {
-        let mut r = Renderer::new().unwrap();
-        // Enough lines to overflow the (fallback 80x24) viewport.
-        for i in 0..40 {
-            r.feed_mut()
-                .push_line(BlockStyle::Plain, format!("line {i}"));
-        }
-        r.mark_chat_clean();
-        assert!(!r.chat_needs_redraw());
-        r.scroll_page_up();
-        assert!(r.chat_needs_redraw());
-    }
-
-    #[test]
-    fn resize_marks_chat_dirty() {
-        let mut r = Renderer::new().unwrap();
-        r.mark_chat_clean();
-        r.resize();
-        assert!(r.chat_needs_redraw());
-    }
-
-    #[test]
-    fn invalidate_marks_chat_dirty() {
-        let mut r = Renderer::new().unwrap();
-        r.mark_chat_clean();
-        r.invalidate();
-        assert!(r.chat_needs_redraw());
     }
 
     #[test]
@@ -183,13 +137,24 @@ mod dirty {
     }
 
     #[test]
-    fn bottom_plan_statusline_only_on_scroll_indicator_change() {
+    fn bottom_plan_full_on_feed_change() {
         let prev = bottom_snapshot();
         let mut next = bottom_snapshot();
-        next.scroll_indicator = true;
+        next.feed_generation = 1;
         assert_eq!(
             Renderer::bottom_redraw_plan(Some(&prev), &next, false),
-            BottomRedrawPlan::StatuslineOnly
+            BottomRedrawPlan::Full
+        );
+    }
+
+    #[test]
+    fn bottom_plan_full_on_partial_change() {
+        let prev = bottom_snapshot();
+        let mut next = bottom_snapshot();
+        next.partial = "streaming".into();
+        assert_eq!(
+            Renderer::bottom_redraw_plan(Some(&prev), &next, false),
+            BottomRedrawPlan::Full
         );
     }
 
@@ -273,5 +238,238 @@ mod dirty {
             Renderer::bottom_redraw_plan(Some(&prev), &next, false),
             BottomRedrawPlan::Full
         );
+    }
+}
+
+/// Watermark math: the pure commit/advance/clamp functions plus end-to-end
+/// flush behavior against a `FakeBackend`.
+mod watermark {
+    use crate::ui::feed::BlockStyle;
+    use crate::ui::renderer::{
+        FakeBackend, Renderer, Watermark, advance_watermark, clamp_watermark, commit_count,
+    };
+
+    fn wm(width: usize, block: usize, line: usize) -> Watermark {
+        Watermark { width, block, line }
+    }
+
+    fn headless(cols: u16, rows: u16) -> Renderer {
+        Renderer::with_backend(Box::new(FakeBackend::new(cols, rows)))
+    }
+
+    #[test]
+    fn advance_walks_across_blocks() {
+        // 2 lines of block 0 (1 already printed), then 3 lines of block 1.
+        let next = advance_watermark(wm(80, 0, 1), &[2, 3], 3);
+        assert_eq!(next, wm(80, 1, 2));
+    }
+
+    #[test]
+    fn advance_zero_printed_stays_put() {
+        assert_eq!(advance_watermark(wm(80, 1, 2), &[5], 0), wm(80, 1, 2));
+    }
+
+    #[test]
+    fn advance_skips_zero_line_blocks() {
+        // An empty agent block lays out to zero lines; the watermark must not
+        // get stuck on it.
+        let next = advance_watermark(wm(80, 0, 0), &[0, 2], 1);
+        assert_eq!(next, wm(80, 1, 1));
+    }
+
+    #[test]
+    fn advance_survives_layout_shrink() {
+        // The watermark said 5 lines of block 0 were printed, but the block
+        // now lays out to 3 lines (markdown reflow): treat it as done.
+        let next = advance_watermark(wm(80, 0, 5), &[3, 2], 1);
+        assert_eq!(next, wm(80, 1, 1));
+    }
+
+    #[test]
+    fn clamp_collapses_past_end() {
+        assert_eq!(clamp_watermark(wm(80, 5, 2), 3), wm(80, 3, 0));
+        assert_eq!(clamp_watermark(wm(80, 3, 0), 3), wm(80, 3, 0));
+        assert_eq!(clamp_watermark(wm(80, 1, 2), 3), wm(80, 1, 2));
+    }
+
+    #[test]
+    fn commit_count_commits_finalized_only() {
+        // 2 finalized lines plus a 4-line running tail that fits the
+        // streaming region: only the finalized lines print.
+        assert_eq!(commit_count(2, 4, 0, 10), 2);
+    }
+
+    #[test]
+    fn commit_count_spills_overtall_running_tail() {
+        // Nothing finalized; a 10-line running tail with 6 streaming rows
+        // available: the top 4 spill into scrollback.
+        assert_eq!(commit_count(0, 10, 0, 6), 4);
+    }
+
+    #[test]
+    fn commit_count_counts_partial_towards_overflow() {
+        // The partial scratch rows push the live tail over the edge, but the
+        // spill is still capped to feed lines (partial is never printed).
+        assert_eq!(commit_count(2, 4, 3, 6), 3);
+    }
+
+    #[test]
+    fn commit_count_zero_when_everything_fits() {
+        assert_eq!(commit_count(0, 3, 1, 10), 0);
+    }
+
+    #[test]
+    fn flush_prints_new_lines_once() {
+        let mut r = headless(80, 24);
+        for i in 0..3 {
+            r.feed_mut()
+                .push_line(BlockStyle::Plain, format!("line {i}"));
+        }
+        r.flush_committed("").unwrap();
+        let first = r.captured_output();
+        assert!(first.contains("line 0"), "printed: {first}");
+        assert!(first.contains("line 2"), "printed: {first}");
+        assert_eq!(r.watermark(), Some(wm(79, 3, 0)));
+
+        // Nothing new pending: a second flush prints nothing.
+        r.flush_committed("").unwrap();
+        assert_eq!(r.captured_output(), first, "no line may print twice");
+    }
+
+    #[test]
+    fn flush_prints_only_lines_past_watermark() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_line(BlockStyle::Plain, "old");
+        r.flush_committed("").unwrap();
+        let before = r.captured_output();
+
+        r.feed_mut().push_line(BlockStyle::Plain, "new");
+        r.flush_committed("").unwrap();
+        let after = r.captured_output();
+        assert!(after.len() > before.len());
+        let delta = &after[before.len()..];
+        assert!(delta.contains("new"), "delta: {delta}");
+        assert!(!delta.contains("old"), "old must not reprint: {delta}");
+    }
+
+    #[test]
+    fn running_block_stays_live_until_finalized() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_streaming_block(BlockStyle::Agent);
+        r.feed_mut().append_to_last("streaming text");
+        r.flush_committed("").unwrap();
+        assert!(
+            r.captured_output().is_empty(),
+            "a running block must not be committed"
+        );
+
+        r.feed_mut().finalize_last();
+        r.flush_committed("").unwrap();
+        assert!(r.captured_output().contains("< streaming text"));
+    }
+
+    #[test]
+    fn overtall_running_block_spills_top_lines() {
+        // 10 rows: streaming region is tiny, so most of a tall running block
+        // spills into scrollback while the tail stays live.
+        let mut r = headless(80, 10);
+        r.feed_mut().push_streaming_block(BlockStyle::Plain);
+        for i in 0..20 {
+            r.feed_mut().append_to_last(format!("row {i}\n"));
+        }
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(out.contains("row 0"), "top lines spilled: {out}");
+        let mark = r.watermark().expect("watermark advanced");
+        assert_eq!(mark.block, 0, "still inside the running block");
+        assert!(mark.line > 0, "some lines committed: {mark:?}");
+
+        // Finalize: the rest of the block commits.
+        r.feed_mut().finalize_last();
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(out.contains("row 19"), "tail printed on finalize: {out}");
+        assert_eq!(r.watermark(), Some(wm(79, 1, 0)));
+    }
+
+    #[test]
+    fn truncation_clamps_watermark() {
+        let mut r = headless(80, 24);
+        for i in 0..3 {
+            r.feed_mut()
+                .push_line(BlockStyle::Plain, format!("line {i}"));
+        }
+        r.flush_committed("").unwrap();
+        let before = r.captured_output();
+
+        // Blocks 1 and 2 were printed, then the feed is truncated (e.g. a
+        // streaming restart): nothing may reprint or panic.
+        r.feed_mut().truncate_blocks(1);
+        r.flush_committed("").unwrap();
+        assert_eq!(r.captured_output(), before);
+        assert_eq!(r.watermark(), Some(wm(79, 1, 0)));
+    }
+
+    #[test]
+    fn resize_remaps_watermark_to_same_position() {
+        let mut r = headless(80, 24);
+        for i in 0..5 {
+            r.feed_mut()
+                .push_line(BlockStyle::Plain, format!("line {i}"));
+        }
+        r.flush_committed("").unwrap();
+        let before = r.captured_output();
+
+        r.resize_backend(40, 24);
+        r.resize();
+        r.flush_committed("").unwrap();
+        assert_eq!(
+            r.captured_output(),
+            before,
+            "printed lines keep their old wrap and never reprint"
+        );
+        assert_eq!(
+            r.watermark(),
+            Some(wm(39, 5, 0)),
+            "same (block, line), remapped to the new width"
+        );
+    }
+
+    #[test]
+    fn clear_screen_resets_watermark() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_line(BlockStyle::Plain, "hello");
+        r.flush_committed("").unwrap();
+        assert!(r.watermark().is_some());
+
+        r.clear_screen().unwrap();
+        assert_eq!(r.watermark(), None);
+        let out = r.captured_output();
+        assert!(out.contains("\x1b[2J"), "screen cleared: {out}");
+
+        // The feed is unprinted again: it prints once from the top.
+        r.flush_committed("").unwrap();
+        let reprinted = r.captured_output().len() > out.len();
+        assert!(reprinted, "feed reprints after /clear");
+    }
+
+    #[test]
+    fn rebuild_marks_feed_printed_but_startup_does_not() {
+        // Startup: nothing printed yet, the transcript must print.
+        let mut r = headless(80, 24);
+        r.reset_feed_for_rebuild();
+        r.feed_mut().push_line(BlockStyle::Plain, "transcript");
+        r.note_feed_rebuilt();
+        r.flush_committed("").unwrap();
+        assert!(r.captured_output().contains("transcript"));
+
+        // Rebuild (undo/rewind): the new feed must not reprint.
+        let before = r.captured_output();
+        r.reset_feed_for_rebuild();
+        r.feed_mut()
+            .push_line(BlockStyle::Plain, "shorter transcript");
+        r.note_feed_rebuilt();
+        r.flush_committed("").unwrap();
+        assert_eq!(r.captured_output(), before, "rebuilt feed must not reprint");
     }
 }

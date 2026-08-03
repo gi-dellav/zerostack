@@ -95,7 +95,7 @@ pub async fn handle_agent_event(
                 return Ok(());
             }
 
-            renderer.render_viewport()?;
+            renderer.repaint()?;
             run.agent_line_started = true;
         }
         AgentEvent::ToolCall { name, args } => {
@@ -345,7 +345,7 @@ async fn handle_agent_done(
                 .feed_mut()
                 .push_block(BlockStyle::Agent, run.response_buf.as_str());
         }
-        renderer.render_viewport()?;
+        renderer.repaint()?;
     } else if !run.agent_line_started {
         renderer.feed_mut().push_line(BlockStyle::Agent, "< ");
     }

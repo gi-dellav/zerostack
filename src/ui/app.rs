@@ -1,10 +1,9 @@
-use std::io::{self, Write};
+use std::io;
 use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use crossterm::ExecutableCommand;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crossterm::style::Color;
 use tokio::sync::mpsc;
@@ -533,11 +532,6 @@ impl<'a> App<'a> {
         self.run.is_running
     }
 
-    #[cfg(test)]
-    pub(crate) fn is_scrolling(&self) -> bool {
-        self.renderer.is_scrolling()
-    }
-
     /// All feed lines (wrapped to 80 cols) joined with newlines.
     #[cfg(test)]
     pub(crate) fn feed_text(&self) -> String {
@@ -565,7 +559,7 @@ impl<'a> App<'a> {
         self.ui.session
     }
 
-    pub(crate) async fn teardown(self) {
+    pub(crate) async fn teardown(mut self) {
         self.running.store(false, Ordering::Relaxed);
         if let Some(h) = self.event_handle {
             let _ = h.join();
@@ -574,6 +568,9 @@ impl<'a> App<'a> {
         if let Some(mgr) = self.ui.mcp_manager {
             mgr.shutdown().await;
         }
+        // Erase the live block and leave the cursor on a fresh line below the
+        // UI before the terminal guard restores the screen.
+        let _ = self.renderer.finish();
     }
 
     fn refresh(&mut self) -> io::Result<()> {
@@ -658,26 +655,6 @@ impl<'a> App<'a> {
             return Ok(());
         }
 
-        match key.code {
-            KeyCode::PageUp => {
-                self.renderer.scroll_page_up();
-                return Ok(());
-            }
-            KeyCode::PageDown => {
-                self.renderer.scroll_page_down();
-                return Ok(());
-            }
-            KeyCode::Home => {
-                self.renderer.scroll_to_top();
-                return Ok(());
-            }
-            KeyCode::End => {
-                self.renderer.scroll_to_bottom()?;
-                return Ok(());
-            }
-            _ => {}
-        }
-
         if self.input.picker.as_ref().is_some_and(|p| p.active())
             && self.input.handle_picker_key(key)
         {
@@ -716,7 +693,7 @@ impl<'a> App<'a> {
 
         if key.code == KeyCode::Char('g') && key.modifiers.contains(KeyModifiers::CONTROL) {
             self.rebind_event_thread();
-            self.input.open_in_editor();
+            self.input.open_in_editor(&mut self.renderer);
             return Ok(());
         }
 
@@ -783,10 +760,6 @@ impl<'a> App<'a> {
                     .write_line("loop active: /loop stop to cancel", C_ERROR)?;
                 return Ok(());
             }
-            if self.renderer.is_scrolling() {
-                self.renderer.scroll_to_bottom()?;
-            }
-
             // Chain-of-prompts: handle text submission after B (but) mode
             if !self.run.is_running
                 && let Some(phase) = self.chain.pending.take()
@@ -1584,28 +1557,14 @@ impl<'a> App<'a> {
                     .clone()
                     .or_else(|| std::env::var("EDITOR").ok())
                     .unwrap_or_else(|| "editor".to_string());
-                let _ = crossterm::terminal::disable_raw_mode();
-                let mut stdout = std::io::stdout();
-                let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
-                let _ = stdout.flush();
+                self.renderer.suspend()?;
                 let _ = std::process::Command::new("sh")
                     .arg("-c")
                     .arg(format!("{} \"$1\"", editor))
                     .arg("sh")
                     .arg(&path)
                     .status();
-                let _ = stdout.execute(crossterm::terminal::EnterAlternateScreen);
-                let _ = stdout.execute(crossterm::terminal::Clear(
-                    crossterm::terminal::ClearType::All,
-                ));
-                let _ = crossterm::terminal::enable_raw_mode();
-                render_session(
-                    &mut self.renderer,
-                    self.ui.session,
-                    self.ui.cli,
-                    self.ui.cfg,
-                    self.ui.context,
-                )?;
+                self.renderer.resume()?;
                 self.renderer
                     .write_line(&format!("returned from editing {}", path), C_AGENT)?;
             }
@@ -1891,16 +1850,9 @@ impl<'a> App<'a> {
             self.running.store(false, Ordering::Relaxed);
             let _ = h.join();
         }
-        let _ = crossterm::terminal::disable_raw_mode();
-        let mut stdout = std::io::stdout();
-        let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
-        let _ = stdout.flush();
+        self.renderer.suspend()?;
         let _ = std::process::Command::new("lazygit").status();
-        let _ = stdout.execute(crossterm::terminal::EnterAlternateScreen);
-        let _ = stdout.execute(crossterm::terminal::Clear(
-            crossterm::terminal::ClearType::All,
-        ));
-        let _ = crossterm::terminal::enable_raw_mode();
+        self.renderer.resume()?;
         self.rebind_event_thread();
         Ok(())
     }

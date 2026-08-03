@@ -1,7 +1,3 @@
-use std::io::Write;
-
-use crossterm::ExecutableCommand;
-
 use crate::ui::slash::{SlashCtx, write_ok, write_result};
 
 pub fn handle_welcome(renderer: &mut crate::ui::renderer::Renderer) {
@@ -9,7 +5,7 @@ pub fn handle_welcome(renderer: &mut crate::ui::renderer::Renderer) {
 }
 
 pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer) {
-    match run_tutor() {
+    match run_tutor(renderer) {
         Ok(()) => {}
         Err(e) => {
             let _ = renderer.write_line(&format!("{}", e), crate::ui::slash::C_ERROR);
@@ -17,19 +13,12 @@ pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer) {
     }
 }
 
-fn run_tutor() -> anyhow::Result<()> {
-    let _ = crossterm::terminal::disable_raw_mode();
-    let mut stdout = std::io::stdout();
-    let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
-    let _ = stdout.flush();
+fn run_tutor(renderer: &mut crate::ui::renderer::Renderer) -> anyhow::Result<()> {
+    renderer.suspend()?;
 
     let result = crate::docs::show_get_started();
 
-    let _ = stdout.execute(crossterm::terminal::EnterAlternateScreen);
-    let _ = stdout.execute(crossterm::terminal::Clear(
-        crossterm::terminal::ClearType::All,
-    ));
-    let _ = crossterm::terminal::enable_raw_mode();
+    renderer.resume()?;
 
     result
 }
@@ -286,8 +275,10 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
         );
     }
     write_ok(ctx.renderer, "keys:");
-    write_result(ctx.renderer, "  PgUp/PgDn             scroll chat history");
-    write_result(ctx.renderer, "  Home/End               jump to top/bottom");
+    write_result(
+        ctx.renderer,
+        "  scrollback             use your terminal's native scrolling & selection",
+    );
     write_result(
         ctx.renderer,
         "  @<query>               file picker (Tab/Enter select, Esc cancel)",

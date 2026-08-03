@@ -263,6 +263,9 @@ async fn handle_clear(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     ctx.session.compactions.clear();
     ctx.context.chain_declined.clear();
     render_session(ctx.renderer, ctx.session, ctx.cli, ctx.cfg, ctx.context)?;
+    // Shell-style clear: wipe the visible screen (native scrollback is kept)
+    // and reset the print watermark so the fresh welcome prints from the top.
+    ctx.renderer.clear_screen()?;
     #[cfg(feature = "hooks")]
     crate::extras::hooks::dispatch_session_start("clear").await;
     Ok(())

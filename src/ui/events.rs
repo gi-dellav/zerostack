@@ -32,7 +32,11 @@ pub fn render_session(
     cfg: &Config,
     context: &ContextFiles,
 ) -> anyhow::Result<()> {
-    renderer.clear_content()?;
+    // Rebuild the feed from the session. Already-printed lines cannot be
+    // unprinted; the watermark reconciliation in `note_feed_rebuilt` makes
+    // the rebuilt feed print exactly once (full transcript at startup,
+    // nothing for a rebuild over an already-printed feed).
+    renderer.reset_feed_for_rebuild();
     let feed = renderer.feed_mut();
     if context.agents.is_some() {
         feed.push_line(BlockStyle::System, "[system] loaded AGENTS.md");
@@ -117,6 +121,7 @@ pub fn render_session(
         feed.push_line(BlockStyle::Plain, "");
         feed.push_line(BlockStyle::Plain, "");
     }
+    renderer.note_feed_rebuilt();
     Ok(())
 }
 

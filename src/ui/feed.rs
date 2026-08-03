@@ -96,13 +96,14 @@ impl Block {
 pub struct Feed {
     blocks: Vec<Block>,
     /// Bumped by every content mutation. The renderer compares generations to
-    /// know whether the chat viewport needs a redraw, which also catches
+    /// know whether the live block needs a redraw, which also catches
     /// mutations made through `Renderer::feed_mut()`.
     generation: u64,
-    /// Pre-wrapped visual rows for the last requested width. Scroll queries
-    /// reuse these rows instead of re-laying out the whole feed each time;
-    /// invalidated by any content mutation (generation bump) or a width
-    /// change.
+    /// Pre-wrapped visual rows for the last requested width; invalidated by
+    /// any content mutation (generation bump) or a width change. Only the
+    /// test-only `lines` flat-layout helper uses it (production walks the
+    /// feed block by block via `block_lines`).
+    #[cfg(test)]
     layout_cache: RefCell<Option<LayoutCache>>,
     /// Number of full layout passes; test-only proof that queries reuse the
     /// pre-wrapped rows.
@@ -110,7 +111,9 @@ pub struct Feed {
     layout_computes: std::cell::Cell<usize>,
 }
 
-/// Memoized layout of the whole feed at a viewport width and generation.
+/// Memoized layout of the whole feed at a width and generation (test-only,
+/// see `Feed::lines`).
+#[cfg(test)]
 #[derive(Clone, Debug)]
 struct LayoutCache {
     width: usize,
@@ -118,14 +121,12 @@ struct LayoutCache {
     lines: Vec<LineEntry>,
 }
 
-// Several helpers exist primarily for unit testing layout/scroll math without
-// a terminal; allow them even when not yet wired into the production path.
-#[allow(dead_code)]
 impl Feed {
     pub fn new() -> Self {
         Self {
             blocks: Vec::new(),
             generation: 0,
+            #[cfg(test)]
             layout_cache: RefCell::new(None),
             #[cfg(test)]
             layout_computes: std::cell::Cell::new(0),
@@ -142,6 +143,7 @@ impl Feed {
         self.blocks.clear();
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.blocks.is_empty()
     }
@@ -196,7 +198,9 @@ impl Feed {
         }
     }
 
-    /// Replace the last block, or push a new one if the feed is empty.
+    /// Replace the last block, or push a new one if the feed is empty
+    /// (test-only).
+    #[cfg(test)]
     pub fn replace_last(&mut self, style: BlockStyle, text: impl Into<String>) {
         self.generation += 1;
         if let Some(last) = self.blocks.last_mut() {
@@ -214,7 +218,8 @@ impl Feed {
         self.blocks.truncate(len);
     }
 
-    /// Return the fully laid-out chat lines for the given width.
+    /// Return the fully laid-out chat lines for the given width (test-only:
+    /// production walks the feed block by block via `block_lines`).
     ///
     /// The result is a list of `LineEntry` values, one per visible row, that the
     /// renderer can draw directly. Markdown is parsed for agent blocks; all
@@ -224,9 +229,9 @@ impl Feed {
     /// memoized per block so repeated layouts at the same width don't re-parse.
     ///
     /// The laid-out rows are pre-wrapped and memoized per `(width,
-    /// generation)`, so scroll queries (`line_count`, `visible_range`,
-    /// `line_at_visual_row`) operate on the cached visual rows instead of
-    /// re-laying out the feed on every call.
+    /// generation)`, so repeated queries reuse the cached visual rows instead
+    /// of re-laying out the feed on every call.
+    #[cfg(test)]
     pub fn lines(&self, width: usize) -> Vec<LineEntry> {
         {
             let cache = self.layout_cache.borrow();
@@ -248,119 +253,77 @@ impl Feed {
         lines
     }
 
+    /// Lay out a single block at `width`, with per-block markdown
+    /// memoization. The renderer uses this to walk the feed block by block
+    /// from its print watermark.
+    pub fn block_lines(&self, idx: usize, width: usize) -> Vec<LineEntry> {
+        match self.blocks.get(idx) {
+            Some(block) => block_layout(block, width),
+            None => Vec::new(),
+        }
+    }
+
+    /// Whether the last block is still running (a producer is appending to
+    /// it). The renderer keeps a running tail in the live block instead of
+    /// committing it to scrollback.
+    pub fn last_block_running(&self) -> bool {
+        self.blocks.last().is_some_and(|b| b.running)
+    }
+
     /// Number of full layout passes so far (test-only).
     #[cfg(test)]
     pub(crate) fn layout_computes(&self) -> usize {
         self.layout_computes.get()
     }
 
-    /// Lay out every block at `width`. Called by `lines` on a cache miss.
+    /// Lay out every block at `width`. Called by `lines` on a cache miss
+    /// (test-only).
+    #[cfg(test)]
     fn compute_lines(&self, width: usize) -> Vec<LineEntry> {
         let mut result = Vec::new();
         for block in &self.blocks {
-            match block.style {
-                BlockStyle::Agent => {
-                    let mut styled = agent_block_lines(block, width);
-                    if !styled.is_empty() {
-                        styled[0].text = CompactString::from(format!("< {}", styled[0].text));
-                    }
-                    result.extend(styled);
-                }
-                _ => {
-                    let color = block.style.color();
-                    for line in block.text.split('\n') {
-                        let trimmed = line.trim_end_matches('\r');
-                        if trimmed.is_empty() {
-                            result.push(LineEntry {
-                                text: CompactString::new(""),
-                                color,
-                            });
-                        } else {
-                            for chunk in word_wrap(trimmed, width) {
-                                result.push(LineEntry { text: chunk, color });
-                            }
-                        }
-                    }
-                }
-            }
+            result.extend(block_layout(block, width));
         }
         result
     }
 
-    /// Total number of visible rows for the given width.
+    /// Total number of visible rows for the given width (test-only).
+    #[cfg(test)]
     pub fn line_count(&self, width: usize) -> usize {
         self.lines(width).len()
     }
+}
 
-    /// Return the index of the first and last `LineEntry` that would be visible
-    /// in a viewport of `viewport_height` rows with `scroll_offset`.
-    ///
-    /// `scroll_offset == 0` means "stick to the bottom" (auto-scroll).
-    pub fn visible_range(
-        &self,
-        width: usize,
-        scroll_offset: usize,
-        viewport_height: usize,
-    ) -> (usize, usize) {
-        let total = self.line_count(width);
-        let visible = viewport_height.min(total);
-        let auto_scroll = scroll_offset == 0;
-
-        let start = if auto_scroll {
-            total.saturating_sub(visible)
-        } else {
-            total.saturating_sub((scroll_offset + visible).min(total))
-        };
-        let end = (start + visible).min(total);
-        (start, end)
-    }
-
-    /// Map a screen row (relative to the top of the viewport) to a `LineEntry`
-    /// index in `lines(width)`.
-    ///
-    /// Returns `None` when the row is padding above bottom-aligned content or
-    /// falls past the last visible line.
-    pub fn line_at_visual_row(
-        &self,
-        width: usize,
-        scroll_offset: usize,
-        viewport_height: usize,
-        row: u16,
-    ) -> Option<usize> {
-        let total = self.line_count(width);
-        if total == 0 {
-            return None;
-        }
-        let visible = viewport_height.min(total);
-        let auto_scroll = scroll_offset == 0;
-        let pad = if auto_scroll && total < viewport_height {
-            viewport_height - total
-        } else {
-            0
-        };
-
-        let row = row as usize;
-        if row < pad {
-            return None;
-        }
-
-        let start = if auto_scroll {
-            total.saturating_sub(visible)
-        } else {
-            total.saturating_sub((scroll_offset + visible).min(total))
-        };
-
-        let lines = self.lines(width);
-        let mut visual_row = pad;
-        let mut idx = start;
-        while idx < lines.len() {
-            if visual_row == row {
-                return Some(idx);
+/// Lay out one block at `width`: markdown for agent blocks, word-wrapped
+/// role-colored text for everything else. Agent blocks get a `< ` prefix on
+/// their first line.
+fn block_layout(block: &Block, width: usize) -> Vec<LineEntry> {
+    match block.style {
+        BlockStyle::Agent => {
+            let mut styled = agent_block_lines(block, width);
+            if !styled.is_empty() {
+                styled[0].text = CompactString::from(format!("< {}", styled[0].text));
             }
-            visual_row += 1;
-            idx += 1;
+            styled
         }
-        None
+        _ => {
+            let color = block.style.color();
+            let mut result = Vec::new();
+            for line in block.text.split('\n') {
+                let trimmed = line.trim_end_matches('\r');
+                if trimmed.is_empty() {
+                    result.push(LineEntry {
+                        text: CompactString::new(""),
+                        color,
+                    });
+                } else {
+                    for chunk in word_wrap(trimmed, width) {
+                        result.push(LineEntry { text: chunk, color });
+                    }
+                }
+            }
+            result
+        }
     }
 }
 

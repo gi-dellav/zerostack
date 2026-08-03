@@ -1,7 +1,5 @@
 use std::io::Write;
 
-use crossterm::ExecutableCommand;
-
 use crate::ui::slash::{SlashCtx, write_error, write_ok};
 
 pub(crate) const AGENTS_CREATION_PROMPT: &str = "\
@@ -23,23 +21,6 @@ fn ask_yn(question: &str) -> bool {
     let mut input = String::new();
     std::io::stdin().read_line(&mut input).ok();
     matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
-}
-
-fn exit_tui_for_io() {
-    let _ = crossterm::terminal::disable_raw_mode();
-    let mut stdout = std::io::stdout();
-    let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
-    let _ = stdout.flush();
-}
-
-fn restore_tui_and_render(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
-    let mut stdout = std::io::stdout();
-    let _ = stdout.execute(crossterm::terminal::EnterAlternateScreen);
-    let _ = stdout.execute(crossterm::terminal::Clear(
-        crossterm::terminal::ClearType::All,
-    ));
-    let _ = crossterm::terminal::enable_raw_mode();
-    crate::ui::events::render_session(ctx.renderer, ctx.session, ctx.cli, ctx.cfg, ctx.context)
 }
 
 fn build_question(label: &str, desc: &str, exists: bool, cwd: &std::path::Path) -> String {
@@ -73,7 +54,9 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
         }
         (true, true)
     } else {
-        exit_tui_for_io();
+        // Erase the live block and drop raw mode for the stdin prompts; the
+        // block is repainted by the next refresh.
+        ctx.renderer.suspend()?;
 
         let create_a = ask_yn(&build_question(
             "AGENTS.md",
@@ -88,7 +71,7 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
             &cwd,
         ));
 
-        restore_tui_and_render(ctx)?;
+        ctx.renderer.resume()?;
 
         (create_a, create_b)
     };

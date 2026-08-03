@@ -147,8 +147,8 @@ Here is some keybindings to speed up your coding experience:
 | `Ctrl+H` | Launches `lazygit`
 | `Ctrl+S` | Force-save session |
 | `Ctrl+C` | Interrupt the agent |
-| `PgUp` / `PgDn` | Scroll chat |
-| `Home` / `End` | Jump to top/bottom |
+
+Chat history scrolls into the terminal's native scrollback — use your terminal's own scrolling (scrollbar / wheel / trackpad) and native mouse text selection.
 
 ## 5. CLI flags
 

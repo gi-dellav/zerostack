@@ -136,11 +136,9 @@ pub(crate) fn refresh_display(
     chain: &ChainState,
     btw: BtwStats,
 ) -> io::Result<()> {
-    // Reconcile the input height first so the chat viewport is drawn against
-    // the size the input is about to occupy (avoids a stale separator when the
-    // input shrinks, or chat text hidden under it when the input grows).
-    renderer.sync_input_height(&input.buffer)?;
-    renderer.render_viewport()?;
+    // Commit new finalized lines to scrollback first (printing over the live
+    // block's old position), then redraw the live block below them.
+    renderer.flush_committed(&input.buffer)?;
     let perm_mode = ui.permission.as_ref().map(|p| {
         p.lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -157,7 +155,7 @@ pub(crate) fn refresh_display(
         btw_out: btw.output,
     };
     let statusline = crate::ui::statusline::build(ui.session, &statusline_ctx);
-    renderer.draw_bottom(&input.buffer, input.cursor, &statusline, run.is_running)?;
+    renderer.draw_live_block(&input.buffer, input.cursor, &statusline, run.is_running)?;
     if let Some(ref mut picker) = input.picker {
         let was_active = picker.active();
         // Pickers paint straight onto real stdout, bypassing the render
@@ -165,12 +163,12 @@ pub(crate) fn refresh_display(
         // CI stdout is a non-blocking pipe, so the burst of escape sequences
         // fails with EAGAIN). Key handling is unaffected — only painting.
         if !renderer.is_headless() {
-            picker.draw()?;
+            picker.draw(renderer.live_block_height() as u16)?;
         }
         if was_active {
-            // The picker painted over the chat and bottom regions, which the
-            // dirty-region tracking cannot see; force a full repaint next
-            // frame so a closing picker never leaves remnants behind.
+            // The picker painted over the live block, which the dirty-region
+            // tracking cannot see; force a full repaint next frame so a
+            // closing picker never leaves remnants behind.
             renderer.invalidate();
         }
     }

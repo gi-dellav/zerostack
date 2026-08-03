@@ -73,7 +73,6 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
         }
     };
 
-    crate::ui::renderer::Renderer::clear_content(ctx.renderer)?;
     write_ok(ctx.renderer, format!("── {} ──", title));
     write_result(ctx.renderer, "");
 

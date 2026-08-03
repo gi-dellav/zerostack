@@ -137,16 +137,19 @@ impl ModelsPicker {
         self.matches.get(self.selected).map(|s| s.as_str())
     }
 
-    pub fn draw(&self) -> std::io::Result<()> {
+    pub fn draw(&self, live_rows: u16) -> std::io::Result<()> {
         if !self.active {
             return Ok(());
         }
         let (_cols, rows) = crossterm::terminal::size()?;
         let mut stdout = std::io::stdout();
 
-        let max_items = (rows.saturating_sub(5)).min(10) as usize;
+        // One extra row for the tab header above the list.
+        let max_items = (rows.saturating_sub(live_rows + 1)).min(10) as usize;
         let list_height = max_items.min(self.matches.len().max(1));
-        let top_row = rows.saturating_sub(3).saturating_sub(list_height as u16);
+        let top_row = rows
+            .saturating_sub(live_rows)
+            .saturating_sub(list_height as u16);
 
         if rows >= 8 {
             let header_row = top_row.saturating_sub(1);
@@ -177,6 +180,12 @@ impl ModelsPicker {
             write!(stdout, "{}", ResetColor)?;
         }
 
-        draw_picker_list(&self.matches, self.selected, self.monochrome, None, 5)
+        draw_picker_list(
+            &self.matches,
+            self.selected,
+            self.monochrome,
+            None,
+            live_rows,
+        )
     }
 }

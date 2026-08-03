@@ -204,7 +204,7 @@ impl ListPicker {
         self.matches.get(self.selected).map(|s| s.as_str())
     }
 
-    pub fn draw(&self, empty_message: Option<&str>) -> std::io::Result<()> {
+    pub fn draw(&self, empty_message: Option<&str>, live_rows: u16) -> std::io::Result<()> {
         if !self.active {
             return Ok(());
         }
@@ -213,7 +213,7 @@ impl ListPicker {
             self.selected,
             self.monochrome,
             empty_message,
-            4,
+            live_rows + 1,
         )
     }
 }

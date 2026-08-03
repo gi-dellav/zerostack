@@ -80,7 +80,7 @@ pub(crate) fn draw_picker_list(
     let max_items = (rows.saturating_sub(bottom_reserved)).min(10) as usize;
 
     if matches.is_empty() {
-        let r = rows.saturating_sub(4);
+        let r = rows.saturating_sub(bottom_reserved).saturating_sub(1);
         stdout.execute(MoveTo(0, r))?;
         let color = resolve_color(Color::DarkGrey, monochrome);
         write!(stdout, "{}", SetForegroundColor(color))?;
@@ -96,7 +96,9 @@ pub(crate) fn draw_picker_list(
         .min(matches.len().saturating_sub(list_height));
     let end_idx = (start_idx + list_height).min(matches.len());
 
-    let top_row = rows.saturating_sub(3).saturating_sub(list_height as u16);
+    let top_row = rows
+        .saturating_sub(bottom_reserved)
+        .saturating_sub(list_height as u16);
 
     for (i, item) in matches
         .iter()
