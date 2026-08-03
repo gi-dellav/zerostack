@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use compact_str::CompactString;
 use crossterm::style::Color;
@@ -118,6 +119,9 @@ pub struct Feed {
     /// know whether the live block needs a redraw, which also catches
     /// mutations made through `Renderer::feed_mut()`.
     generation: u64,
+    /// Memoized layout for each `(block_index, width)`. Invalidated when the
+    /// corresponding block is mutated, removed, or the whole feed is cleared.
+    block_layout_cache: RefCell<HashMap<(usize, usize), Vec<LineEntry>>>,
     /// Pre-wrapped visual rows for the last requested width; invalidated by
     /// any content mutation (generation bump) or a width change. Only the
     /// test-only `lines` flat-layout helper uses it (production walks the
@@ -128,6 +132,10 @@ pub struct Feed {
     /// pre-wrapped rows.
     #[cfg(test)]
     layout_computes: std::cell::Cell<usize>,
+    /// Number of per-block layout computations. Used by tests to prove that
+    /// unchanged blocks are not re-laid out.
+    #[cfg(test)]
+    block_layout_computes: std::cell::Cell<usize>,
 }
 
 /// Memoized layout of the whole feed at a width and generation (test-only,
@@ -145,10 +153,13 @@ impl Feed {
         Self {
             blocks: Vec::new(),
             generation: 0,
+            block_layout_cache: RefCell::new(HashMap::new()),
             #[cfg(test)]
             layout_cache: RefCell::new(None),
             #[cfg(test)]
             layout_computes: std::cell::Cell::new(0),
+            #[cfg(test)]
+            block_layout_computes: std::cell::Cell::new(0),
         }
     }
 
@@ -160,6 +171,11 @@ impl Feed {
     pub fn clear(&mut self) {
         self.generation += 1;
         self.blocks.clear();
+        self.block_layout_cache.borrow_mut().clear();
+        #[cfg(test)]
+        {
+            self.layout_cache.borrow_mut().take();
+        }
     }
 
     #[cfg(test)]
@@ -204,13 +220,20 @@ impl Feed {
     /// tail line) is parsed as markdown on the next layout. No-op when the
     /// last block is not running.
     pub fn finalize_last(&mut self) {
-        if let Some(last) = self.blocks.last_mut()
+        let idx = self.blocks.len().saturating_sub(1);
+        let finalized = if let Some(last) = self.blocks.last_mut()
             && last.running
         {
             self.generation += 1;
             last.running = false;
             // Force one full re-parse now that the text is complete.
             *last.md_cache.borrow_mut() = None;
+            true
+        } else {
+            false
+        };
+        if finalized {
+            self.invalidate_block_layout(idx);
         }
     }
 
@@ -233,22 +256,38 @@ impl Feed {
     /// Append text to the most recent block. Returns `false` when the feed is
     /// empty and there is no block to append to.
     pub fn append_to_last(&mut self, text: impl AsRef<str>) -> bool {
-        if let Some(last) = self.blocks.last_mut() {
+        let appended = if let Some(last) = self.blocks.last_mut() {
             self.generation += 1;
             last.text.push_str(text.as_ref());
             true
         } else {
             false
+        };
+        if appended {
+            let idx = self.blocks.len() - 1;
+            self.invalidate_block_layout(idx);
         }
+        appended
     }
 
     /// Stamp the most recent block with the current local time, if it does not
     /// already have one. No-op when the feed is empty.
     pub fn set_last_block_timestamp(&mut self) {
-        if let Some(last) = self.blocks.last_mut()
+        let idx = self.blocks.len().saturating_sub(1);
+        let changed = if let Some(last) = self.blocks.last_mut()
             && last.created_at.is_none()
         {
             last.created_at = Some(chrono::Local::now());
+            true
+        } else {
+            false
+        };
+        if changed {
+            self.invalidate_block_layout(idx);
+            #[cfg(test)]
+            {
+                self.layout_cache.borrow_mut().take();
+            }
         }
     }
 
@@ -265,11 +304,16 @@ impl Feed {
         } else {
             self.blocks.push(Block::new(style, text));
         }
+        let idx = self.blocks.len().saturating_sub(1);
+        self.invalidate_block_layout(idx);
     }
 
     pub fn truncate_blocks(&mut self, len: usize) {
         self.generation += 1;
         self.blocks.truncate(len);
+        self.block_layout_cache
+            .borrow_mut()
+            .retain(|(idx, _), _| *idx < len);
     }
 
     /// Return the fully laid-out chat lines for the given width (test-only:
@@ -311,10 +355,41 @@ impl Feed {
     /// memoization. The renderer uses this to walk the feed block by block
     /// from its print watermark.
     pub fn block_lines(&self, idx: usize, width: usize) -> Vec<LineEntry> {
-        match self.blocks.get(idx) {
-            Some(block) => block_layout(block, width),
-            None => Vec::new(),
+        {
+            let cache = self.block_layout_cache.borrow();
+            if let Some(lines) = cache.get(&(idx, width)) {
+                return lines.clone();
+            }
         }
+        let lines = match self.blocks.get(idx) {
+            Some(block) => self.compute_block_layout(block, width),
+            None => Vec::new(),
+        };
+        self.block_layout_cache
+            .borrow_mut()
+            .insert((idx, width), lines.clone());
+        lines
+    }
+
+    /// Remove all cached layouts for `block_index`.
+    fn invalidate_block_layout(&self, block_index: usize) {
+        self.block_layout_cache
+            .borrow_mut()
+            .retain(|(idx, _), _| *idx != block_index);
+    }
+
+    /// Lay out one block and count the computation for tests.
+    #[cfg(test)]
+    fn compute_block_layout(&self, block: &Block, width: usize) -> Vec<LineEntry> {
+        self.block_layout_computes
+            .set(self.block_layout_computes.get() + 1);
+        block_layout(block, width)
+    }
+
+    /// Lay out one block (production builds have no counter).
+    #[cfg(not(test))]
+    fn compute_block_layout(&self, block: &Block, width: usize) -> Vec<LineEntry> {
+        block_layout(block, width)
     }
 
     /// Whether the last block is still running (a producer is appending to
@@ -330,13 +405,19 @@ impl Feed {
         self.layout_computes.get()
     }
 
+    /// Number of per-block layout computations so far (test-only).
+    #[cfg(test)]
+    pub(crate) fn block_layout_computes(&self) -> usize {
+        self.block_layout_computes.get()
+    }
+
     /// Lay out every block at `width`. Called by `lines` on a cache miss
     /// (test-only).
     #[cfg(test)]
     fn compute_lines(&self, width: usize) -> Vec<LineEntry> {
         let mut result = Vec::new();
-        for block in &self.blocks {
-            result.extend(block_layout(block, width));
+        for idx in 0..self.blocks.len() {
+            result.extend(self.block_lines(idx, width));
         }
         result
     }

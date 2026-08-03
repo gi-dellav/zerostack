@@ -469,3 +469,108 @@ fn layout_queries_reuse_prewrapped_rows() {
     let _ = feed.lines(80);
     assert_eq!(feed.layout_computes(), 4);
 }
+
+#[test]
+fn block_layout_recomputed_only_for_new_blocks() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Plain, "one");
+    let _ = feed.lines(80);
+    assert_eq!(feed.block_layout_computes(), 1);
+
+    feed.push_block(BlockStyle::Plain, "two");
+    let _ = feed.lines(80);
+    assert_eq!(feed.block_layout_computes(), 2);
+
+    feed.push_block(BlockStyle::Agent, "three **bold**");
+    let _ = feed.lines(80);
+    assert_eq!(feed.block_layout_computes(), 3);
+}
+
+#[test]
+fn block_lines_caches_per_width() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Plain, "hello world");
+
+    let _ = feed.block_lines(0, 80);
+    assert_eq!(feed.block_layout_computes(), 1);
+
+    let _ = feed.block_lines(0, 40);
+    assert_eq!(feed.block_layout_computes(), 2);
+
+    let _ = feed.block_lines(0, 80);
+    assert_eq!(feed.block_layout_computes(), 2);
+}
+
+#[test]
+fn append_to_last_invalidates_cached_block_layout() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Plain, "hello");
+    let _ = feed.block_lines(0, 80);
+    assert_eq!(feed.block_layout_computes(), 1);
+
+    feed.append_to_last(" world");
+    let lines = feed.block_lines(0, 80);
+    assert_eq!(feed.block_layout_computes(), 2);
+    assert_eq!(lines[0].text, "hello world");
+}
+
+#[test]
+fn replace_last_invalidates_cached_block_layout() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Agent, "aaaa **old**");
+    let _ = feed.block_lines(0, 80);
+
+    feed.replace_last(BlockStyle::Agent, "bbbb **new**");
+    let lines = feed.block_lines(0, 80);
+    let joined: String = lines.iter().map(|l| l.text.as_str()).collect();
+    assert!(joined.contains("new"), "expected new content: {joined}");
+    assert!(!joined.contains("old"), "stale cached content: {joined}");
+}
+
+#[test]
+fn finalize_last_invalidates_cached_block_layout() {
+    let mut feed = Feed::new();
+    feed.push_streaming_block(BlockStyle::Agent);
+    feed.append_to_last("hi **wor**");
+
+    let before = feed.block_lines(0, 80);
+    assert_eq!(before[0].text, "< hi **wor**");
+    let computes = feed.block_layout_computes();
+
+    feed.finalize_last();
+    let after = feed.block_lines(0, 80);
+    assert_eq!(feed.block_layout_computes(), computes + 1);
+    assert_eq!(after[0].text, "< hi wor");
+}
+
+#[test]
+fn truncate_blocks_keeps_cached_prefix_and_invalidates_suffix() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Plain, "first");
+    feed.push_block(BlockStyle::Plain, "second");
+    feed.push_block(BlockStyle::Plain, "third");
+
+    let _ = feed.block_lines(0, 80);
+    let _ = feed.block_lines(1, 80);
+    let _ = feed.block_lines(2, 80);
+    assert_eq!(feed.block_layout_computes(), 3);
+
+    feed.truncate_blocks(2);
+    assert!(feed.block_lines(2, 80).is_empty());
+
+    let _ = feed.block_lines(0, 80);
+    let _ = feed.block_lines(1, 80);
+    assert_eq!(feed.block_layout_computes(), 3);
+}
+
+#[test]
+fn clear_wipes_block_layout_cache() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Plain, "old");
+    let _ = feed.block_lines(0, 80);
+
+    feed.clear();
+    feed.push_block(BlockStyle::Plain, "new");
+    let lines = feed.block_lines(0, 80);
+    assert_eq!(lines[0].text, "new");
+}
