@@ -453,7 +453,7 @@ fn find_all_sessions_returns_saved_sessions_newest_first() {
 #[test]
 fn save_session_round_trips_show_timestamps_default_false() {
     let env = setup_test_env();
-    let mut s = Session::new("openai", "gpt-4", 128000, "");
+    let s = Session::new("openai", "gpt-4", 128000, "");
     assert!(!s.show_timestamps);
     save_session(&s).unwrap();
 

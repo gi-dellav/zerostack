@@ -700,6 +700,105 @@ mod picker_overlay {
     }
 }
 
+/// Live-block repaint throttling (~60 Hz).
+mod throttle {
+    use std::time::Duration;
+
+    use crate::ui::feed::BlockStyle;
+    use crate::ui::renderer::{FakeBackend, Renderer};
+
+    fn headless(cols: u16, rows: u16) -> Renderer {
+        Renderer::with_backend(Box::new(FakeBackend::new(cols, rows)))
+    }
+
+    #[test]
+    fn immediate_repaint_is_forced() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_streaming_block(BlockStyle::Agent);
+        r.feed_mut().append_to_last("hello");
+        r.draw_live_block("", 0, &[], true, None).unwrap();
+        let after_draw = r.captured_output().len();
+
+        r.feed_mut().append_to_last(" world");
+        r.repaint(true).unwrap();
+        assert!(
+            r.captured_output().len() > after_draw,
+            "forced repaint should emit output"
+        );
+    }
+
+    #[test]
+    fn second_repaint_within_budget_is_throttled() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_streaming_block(BlockStyle::Agent);
+        r.feed_mut().append_to_last("hello");
+        r.draw_live_block("", 0, &[], true, None).unwrap();
+        r.repaint(true).unwrap();
+        let after_first = r.captured_output().clone();
+
+        r.feed_mut().append_to_last(" world");
+        r.repaint(false).unwrap();
+        assert_eq!(
+            r.captured_output(),
+            after_first,
+            "repaint within 16 ms budget must not emit output"
+        );
+        assert!(r.needs_redraw());
+    }
+
+    #[test]
+    fn repaint_after_budget_elapses_redraws() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_streaming_block(BlockStyle::Agent);
+        r.feed_mut().append_to_last("hello");
+        r.draw_live_block("", 0, &[], true, None).unwrap();
+        r.repaint(true).unwrap();
+
+        std::thread::sleep(Duration::from_millis(20));
+        r.feed_mut().append_to_last(" world");
+        r.repaint(false).unwrap();
+        assert!(
+            r.captured_output().contains("world"),
+            "repaint after budget should show new content"
+        );
+        assert!(!r.needs_redraw());
+    }
+
+    #[test]
+    fn request_repaint_defers_draw_until_budget_or_force() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_streaming_block(BlockStyle::Agent);
+        r.feed_mut().append_to_last("hello");
+        r.draw_live_block("", 0, &[], true, None).unwrap();
+        r.repaint(true).unwrap();
+        let after_first = r.captured_output().clone();
+
+        r.feed_mut().append_to_last(" world");
+        r.request_repaint();
+        assert!(r.needs_redraw());
+        assert_eq!(r.captured_output(), after_first);
+    }
+
+    #[test]
+    fn flush_committed_is_not_throttled() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_line(BlockStyle::Agent, "committed");
+        r.draw_live_block("", 0, &[], false, None).unwrap();
+        r.repaint(true).unwrap();
+        let after_first = r.captured_output().clone();
+
+        r.feed_mut().push_line(BlockStyle::Agent, "next");
+        // repaint(false) should flush the committed line even if the live-block
+        // draw is throttled.
+        r.repaint(false).unwrap();
+        assert!(
+            r.captured_output().len() > after_first.len(),
+            "committed line must be flushed even when draw is throttled"
+        );
+        assert!(r.captured_output().contains("next"));
+    }
+}
+
 /// Per-message timestamps and turn separators.
 mod timestamps {
     use crate::ui::feed::BlockStyle;

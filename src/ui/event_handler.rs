@@ -88,14 +88,10 @@ pub async fn handle_agent_event(
             // completed lines, instead of re-parsing the whole response.
             renderer.feed_mut().append_to_last(&safe);
 
-            // Throttle repaints: redraw when a line completed (markdown
-            // structure changes at line boundaries) or while the buffer is
-            // small. The final full parse happens in handle_agent_done.
-            if run.response_buf.len() >= 200 && !run.response_buf.ends_with('\n') {
-                return Ok(());
-            }
-
-            renderer.repaint()?;
+            // Throttle repaints: request a live-block redraw on every token,
+            // but the renderer coalesces them to ~60 Hz. The final full parse
+            // happens in handle_agent_done.
+            renderer.request_repaint();
             run.agent_line_started = true;
         }
         AgentEvent::ToolCall { name, args } => {
@@ -347,7 +343,7 @@ async fn handle_agent_done(
                 .push_block(BlockStyle::Agent, run.response_buf.as_str());
         }
         renderer.feed_mut().set_last_block_timestamp();
-        renderer.repaint()?;
+        renderer.repaint(true)?;
     } else if !run.agent_line_started {
         renderer.feed_mut().push_line(BlockStyle::Agent, "< ");
         renderer.feed_mut().set_last_block_timestamp();

@@ -1,5 +1,6 @@
 use std::io::{self, Write};
 use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 
 use compact_str::CompactString;
 use crossterm::QueueableCommand;
@@ -151,7 +152,6 @@ impl LineEntry {
         self.created_at = created_at;
         self
     }
-
 }
 
 pub struct PermissionPrompt {
@@ -433,6 +433,12 @@ pub struct Renderer {
     bottom_dirty: bool,
     last_bottom_snapshot: Option<BottomSnapshot>,
     last_live_args: Option<LiveArgs>,
+    /// Last time the live block was actually redrawn. Used to throttle
+    /// streaming repaints to ~60 Hz and reduce flicker on fast token streams.
+    last_repaint: std::time::Instant,
+    /// True when a streaming repaint was requested but deferred because the
+    /// 16 ms frame budget had not elapsed yet.
+    repaint_pending: bool,
 }
 
 impl Renderer {
@@ -473,6 +479,8 @@ impl Renderer {
             bottom_dirty: true,
             last_bottom_snapshot: None,
             last_live_args: None,
+            last_repaint: std::time::Instant::now(),
+            repaint_pending: false,
         }
     }
 
@@ -841,14 +849,36 @@ impl Renderer {
         Ok(())
     }
 
+    /// Request a live-block redraw on the next frame budget tick. Cheap to
+    /// call on every streamed token; the actual paint is throttled to ~60 Hz.
+    pub fn request_repaint(&mut self) {
+        self.repaint_pending = true;
+    }
+
+    /// True when a streaming repaint was requested but not yet painted.
+    pub fn needs_redraw(&self) -> bool {
+        self.repaint_pending
+    }
+
+    fn repaint_budget_available(&self) -> bool {
+        self.last_repaint.elapsed() >= Duration::from_millis(16)
+    }
+
     /// Flush committed lines and redraw the live block with the most recent
     /// draw arguments; used by streaming, which mutates the feed between
-    /// frames.
-    pub fn repaint(&mut self) -> io::Result<()> {
+    /// frames. The live-block draw is throttled to ~60 Hz unless `force` is
+    /// true; committed lines are always flushed immediately.
+    pub fn repaint(&mut self, force: bool) -> io::Result<()> {
         let Some(args) = self.last_live_args.clone() else {
             return self.flush_committed("");
         };
         self.flush_committed(&args.input)?;
+        if !force && !self.repaint_budget_available() {
+            self.repaint_pending = true;
+            return Ok(());
+        }
+        self.repaint_pending = false;
+        self.last_repaint = Instant::now();
         self.draw_live_block(
             &args.input,
             args.cursor,

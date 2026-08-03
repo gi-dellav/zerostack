@@ -74,6 +74,9 @@ pub(crate) struct App<'a> {
     event_handle: Option<std::thread::JoinHandle<()>>,
     prebuild_rx: Option<mpsc::Receiver<PrebuildPayload>>,
     _terminal_guard: Option<TerminalGuard>,
+    /// 16 ms interval for coalescing deferred live-block repaints during fast
+    /// token streams. Only enabled when `renderer.needs_redraw()` is true.
+    repaint_interval: tokio::time::Interval,
 }
 
 impl<'a> App<'a> {
@@ -432,6 +435,7 @@ impl<'a> App<'a> {
             event_handle,
             prebuild_rx,
             _terminal_guard,
+            repaint_interval: tokio::time::interval(Duration::from_millis(16)),
         })
     }
 
@@ -492,6 +496,9 @@ impl<'a> App<'a> {
                 }
                 _ = tokio::time::sleep(Duration::from_millis(100)), if self.run.is_running => {
                     self.refresh()?;
+                }
+                _ = self.repaint_interval.tick(), if self.renderer.needs_redraw() => {
+                    self.renderer.repaint(false)?;
                 }
                 else => {
                     if let Some(rx) = self.prebuild_rx.as_mut()

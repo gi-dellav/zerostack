@@ -167,6 +167,40 @@ async fn submit_prompt_streams_response_and_updates_session() {
 }
 
 #[tokio::test]
+async fn fast_stream_throttles_live_block_redraws() {
+    let _guard = acquire();
+    // 30 single-character tokens streamed as fast as the fake model can emit.
+    let chunks: Vec<String> = (0..30).map(|i| i.to_string()).collect();
+    let (mut app, _model) = headless_app(vec![chunks.iter().map(|s| s.as_str()).collect()]).await;
+
+    type_and_submit(&app, "count").await;
+    let baseline = app.backend_output();
+    step_until(&mut app, |a| a.is_running()).await;
+    step_until(&mut app, |a| !a.is_running()).await;
+    let final_output = app.backend_output();
+
+    let delta = &final_output[baseline.len()..];
+    // Each live-block redraw issues a clear-below escape; committed-line flushes
+    // do not. With throttling, many tokens should coalesce into far fewer redraws
+    // than tokens. Allow a small handful for the submit draw, one deferred tick,
+    // and the forced final draw.
+    let redraws = delta.matches("\x1b[J").count();
+    assert!(
+        redraws < 10,
+        "expected < 10 live-block redraws for 30 tokens, got {redraws}: {delta}"
+    );
+
+    let feed = app.feed_text();
+    let expected: String = (0..30).map(|i| i.to_string()).collect();
+    assert!(
+        feed.contains(&expected),
+        "full response should be in feed: {feed}"
+    );
+
+    app.teardown().await;
+}
+
+#[tokio::test]
 async fn queued_input_replays_after_current_run() {
     let _guard = acquire();
     let (mut app, model) = headless_app(vec![vec!["answer one"], vec!["answer two"]]).await;
