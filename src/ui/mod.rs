@@ -136,6 +136,9 @@ pub(crate) fn refresh_display(
     chain: &ChainState,
     btw: BtwStats,
 ) -> io::Result<()> {
+    // Keep the renderer's timestamp preference in sync with the persisted
+    // session setting (it may have changed via /timestamps or session load).
+    renderer.set_show_timestamps(ui.session.show_timestamps);
     // Commit new finalized lines to scrollback first (printing over the live
     // block's old position), then redraw the live block below them.
     renderer.flush_committed(&input.buffer)?;

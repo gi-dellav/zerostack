@@ -104,6 +104,14 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
         ctx.renderer,
         "  /toggle todo [on|off]  toggle todo-list tools",
     );
+    write_result(
+        ctx.renderer,
+        "  /timestamps            toggle per-message timestamps",
+    );
+    write_result(
+        ctx.renderer,
+        "  /timestamps [on|off]   enable or disable timestamps",
+    );
     #[cfg(feature = "mcp")]
     {
         write_result(

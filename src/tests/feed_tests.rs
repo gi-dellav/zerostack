@@ -1,6 +1,75 @@
 use crate::ui::feed::{BlockStyle, Feed};
 use crossterm::style::Color;
 
+fn sample_time() -> chrono::DateTime<chrono::Local> {
+    chrono::DateTime::from_timestamp(1_700_000_000, 0)
+        .unwrap()
+        .with_timezone(&chrono::Local)
+}
+
+#[test]
+fn block_created_at_defaults_to_none() {
+    let feed = Feed::new();
+    assert!(feed.block_lines(0, 80).is_empty());
+}
+
+#[test]
+fn push_line_with_time_carries_timestamp() {
+    let mut feed = Feed::new();
+    let ts = sample_time();
+    feed.push_line_with_time(BlockStyle::User, "hello", ts);
+    let lines = feed.lines(80);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].created_at, Some(ts));
+    assert!(lines[0].block_start);
+}
+
+#[test]
+fn push_streaming_block_with_time_carries_timestamp() {
+    let mut feed = Feed::new();
+    let ts = sample_time();
+    feed.push_streaming_block_with_time(BlockStyle::Agent, ts);
+    feed.append_to_last("hi");
+    feed.finalize_last();
+    let lines = feed.lines(80);
+    assert_eq!(lines.len(), 1);
+    assert_eq!(lines[0].created_at, Some(ts));
+    assert!(lines[0].block_start);
+}
+
+#[test]
+fn set_last_block_timestamp_stamps_only_when_empty() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Agent, "hi");
+    assert!(feed.block_lines(0, 80)[0].created_at.is_none());
+    feed.set_last_block_timestamp();
+    let ts = feed.block_lines(0, 80)[0].created_at;
+    assert!(ts.is_some());
+    // Second call is a no-op: the timestamp stays the same.
+    feed.set_last_block_timestamp();
+    assert_eq!(feed.block_lines(0, 80)[0].created_at, ts);
+}
+
+#[test]
+fn block_start_marked_on_first_wrapped_row_only() {
+    let mut feed = Feed::new();
+    feed.push_line(BlockStyle::Plain, "one two three four five six seven eight");
+    let lines = feed.lines(10);
+    assert!(lines.len() > 1);
+    assert!(lines[0].block_start);
+    assert!(!lines[1].block_start);
+}
+
+#[test]
+fn agent_block_start_marked_after_prefix() {
+    let mut feed = Feed::new();
+    feed.push_block(BlockStyle::Agent, "hello");
+    let lines = feed.lines(80);
+    assert_eq!(lines.len(), 1);
+    assert!(lines[0].block_start);
+    assert!(lines[0].text.starts_with("< "));
+}
+
 #[test]
 fn block_style_color_mapping() {
     assert_eq!(BlockStyle::User.color(), Color::Green);

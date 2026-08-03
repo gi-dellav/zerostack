@@ -60,6 +60,9 @@ pub fn style_from_color(color: Color) -> BlockStyle {
 pub struct Block {
     pub style: BlockStyle,
     pub text: String,
+    /// Optional wall-clock time when the block was created. Set by callers
+    /// when the turn starts (user submit) or finalizes (assistant done).
+    pub created_at: Option<chrono::DateTime<chrono::Local>>,
     /// True while a producer is still appending to this block (e.g. streaming
     /// agent tokens). A running agent block parses markdown only for its
     /// completed lines and renders the unfinished tail line as plain text.
@@ -84,6 +87,21 @@ impl Block {
         Self {
             style,
             text: text.into(),
+            created_at: None,
+            running: false,
+            md_cache: RefCell::new(None),
+        }
+    }
+
+    pub fn with_created_at(
+        style: BlockStyle,
+        text: impl Into<String>,
+        created_at: chrono::DateTime<chrono::Local>,
+    ) -> Self {
+        Self {
+            style,
+            text: text.into(),
+            created_at: Some(created_at),
             running: false,
             md_cache: RefCell::new(None),
         }
@@ -168,6 +186,19 @@ impl Feed {
         self.blocks.push(block);
     }
 
+    /// Push a streaming block stamped with the current wall-clock time.
+    #[cfg(test)]
+    pub fn push_streaming_block_with_time(
+        &mut self,
+        style: BlockStyle,
+        created_at: chrono::DateTime<chrono::Local>,
+    ) {
+        self.generation += 1;
+        let mut block = Block::with_created_at(style, "", created_at);
+        block.running = true;
+        self.blocks.push(block);
+    }
+
     /// Mark the last block as complete: its full text (including the former
     /// tail line) is parsed as markdown on the next layout. No-op when the
     /// last block is not running.
@@ -186,6 +217,18 @@ impl Feed {
         self.push_block(style, text);
     }
 
+    /// Push a single-line block with an explicit creation timestamp.
+    pub fn push_line_with_time(
+        &mut self,
+        style: BlockStyle,
+        text: impl Into<String>,
+        created_at: chrono::DateTime<chrono::Local>,
+    ) {
+        self.generation += 1;
+        self.blocks
+            .push(Block::with_created_at(style, text, created_at));
+    }
+
     /// Append text to the most recent block. Returns `false` when the feed is
     /// empty and there is no block to append to.
     pub fn append_to_last(&mut self, text: impl AsRef<str>) -> bool {
@@ -195,6 +238,16 @@ impl Feed {
             true
         } else {
             false
+        }
+    }
+
+    /// Stamp the most recent block with the current local time, if it does not
+    /// already have one. No-op when the feed is empty.
+    pub fn set_last_block_timestamp(&mut self) {
+        if let Some(last) = self.blocks.last_mut()
+            && last.created_at.is_none()
+        {
+            last.created_at = Some(chrono::Local::now());
         }
     }
 
@@ -298,7 +351,7 @@ impl Feed {
 /// role-colored text for everything else. Agent blocks get a `< ` prefix on
 /// their first line.
 fn block_layout(block: &Block, width: usize) -> Vec<LineEntry> {
-    match block.style {
+    let mut result = match block.style {
         BlockStyle::Agent => {
             let mut styled = agent_block_lines(block, width);
             if !styled.is_empty() {
@@ -312,24 +365,25 @@ fn block_layout(block: &Block, width: usize) -> Vec<LineEntry> {
             for line in block.text.split('\n') {
                 let trimmed = line.trim_end_matches('\r');
                 if trimmed.is_empty() {
-                    result.push(LineEntry {
-                        text: CompactString::new(""),
-                        color,
-                        style,
-                    });
+                    result.push(
+                        LineEntry::new(CompactString::new(""), color, style)
+                            .with_created_at(block.created_at),
+                    );
                 } else {
                     for chunk in word_wrap(trimmed, width) {
-                        result.push(LineEntry {
-                            text: chunk,
-                            color,
-                            style,
-                        });
+                        result.push(
+                            LineEntry::new(chunk, color, style).with_created_at(block.created_at),
+                        );
                     }
                 }
             }
             result
         }
+    };
+    if let Some(first) = result.first_mut() {
+        first.block_start = true;
     }
+    result
 }
 
 /// Lay out an agent block: markdown for completed lines, plain text for the
@@ -353,9 +407,15 @@ fn agent_block_lines(block: &Block, width: usize) -> Vec<LineEntry> {
     };
 
     let mut lines = match cached_agent_lines(block, width, completed_len) {
-        Some(lines) => lines,
+        Some(lines) => lines
+            .into_iter()
+            .map(|l| l.with_created_at(block.created_at))
+            .collect(),
         None => {
-            let parsed = markdown_to_styled(&block.text[..completed_len], width);
+            let parsed: Vec<LineEntry> = markdown_to_styled(&block.text[..completed_len], width)
+                .into_iter()
+                .map(|l| l.with_created_at(block.created_at))
+                .collect();
             *block.md_cache.borrow_mut() = Some(MdCache {
                 width,
                 parsed_len: completed_len,
@@ -373,11 +433,10 @@ fn agent_block_lines(block: &Block, width: usize) -> Vec<LineEntry> {
         if !tail.is_empty() {
             let color = BlockStyle::Agent.color();
             for chunk in word_wrap(tail, width) {
-                lines.push(LineEntry {
-                    text: chunk,
-                    color,
-                    style: BlockStyle::Agent,
-                });
+                lines.push(
+                    LineEntry::new(chunk, color, BlockStyle::Agent)
+                        .with_created_at(block.created_at),
+                );
             }
         }
     }

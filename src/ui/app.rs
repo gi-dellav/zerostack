@@ -16,6 +16,7 @@ use crate::provider::AnyAgent;
 use crate::session::{MessageRole, PromptRef};
 use crate::ui::event_handler;
 use crate::ui::events::{render_session, sanitize_output};
+use crate::ui::feed::BlockStyle;
 use crate::ui::input::InputEditor;
 use crate::ui::permission_handler::handle_permission_request;
 use crate::ui::pickers::rewind::RewindOutcome;
@@ -825,12 +826,19 @@ impl<'a> App<'a> {
             } else if text.starts_with('!') {
                 self.run_bang_command(&text).await?;
             } else {
+                self.renderer.commit_partial();
+                let ts = chrono::Local::now();
                 for line in text.lines() {
                     let safe_line = sanitize_output(line);
-                    self.renderer
-                        .write_line(&format!("> {}", safe_line), Color::Green)?;
+                    self.renderer.feed_mut().push_line_with_time(
+                        BlockStyle::User,
+                        format!("> {}", safe_line),
+                        ts,
+                    );
                 }
-                self.renderer.write_line("", Color::White)?;
+                self.renderer
+                    .feed_mut()
+                    .push_line_with_time(BlockStyle::Plain, "", ts);
                 self.start_main_run(&text).await;
             }
         }

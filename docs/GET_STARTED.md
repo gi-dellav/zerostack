@@ -109,6 +109,7 @@ By pressing `/` on an empty message, you can select any command to send the agen
 | `/redo` | Redo the last undo action |
 | `/btw` | Ask a question to the agent without changing the context |
 | `/review` | Ask the agent to review the last changes made |
+| `/timestamps` | Toggle `[HH:MM:SS]` timestamps and turn separators |
 | `/sessions` | List older sessions |
 | `/rename <name>` | Rename the current session |
 | `/quit` | Exit |

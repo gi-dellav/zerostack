@@ -126,6 +126,32 @@ pub struct LineEntry {
     pub text: CompactString,
     pub color: Color,
     pub style: BlockStyle,
+    /// Wall-clock time of the block this line belongs to, for timestamped output.
+    pub created_at: Option<chrono::DateTime<chrono::Local>>,
+    /// True for the first visible row of a block, so the renderer can draw a
+    /// faint separator above turns when timestamps are enabled.
+    pub block_start: bool,
+}
+
+impl LineEntry {
+    pub fn new(text: CompactString, color: Color, style: BlockStyle) -> Self {
+        Self {
+            text,
+            color,
+            style,
+            created_at: None,
+            block_start: false,
+        }
+    }
+
+    pub(crate) fn with_created_at(
+        mut self,
+        created_at: Option<chrono::DateTime<chrono::Local>>,
+    ) -> Self {
+        self.created_at = created_at;
+        self
+    }
+
 }
 
 pub struct PermissionPrompt {
@@ -315,6 +341,7 @@ pub(crate) struct BottomSnapshot {
     pub(crate) chat_margin: u16,
     pub(crate) input_bg: Option<Color>,
     pub(crate) status_bg: Option<Color>,
+    pub(crate) show_timestamps: bool,
 }
 
 /// How much of the live block a `draw_live_block` call must repaint.
@@ -372,6 +399,9 @@ pub struct Renderer {
     /// Left padding (columns) for the chat output only. Input and status
     /// rows are unaffected.
     chat_margin: u16,
+    /// Whether to prepend `[HH:MM:SS]` to committed chat rows and draw faint
+    /// separators between turns. Mirrors `Session::show_timestamps`.
+    show_timestamps: bool,
     pub permission_prompt: Option<PermissionPrompt>,
     pub chain_prompt: Option<ChainPrompt>,
     pub chain_but_mode: bool,
@@ -427,6 +457,7 @@ impl Renderer {
             status_bg: None,
             statusline_height: 1,
             chat_margin: 0,
+            show_timestamps: false,
             permission_prompt: None,
             chain_prompt: None,
             chain_but_mode: false,
@@ -471,6 +502,11 @@ impl Renderer {
     pub fn set_chat_margin(&mut self, margin: u16) {
         let (cols, _) = self.terminal_size();
         self.chat_margin = margin.min(cols.saturating_sub(8));
+    }
+
+    /// Enable or disable per-message timestamps and turn separators.
+    pub fn set_show_timestamps(&mut self, show: bool) {
+        self.show_timestamps = show;
     }
 
     /// Emit the chat left-margin gutter (spaces in the chat background) at the
@@ -619,7 +655,7 @@ impl Renderer {
         Ok(())
     }
 
-    fn commit_partial(&mut self) {
+    pub(crate) fn commit_partial(&mut self) {
         if !self.partial.is_empty() {
             self.feed
                 .push_block(self.partial_style, self.partial.as_str());
@@ -637,11 +673,7 @@ impl Renderer {
         let color = self.partial_style.color();
         word_wrap(&self.partial, width)
             .into_iter()
-            .map(|text| LineEntry {
-                text,
-                color,
-                style: self.partial_style,
-            })
+            .map(|text| LineEntry::new(text, color, self.partial_style))
             .collect()
     }
 
@@ -703,15 +735,56 @@ impl Renderer {
         Ok(())
     }
 
-    /// Write one chat-style row (chat background, left margin, role color,
-    /// OSC8-wrapped text) at the current cursor position; no trailing newline.
-    fn write_chat_row(&mut self, entry: &LineEntry) -> io::Result<()> {
+    /// Format a timestamp as `[HH:MM:SS] ` when timestamps are enabled and the
+    /// line carries one; otherwise returns `None`.
+    fn timestamp_prefix(
+        &self,
+        created_at: Option<chrono::DateTime<chrono::Local>>,
+    ) -> Option<String> {
+        if !self.show_timestamps {
+            return None;
+        }
+        created_at.map(|t| format!("[{}] ", t.format("%H:%M:%S")))
+    }
+
+    /// Draw a faint horizontal rule across the full terminal width at the
+    /// current cursor position; no trailing newline.
+    fn write_separator_row(&mut self) -> io::Result<()> {
+        let (cols, _) = self.terminal_size();
         write!(self.backend, "\r")?;
         if let Some(bg) = self.chat_bg {
             let bg = self.color(bg);
             write!(self.backend, "{}", SetBackgroundColor(bg))?;
         }
         Self::write_chat_margin(self.chat_margin, &mut self.backend)?;
+        let fg = self.color(Color::DarkGrey);
+        write!(self.backend, "{}", SetForegroundColor(fg))?;
+        let sep: String = "─".repeat((cols as usize).saturating_sub(self.chat_margin as usize));
+        write!(self.backend, "{}", sep)?;
+        write!(self.backend, "{}", ResetColor)?;
+        Ok(())
+    }
+
+    /// Write one chat-style row (chat background, left margin, role color,
+    /// OSC8-wrapped text) at the current cursor position; no trailing newline.
+    /// When `prefix` is provided it is painted in dark grey before the row text.
+    fn write_chat_row(&mut self, entry: &LineEntry, prefix: Option<&str>) -> io::Result<()> {
+        write!(self.backend, "\r")?;
+        if let Some(bg) = self.chat_bg {
+            let bg = self.color(bg);
+            write!(self.backend, "{}", SetBackgroundColor(bg))?;
+        }
+        Self::write_chat_margin(self.chat_margin, &mut self.backend)?;
+        if let Some(prefix) = prefix {
+            let prefix_color = self.color(Color::DarkGrey);
+            write!(self.backend, "{}", SetForegroundColor(prefix_color))?;
+            write!(self.backend, "{}", prefix)?;
+            write!(self.backend, "{}", ResetColor)?;
+            if let Some(bg) = self.chat_bg {
+                let bg = self.color(bg);
+                write!(self.backend, "{}", SetBackgroundColor(bg))?;
+            }
+        }
         let fg = self.color(entry.color);
         write!(self.backend, "{}", SetForegroundColor(fg))?;
         write!(self.backend, "{}", wrap_urls_osc8(&entry.text))?;
@@ -743,11 +816,18 @@ impl Renderer {
             let spill = print - split.committed.len();
             let mut lines = split.committed;
             lines.extend(split.live.iter().take(spill).cloned());
+            let mut first_line = true;
             for entry in &lines {
+                if self.show_timestamps && entry.block_start && !first_line {
+                    self.write_separator_row()?;
+                    writeln!(self.backend)?;
+                }
+                first_line = false;
                 if !self.output_mark_open && entry.style != BlockStyle::User {
                     self.start_output_mark()?;
                 }
-                self.write_chat_row(entry)?;
+                let prefix = self.timestamp_prefix(entry.created_at);
+                self.write_chat_row(entry, prefix.as_deref())?;
                 writeln!(self.backend)?;
             }
             self.backend.flush()?;
@@ -1102,6 +1182,7 @@ impl Renderer {
             chat_margin: self.chat_margin,
             input_bg: self.input_bg,
             status_bg: self.status_bg,
+            show_timestamps: self.show_timestamps,
         }
     }
 
@@ -1200,7 +1281,7 @@ impl Renderer {
 
         // Streaming region: tail of the running block plus the partial scratch.
         for entry in stream {
-            self.write_chat_row(entry)?;
+            self.write_chat_row(entry, None)?;
             writeln!(self.backend)?;
         }
         let stream_len = stream.len();

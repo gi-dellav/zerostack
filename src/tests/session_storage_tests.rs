@@ -451,6 +451,50 @@ fn find_all_sessions_returns_saved_sessions_newest_first() {
 }
 
 #[test]
+fn save_session_round_trips_show_timestamps_default_false() {
+    let env = setup_test_env();
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
+    assert!(!s.show_timestamps);
+    save_session(&s).unwrap();
+
+    let found = find_sessions_by_prefix(&s.id[..8]).unwrap();
+    assert_eq!(found.len(), 1);
+    assert!(!found[0].show_timestamps);
+    drop(env);
+}
+
+#[test]
+fn save_session_preserves_show_timestamps_true() {
+    let env = setup_test_env();
+    let mut s = Session::new("openai", "gpt-4", 128000, "");
+    s.show_timestamps = true;
+    save_session(&s).unwrap();
+
+    let found = find_sessions_by_prefix(&s.id[..8]).unwrap();
+    assert_eq!(found.len(), 1);
+    assert!(found[0].show_timestamps);
+    drop(env);
+}
+
+#[test]
+fn old_session_file_without_show_timestamps_loads_as_false() {
+    let env = setup_test_env();
+    let s = Session::new("openai", "gpt-4", 128000, "");
+    let mut value = serde_json::to_value(&s).unwrap();
+    value.as_object_mut().unwrap().remove("show_timestamps");
+    let json = serde_json::to_string(&value).unwrap();
+    let path = crate::session::storage::data_dir()
+        .join("sessions")
+        .join(format!("{}.json", s.id));
+    std::fs::write(&path, json).unwrap();
+
+    let found = find_sessions_by_prefix(&s.id[..8]).unwrap();
+    assert_eq!(found.len(), 1);
+    assert!(!found[0].show_timestamps);
+    drop(env);
+}
+
+#[test]
 fn save_session_preserves_cost_fields() {
     let env = setup_test_env();
     let mut s = Session::new("openai", "gpt-4", 128000, "");

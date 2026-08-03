@@ -9,6 +9,7 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
         "/mode" => handle_mode(parts, ctx).await,
         "/toggle" => handle_toggle(parts, ctx).await,
         "/editsys" => handle_editsys(parts, ctx).await,
+        "/timestamps" => handle_timestamps(parts, ctx),
         "/advisor" => {
             #[cfg(feature = "advisor")]
             {
@@ -292,6 +293,25 @@ async fn handle_toggle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result
             );
         }
     }
+    Ok(())
+}
+
+fn handle_timestamps(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
+    let new_state = match parts.get(1).copied() {
+        Some("on") => true,
+        Some("off") => false,
+        Some(other) => {
+            write_error(ctx.renderer, format!("invalid: '{}', use on or off", other));
+            return Ok(());
+        }
+        None => !ctx.session.show_timestamps,
+    };
+    ctx.session.show_timestamps = new_state;
+    ctx.renderer.set_show_timestamps(new_state);
+    write_ok(
+        ctx.renderer,
+        format!("timestamps: {}", if new_state { "on" } else { "off" }),
+    );
     Ok(())
 }
 

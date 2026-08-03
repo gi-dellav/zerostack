@@ -346,9 +346,11 @@ async fn handle_agent_done(
                 .feed_mut()
                 .push_block(BlockStyle::Agent, run.response_buf.as_str());
         }
+        renderer.feed_mut().set_last_block_timestamp();
         renderer.repaint()?;
     } else if !run.agent_line_started {
         renderer.feed_mut().push_line(BlockStyle::Agent, "< ");
+        renderer.feed_mut().set_last_block_timestamp();
     }
 
     renderer.write_line("", Color::White)?;

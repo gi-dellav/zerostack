@@ -140,6 +140,8 @@ You are in read-only mode. Only read files and explore.
 | `/review [msg]` | Run a one-shot code review. Activates the `review` prompt in readonly mode, submits a review message, and restores the previous prompt afterward. Without a message, auto-generates one based on session and worktree context. |
 | `/toggle` | Show available toggleable features. |
 | `/toggle todo [on\|off]` | Enable or disable todo-list tools. |
+| `/timestamps` | Toggle per-message `[HH:MM:SS]` timestamps and faint turn separators. |
+| `/timestamps [on\|off]` | Enable or disable timestamps explicitly. The preference is saved with the session. |
 
 ## Memory (feature-gated)
 

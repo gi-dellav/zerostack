@@ -165,6 +165,10 @@ pub struct Session {
     /// and for files written before this field existed.
     #[serde(default)]
     pub prompt: Option<PromptRef>,
+    /// Whether the TUI prepends `[HH:MM:SS]` to committed message rows and
+    /// draws faint separators between turns. Persisted across sessions.
+    #[serde(default)]
+    pub show_timestamps: bool,
     #[cfg(feature = "multimodal")]
     #[serde(skip)]
     pub pending_media: Vec<crate::extras::multimodal::MediaAttachment>,
@@ -271,6 +275,7 @@ impl Session {
             permission_allowlist: Vec::new(),
             next_tool_call_id: 0,
             prompt: None,
+            show_timestamps: false,
             #[cfg(feature = "multimodal")]
             pending_media: Vec::new(),
             show_cost_always: false,

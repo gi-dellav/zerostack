@@ -90,6 +90,7 @@ mod dirty {
             chat_margin: 0,
             input_bg: None,
             status_bg: None,
+            show_timestamps: false,
         }
     }
 
@@ -252,6 +253,17 @@ mod dirty {
         let mut next = bottom_snapshot();
         next.input = "typed".to_string();
         next.statusline = Vec::new();
+        assert_eq!(
+            Renderer::bottom_redraw_plan(Some(&prev), &next, false),
+            BottomRedrawPlan::Full
+        );
+    }
+
+    #[test]
+    fn bottom_plan_full_on_show_timestamps_change() {
+        let prev = bottom_snapshot();
+        let mut next = bottom_snapshot();
+        next.show_timestamps = true;
         assert_eq!(
             Renderer::bottom_redraw_plan(Some(&prev), &next, false),
             BottomRedrawPlan::Full
@@ -685,6 +697,110 @@ mod picker_overlay {
             delta.contains("\x1b[4A"),
             "header row included in erase height: {delta:?}"
         );
+    }
+}
+
+/// Per-message timestamps and turn separators.
+mod timestamps {
+    use crate::ui::feed::BlockStyle;
+    use crate::ui::renderer::{FakeBackend, Renderer};
+
+    fn headless(cols: u16, rows: u16) -> Renderer {
+        Renderer::with_backend(Box::new(FakeBackend::new(cols, rows)))
+    }
+
+    fn contains_timestamp(text: &str) -> bool {
+        // Look for a literal [HH:MM:SS] in the captured output. ANSI escape
+        // sequences also use brackets, but not this exact digit pattern.
+        let re = regex::Regex::new(r"\[\d{2}:\d{2}:\d{2}\]").unwrap();
+        re.is_match(text)
+    }
+
+    fn sample_time() -> chrono::DateTime<chrono::Local> {
+        chrono::DateTime::from_timestamp(1_700_000_000, 0)
+            .unwrap()
+            .with_timezone(&chrono::Local)
+    }
+
+    #[test]
+    fn disabled_timestamps_do_not_prefix_lines() {
+        let mut r = headless(80, 24);
+        r.feed_mut().push_line(BlockStyle::Agent, "hello");
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(
+            !contains_timestamp(&out),
+            "no timestamp when disabled: {out}"
+        );
+    }
+
+    #[test]
+    fn enabled_timestamps_prefix_with_hhmmss() {
+        let mut r = headless(80, 24);
+        r.set_show_timestamps(true);
+        r.feed_mut()
+            .push_line_with_time(BlockStyle::Agent, "hello", sample_time());
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(out.contains("hello"), "content still printed: {out}");
+        // Local time at the sample timestamp: 2023-11-14 22:13:20 UTC, which in
+        // many timezones still starts with two digits and a colon.
+        assert!(contains_timestamp(&out), "timestamp wrapper present: {out}");
+    }
+
+    #[test]
+    fn timestamp_is_omitted_when_block_has_none() {
+        let mut r = headless(80, 24);
+        r.set_show_timestamps(true);
+        r.feed_mut().push_line(BlockStyle::Agent, "no time");
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        assert!(
+            !contains_timestamp(&out),
+            "no timestamp when created_at is None: {out}"
+        );
+    }
+
+    #[test]
+    fn separator_drawn_between_committed_blocks() {
+        let mut r = headless(80, 24);
+        r.set_show_timestamps(true);
+        let ts = sample_time();
+        r.feed_mut()
+            .push_line_with_time(BlockStyle::User, "> hi", ts);
+        r.feed_mut()
+            .push_line_with_time(BlockStyle::Agent, "reply", ts);
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        // The separator is a run of box-drawing horizontal lines.
+        assert!(out.contains('─'), "separator drawn between turns: {out}");
+    }
+
+    #[test]
+    fn no_separator_before_first_committed_line() {
+        let mut r = headless(80, 24);
+        r.set_show_timestamps(true);
+        let ts = sample_time();
+        r.feed_mut()
+            .push_line_with_time(BlockStyle::Agent, "only", ts);
+        r.flush_committed("").unwrap();
+        let out = r.captured_output();
+        let first_sep = out.find('─');
+        assert!(
+            first_sep.is_none(),
+            "no separator above the first block: {out}"
+        );
+    }
+
+    #[test]
+    fn streaming_region_does_not_get_timestamp_prefix() {
+        let mut r = headless(80, 24);
+        r.set_show_timestamps(true);
+        r.feed_mut().push_streaming_block(BlockStyle::Agent);
+        r.feed_mut().append_to_last("streaming");
+        r.draw_live_block("", 0, &[], true, None).unwrap();
+        let out = r.captured_output();
+        assert!(out.contains("streaming"), "streaming text painted: {out}");
     }
 }
 
