@@ -412,16 +412,27 @@ impl Startup {
         }
 
         // Sandbox, tools config, status signals, permission checker
-        self.sandbox = Sandbox::new(
-            self.cli.resolve_sandbox(&self.cfg),
-            &self.cli.resolve_sandbox_backend(&self.cfg),
-        )
-        .with_shell(&self.cli.resolve_shell(&self.cfg));
-        if self.cli.resolve_sandbox(&self.cfg) && !self.sandbox.is_effectively_sandboxed() {
+        let sandbox_enabled = self.cli.resolve_sandbox(&self.cfg);
+        let sandbox_required = self.cli.resolve_sandbox_required(&self.cfg);
+        let sandbox_backend = self.cli.resolve_sandbox_backend(&self.cfg);
+        self.sandbox = Sandbox::new(sandbox_enabled, &sandbox_backend)
+            .with_required(sandbox_required)
+            .with_shell(&self.cli.resolve_shell(&self.cfg));
+        if self.cli.sandbox_setting_conflict(&self.cfg) {
             tracing::warn!(
-                "sandbox is enabled but backend '{}' was not found — commands will run unsandboxed",
-                self.cli.resolve_sandbox_backend(&self.cfg)
+                "sandbox is set to false but sandbox-required is set, enabling the sandbox anyway"
             );
+        }
+        if sandbox_enabled && !self.sandbox.is_effectively_sandboxed() {
+            if sandbox_required {
+                tracing::warn!(
+                    "sandbox backend '{sandbox_backend}' was not found and sandbox-required is set, bash commands will be refused"
+                );
+            } else {
+                tracing::warn!(
+                    "sandbox is enabled but backend '{sandbox_backend}' was not found, commands will run unsandboxed"
+                );
+            }
         }
         let edit_system = self.cli.resolve_edit_system(&self.cfg);
         tools::set_edit_system(edit_system);

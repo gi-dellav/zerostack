@@ -163,6 +163,7 @@ If you want to use zerostack from scripts, from other programs, or if you just w
 | `--read-only` | Only reads files |
 | `--yolo` | No limitations given to the agent |
 | `--sandbox` | Run the agent inside a sandbox (Experimental) |
+| `--sandbox-required` | Refuse bash commands when the sandbox backend is unavailable (implies `--sandbox`) |
 | `--worktree` | Run the agent inside a git worktree (Experimental) |
 | `--parallel` | Run the agent inside a self-managed git worktree (Experimental) |
 | `--load-prompt <prompt>` | Use a specific prompt |

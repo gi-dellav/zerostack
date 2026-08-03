@@ -141,6 +141,13 @@ impl Tool for BashTool {
             args.timeout,
             commands.len(),
         );
+        // Refuse before asking: a required sandbox with no backend fails every
+        // command, so prompting the user for approval first is wasted.
+        if let Some(reason) = self.sandbox.refusal_reason() {
+            tracing::warn!("tool bash refused: {reason}");
+            return Err(ToolError::Msg(reason));
+        }
+
         let mut coaching: Option<String> = None;
         for cmd in &commands {
             if let Some(msg) = check_perm(&self.permission, &self.ask_tx, "bash", cmd).await? {

@@ -80,6 +80,8 @@ mod renderer_tests;
 mod resumed_history_tests;
 #[cfg(all(test, feature = "rtk"))]
 mod rtk_tests;
+#[cfg(test)]
+mod sandbox_required_tests;
 #[cfg(all(test, feature = "export"))]
 mod session_export_tests;
 #[cfg(test)]

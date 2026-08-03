@@ -186,6 +186,12 @@ async fn handle_new_session(
         req.cwd.display()
     );
 
+    if state.cli.sandbox_setting_conflict(&state.cfg) {
+        tracing::warn!(
+            "sandbox is set to false but sandbox-required is set, enabling the sandbox anyway"
+        );
+    }
+
     state.sessions.lock().await.insert(
         session_id.clone(),
         SessionState {
@@ -274,6 +280,7 @@ async fn run_prompt(
         state.cli.resolve_sandbox(&state.cfg),
         &state.cli.resolve_sandbox_backend(&state.cfg),
     )
+    .with_required(state.cli.resolve_sandbox_required(&state.cfg))
     .with_shell(&state.cli.resolve_shell(&state.cfg));
 
     // Track session history for future context persistence

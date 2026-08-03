@@ -140,6 +140,12 @@ pub struct Cli {
     pub sandbox_backend: Option<String>,
 
     #[arg(
+        long = "sandbox-required",
+        help = "Refuse to run bash commands when the sandbox backend is unavailable (implies --sandbox)"
+    )]
+    pub sandbox_required: bool,
+
+    #[arg(
         long = "shell",
         help = "Shell binary to use for bash tool (default: bash)"
     )]
@@ -362,7 +368,19 @@ impl Cli {
     }
 
     pub fn resolve_sandbox(&self, cfg: &config::Config) -> bool {
-        self.sandbox || cfg.sandbox.unwrap_or(false)
+        // sandbox-required implies the sandbox, even when sandbox was turned
+        // off explicitly: the guarantee wins over the contradicting setting.
+        self.sandbox || cfg.sandbox.unwrap_or(false) || self.resolve_sandbox_required(cfg)
+    }
+
+    pub fn resolve_sandbox_required(&self, cfg: &config::Config) -> bool {
+        self.sandbox_required || cfg.sandbox_required.unwrap_or(false)
+    }
+
+    /// True when `sandbox = false` is combined with `sandbox-required`. Callers
+    /// warn about it once per session; the sandbox stays enabled either way.
+    pub fn sandbox_setting_conflict(&self, cfg: &config::Config) -> bool {
+        !self.sandbox && cfg.sandbox == Some(false) && self.resolve_sandbox_required(cfg)
     }
 
     pub fn resolve_sandbox_backend(&self, cfg: &config::Config) -> String {

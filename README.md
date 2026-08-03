@@ -126,8 +126,9 @@ If you want to orchestrate multiple zerostack agents from the terminal, also ins
 ### Optional: sandbox mode
 
 Install [bubblewrap](https://github.com/containers/bubblewrap) for `--sandbox`,
-which runs every bash command inside an isolated environment to protect your
-system from accidental or malicious damage:
+which runs every bash command inside an isolated environment to contain the
+damage a mistaken command can do to your system (a seatbelt, not a boundary
+against untrusted code):
 
 ```bash
 # Debian/Ubuntu
@@ -140,7 +141,16 @@ dnf install bubblewrap
 pacman -S bubblewrap
 ```
 
-There is also support for zerobox as an alternative sandbox backend.
+There is also support for [zerobox](https://github.com/afshinm/zerobox) as an
+alternative sandbox backend. bubblewrap is Linux only, so on macOS install
+zerobox (`cargo install zerobox`) and set `sandbox-backend = "zerobox"`.
+
+`--sandbox` is best effort: when the selected backend binary is missing, bash
+commands still run, but unsandboxed, with a warning in the logs. Add
+`--sandbox-required` (or `sandbox-required = true` in the config) to turn that
+into a guarantee: bash commands are refused whenever the backend is unavailable,
+and the rest of the session keeps working. See [SECURITY.md](SECURITY.md) for
+what the sandbox does and does not protect against.
 
 ## Quick start
 
