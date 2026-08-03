@@ -1241,9 +1241,9 @@ Enables full trace-level logging to a timestamped log file under
 named `zerostack-YYYY-MM-DD_HH-MM-SS_<pid>.log`. A new file is created per
 instance — previous runs are never overwritten.
 
-With `-v`, stderr output stays at the default `warn` level so the TUI remains
-clean. The log file captures everything at `trace` level for all zerostack
-modules.
+With `-v`, interactive-mode stderr logging stays off so the TUI display is
+never corrupted. The log file captures everything at `trace` level for all
+zerostack modules.
 
 ### Custom log file (`--log-file`)
 
@@ -1255,14 +1255,19 @@ Writes full trace-level logs to the specified path instead of the default
 location. Implies `-v` for the file output. Can be combined with `-v` (no
 effect on the path, since `--log-file` takes precedence).
 
-### Custom stderr log level (`--log-level`)
+### Custom log level (`--log-level`)
 
 ```bash
 zerostack --log-level debug
 ```
 
-Sets the minimum level for stderr output. Accepted values: `trace`, `debug`,
-`info`, `warn`, `error`. This overrides the `RUST_LOG` environment variable.
+Sets the minimum log level. Accepted values: `trace`, `debug`, `info`, `warn`,
+`error`. This overrides the `RUST_LOG` environment variable.
+
+In interactive TUI mode nothing is ever logged to stderr — a stray write would
+corrupt the inline display — so `--log-level` / `RUST_LOG` write to a
+timestamped log file under the data directory instead (the path is printed at
+startup). Stderr logging only applies to print mode (`-p`).
 
 ### Environment variable (`RUST_LOG`)
 

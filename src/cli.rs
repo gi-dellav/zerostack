@@ -287,7 +287,7 @@ pub struct Cli {
 
     #[arg(
         long = "log-level",
-        help = "Set stderr log level (trace, debug, info, warn, error)"
+        help = "Set log level (trace, debug, info, warn, error); stderr in print mode, a log file in interactive mode"
     )]
     pub log_level: Option<String>,
 

@@ -75,6 +75,28 @@ fn test_verbose_flag_is_false_by_default() {
 }
 
 #[test]
+fn test_stderr_enabled_only_in_print_mode() {
+    // Interactive TUI: a stray stderr write corrupts the inline display.
+    assert!(!logging::stderr_enabled(&parse_cli(&[])));
+    assert!(!logging::stderr_enabled(&parse_cli(&[
+        "--log-level",
+        "debug"
+    ])));
+    // Print mode has no live display; stderr logging is fine there.
+    assert!(logging::stderr_enabled(&parse_cli(&["-p", "hi"])));
+}
+
+#[test]
+fn test_explicit_console_requested() {
+    assert!(!logging::explicit_console_requested(&parse_cli(&[])));
+    assert!(!logging::explicit_console_requested(&parse_cli(&["-v"])));
+    assert!(logging::explicit_console_requested(&parse_cli(&[
+        "--log-level",
+        "info"
+    ])));
+}
+
+#[test]
 fn test_verbose_flag_set() {
     let cli = parse_cli(&["-v"]);
     assert!(cli.verbose);

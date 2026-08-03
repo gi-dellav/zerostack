@@ -71,18 +71,36 @@ fn write_crash_report(info: &std::panic::PanicHookInfo) -> Option<PathBuf> {
     fs::write(&path, content).ok().map(|_| path)
 }
 
+fn default_log_path() -> Option<PathBuf> {
+    let logs_dir = storage::data_dir().join("logs");
+    fs::create_dir_all(&logs_dir).ok();
+    let ts = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+    let pid = std::process::id();
+    Some(logs_dir.join(format!("zerostack-{ts}_{pid}.log")))
+}
+
 pub fn resolve_log_path(cli: &Cli) -> Option<PathBuf> {
     if let Some(ref path) = cli.log_file {
         return Some(path.clone());
     }
     if cli.verbose {
-        let logs_dir = storage::data_dir().join("logs");
-        fs::create_dir_all(&logs_dir).ok();
-        let ts = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
-        let pid = std::process::id();
-        return Some(logs_dir.join(format!("zerostack-{ts}_{pid}.log")));
+        return default_log_path();
     }
     None
+}
+
+/// Console (stderr) logging explicitly requested via `--log-level` or
+/// `RUST_LOG`.
+pub fn explicit_console_requested(cli: &Cli) -> bool {
+    cli.log_level.is_some() || std::env::var_os("RUST_LOG").is_some()
+}
+
+/// Whether logs may be written to stderr: only in print mode. In the
+/// interactive TUI there is no alternate screen to hide stray writes behind —
+/// a single log line printed mid-session shifts the screen and corrupts the
+/// inline display, so logging must go to a file instead.
+pub fn stderr_enabled(cli: &Cli) -> bool {
+    cli.print
 }
 
 pub fn build_stderr_filter(cli: &Cli) -> EnvFilter {
@@ -98,16 +116,32 @@ pub fn build_stderr_filter(cli: &Cli) -> EnvFilter {
 }
 
 pub fn init(cli: &Cli) {
-    let stderr_filter = build_stderr_filter(cli);
-    let file_filter = EnvFilter::new("zerostack=trace,rig=off");
+    let interactive = !stderr_enabled(cli);
 
-    let stderr_layer = tracing_subscriber::fmt::layer()
-        .with_writer(io::stderr)
-        .with_filter(stderr_filter);
-
+    // The stderr layer exists only in print mode; see `stderr_enabled`.
+    let stderr_layer = if interactive {
+        None
+    } else {
+        Some(
+            tracing_subscriber::fmt::layer()
+                .with_writer(io::stderr)
+                .with_filter(build_stderr_filter(cli)),
+        )
+    };
     let registry = tracing_subscriber::registry().with(stderr_layer);
 
-    let log_path = resolve_log_path(cli);
+    let mut log_path = resolve_log_path(cli);
+    let mut file_filter = EnvFilter::new("zerostack=trace,rig=off");
+    if interactive && log_path.is_none() && explicit_console_requested(cli) {
+        // Console logging was explicitly requested; redirect it to a default
+        // log file so it cannot corrupt the TUI display.
+        log_path = default_log_path();
+        file_filter = build_stderr_filter(cli);
+        if let Some(ref path) = log_path {
+            eprintln!("interactive mode: logging to {}", path.display());
+        }
+    }
+
     if let Some(ref path) = log_path {
         match fs::File::create(path) {
             Ok(file) => {
