@@ -49,10 +49,6 @@ impl RewindPicker {
         }
     }
 
-    pub fn set_monochrome(&mut self, monochrome: bool) {
-        self.list.set_monochrome(monochrome);
-    }
-
     pub fn activate(&mut self) {
         self.active = true;
         self.stage = Stage::PickMessage;
@@ -67,8 +63,12 @@ impl RewindPicker {
         self.outcome.take()
     }
 
-    pub fn draw(&self, live_rows: u16) -> std::io::Result<()> {
-        self.list.draw(None, live_rows)
+    /// The picker overlay as live-block rows, or `None` when inactive.
+    pub fn view(&self, reserved: u16) -> Option<crate::ui::renderer::PickerView> {
+        if !self.active {
+            return None;
+        }
+        self.list.view(None, reserved)
     }
 
     /// Handle a key while the picker is open. Always returns `true`: the picker

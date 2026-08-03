@@ -4,14 +4,66 @@ pub(crate) mod list;
 pub(crate) mod models;
 pub(crate) mod rewind;
 
-use std::io::Write;
+use super::renderer::{PickerRow, PickerView};
 
-use crossterm::ExecutableCommand;
-use crossterm::cursor::MoveTo;
-use crossterm::style::{Color, ResetColor, SetForegroundColor};
-use crossterm::terminal::Clear;
+/// Truncate a picker item to the display width the old direct-stdout painting
+/// used (three columns of slack for the selection marker).
+pub(crate) fn truncate_item(s: &str, cols: u16) -> String {
+    s.chars().take(cols.saturating_sub(3) as usize).collect()
+}
 
-use super::utils::resolve_color;
+/// Window `matches` around `selected`, capped at `max_items`, as picker rows
+/// with the selection marker baked into the text. Pure so the geometry is
+/// unit-testable without a terminal.
+pub(crate) fn picker_window(
+    matches: &[String],
+    selected: usize,
+    max_items: usize,
+) -> Vec<PickerRow> {
+    let list_height = max_items.min(matches.len());
+    let start_idx = selected
+        .saturating_sub(list_height / 2)
+        .min(matches.len().saturating_sub(list_height));
+    let end_idx = (start_idx + list_height).min(matches.len());
+    matches[start_idx..end_idx]
+        .iter()
+        .enumerate()
+        .map(|(i, item)| {
+            let selected = start_idx + i == selected;
+            PickerRow {
+                text: if selected {
+                    format!("▸ {item}")
+                } else {
+                    format!("  {item}")
+                },
+                selected,
+            }
+        })
+        .collect()
+}
+
+/// Build a list view: the windowed matches, or a single dim message row when
+/// there is nothing to show.
+pub(crate) fn picker_list_view(
+    matches: &[String],
+    selected: usize,
+    max_items: usize,
+    empty_message: Option<&str>,
+) -> PickerView {
+    if matches.is_empty() {
+        return PickerView {
+            header: None,
+            rows: vec![PickerRow {
+                text: empty_message.unwrap_or("no matches").to_string(),
+                selected: false,
+            }],
+        };
+    }
+    PickerView {
+        header: None,
+        rows: picker_window(matches, selected, max_items),
+    }
+}
 
 pub(crate) fn fuzzy_score(item: &str, query: &str) -> Option<i32> {
     if query.is_empty() {
@@ -67,72 +119,66 @@ pub(crate) fn fuzzy_score(item: &str, query: &str) -> Option<i32> {
     Some(score)
 }
 
-pub(crate) fn draw_picker_list(
-    matches: &[String],
-    selected: usize,
-    monochrome: bool,
-    empty_message: Option<&str>,
-    bottom_reserved: u16,
-) -> std::io::Result<()> {
-    let (cols, rows) = crossterm::terminal::size()?;
-    let mut stdout = std::io::stdout();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let max_items = (rows.saturating_sub(bottom_reserved)).min(10) as usize;
-
-    if matches.is_empty() {
-        let r = rows.saturating_sub(bottom_reserved).saturating_sub(1);
-        stdout.execute(MoveTo(0, r))?;
-        let color = resolve_color(Color::DarkGrey, monochrome);
-        write!(stdout, "{}", SetForegroundColor(color))?;
-        write!(stdout, "{}", empty_message.unwrap_or("no matches"))?;
-        write!(stdout, "{}", ResetColor)?;
-        stdout.flush()?;
-        return Ok(());
+    fn matches(n: usize) -> Vec<String> {
+        (0..n).map(|i| format!("item {i}")).collect()
     }
 
-    let list_height = max_items.min(matches.len());
-    let start_idx = selected
-        .saturating_sub(list_height / 2)
-        .min(matches.len().saturating_sub(list_height));
-    let end_idx = (start_idx + list_height).min(matches.len());
-
-    let top_row = rows
-        .saturating_sub(bottom_reserved)
-        .saturating_sub(list_height as u16);
-
-    for (i, item) in matches
-        .iter()
-        .enumerate()
-        .skip(start_idx)
-        .take(end_idx - start_idx)
-    {
-        let render_row = top_row + (i - start_idx) as u16;
-        stdout.execute(MoveTo(0, render_row))?;
-        write!(
-            stdout,
-            "{}",
-            Clear(crossterm::terminal::ClearType::CurrentLine)
-        )?;
-
-        let truncated: String = item.chars().take(cols.saturating_sub(3) as usize).collect();
-
-        if i == selected {
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(resolve_color(Color::Green, monochrome))
-            )?;
-            write!(stdout, "▸ {}", truncated)?;
-        } else {
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(resolve_color(Color::DarkGrey, monochrome))
-            )?;
-            write!(stdout, "  {}", truncated)?;
-        }
-        write!(stdout, "{}", ResetColor)?;
+    #[test]
+    fn window_shows_all_when_under_cap() {
+        let rows = picker_window(&matches(3), 1, 10);
+        assert_eq!(rows.len(), 3);
+        assert!(rows[1].selected);
+        assert_eq!(rows[1].text, "▸ item 1");
+        assert_eq!(rows[0].text, "  item 0");
     }
-    stdout.flush()?;
-    Ok(())
+
+    #[test]
+    fn window_caps_at_max_items() {
+        let rows = picker_window(&matches(50), 0, 10);
+        assert_eq!(rows.len(), 10);
+        assert!(rows[0].selected);
+    }
+
+    #[test]
+    fn window_centers_the_selection() {
+        let rows = picker_window(&matches(50), 25, 10);
+        // Selected item sits in the middle of the window.
+        let pos = rows.iter().position(|r| r.selected).unwrap();
+        assert_eq!(rows[pos].text, "▸ item 25");
+        assert!(pos >= 4 && pos <= 5, "centered: pos {pos}");
+    }
+
+    #[test]
+    fn window_clamps_at_the_end() {
+        let rows = picker_window(&matches(12), 11, 10);
+        assert_eq!(rows.len(), 10);
+        assert!(rows[9].selected);
+        assert_eq!(rows[9].text, "▸ item 11");
+    }
+
+    #[test]
+    fn empty_matches_yield_a_single_message_row() {
+        let view = picker_list_view(&[], 0, 10, Some("nothing here"));
+        assert_eq!(view.height(), 1);
+        assert_eq!(view.rows[0].text, "nothing here");
+        assert!(!view.rows[0].selected);
+    }
+
+    #[test]
+    fn empty_matches_default_message() {
+        let view = picker_list_view(&[], 0, 10, None);
+        assert_eq!(view.rows[0].text, "no matches");
+    }
+
+    #[test]
+    fn view_height_counts_header() {
+        let mut view = picker_list_view(&matches(2), 0, 10, None);
+        assert_eq!(view.height(), 2);
+        view.header = Some("tabs".to_string());
+        assert_eq!(view.height(), 3);
+    }
 }

@@ -1,12 +1,5 @@
-use std::io::Write;
-
-use crossterm::ExecutableCommand;
-use crossterm::cursor::MoveTo;
-use crossterm::style::{Color, ResetColor, SetForegroundColor};
-use crossterm::terminal::Clear;
-
-use super::super::utils::resolve_color;
-use super::{draw_picker_list, fuzzy_score};
+use super::{fuzzy_score, picker_window, truncate_item};
+use crate::ui::renderer::PickerView;
 
 pub struct ModelsPicker {
     pub active: bool,
@@ -17,7 +10,6 @@ pub struct ModelsPicker {
     quick: Vec<String>,
     provider: Vec<String>,
     pub group: usize,
-    monochrome: bool,
 }
 
 impl ModelsPicker {
@@ -31,21 +23,12 @@ impl ModelsPicker {
             quick: Vec::new(),
             provider: Vec::new(),
             group: 0,
-            monochrome: false,
         }
-    }
-
-    pub fn set_monochrome(&mut self, monochrome: bool) {
-        self.monochrome = monochrome;
     }
 
     pub fn set_groups(&mut self, quick: Vec<String>, provider: Vec<String>) {
         self.quick = quick;
         self.provider = provider;
-    }
-
-    fn color(&self, color: Color) -> Color {
-        resolve_color(color, self.monochrome)
     }
 
     pub fn activate(&mut self) {
@@ -137,28 +120,15 @@ impl ModelsPicker {
         self.matches.get(self.selected).map(|s| s.as_str())
     }
 
-    pub fn draw(&self, live_rows: u16) -> std::io::Result<()> {
+    /// The picker overlay as live-block rows (group-tab header above the
+    /// list), or `None` when inactive.
+    pub fn view(&self, reserved: u16) -> Option<PickerView> {
         if !self.active {
-            return Ok(());
+            return None;
         }
-        let (_cols, rows) = crossterm::terminal::size()?;
-        let mut stdout = std::io::stdout();
+        let (cols, rows) = crossterm::terminal::size().ok()?;
 
-        // One extra row for the tab header above the list.
-        let max_items = (rows.saturating_sub(live_rows + 1)).min(10) as usize;
-        let list_height = max_items.min(self.matches.len().max(1));
-        let top_row = rows
-            .saturating_sub(live_rows)
-            .saturating_sub(list_height as u16);
-
-        if rows >= 8 {
-            let header_row = top_row.saturating_sub(1);
-            stdout.execute(MoveTo(0, header_row))?;
-            write!(
-                stdout,
-                "{}",
-                Clear(crossterm::terminal::ClearType::CurrentLine)
-            )?;
+        let header = (rows >= 8).then(|| {
             let tab = |label: &str, count: usize, active: bool| {
                 if active {
                     format!("[{} {}]", label, count)
@@ -166,26 +136,31 @@ impl ModelsPicker {
                     format!(" {} {} ", label, count)
                 }
             };
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkGrey))
-            )?;
-            write!(
-                stdout,
+            format!(
                 "{}  {}   (Tab to switch · /models refresh for the latest)",
                 tab("Quick", self.quick.len(), self.group == 0),
                 tab("Provider", self.provider.len(), self.group == 1)
-            )?;
-            write!(stdout, "{}", ResetColor)?;
-        }
+            )
+        });
 
-        draw_picker_list(
-            &self.matches,
-            self.selected,
-            self.monochrome,
-            None,
-            live_rows,
-        )
+        // One extra row for the tab header above the list.
+        let max_items = (rows.saturating_sub(reserved + 1)).min(10) as usize;
+        let matches: Vec<String> = self
+            .matches
+            .iter()
+            .map(|m| truncate_item(m, cols))
+            .collect();
+        let rows_out = if matches.is_empty() {
+            vec![crate::ui::renderer::PickerRow {
+                text: "no matches".to_string(),
+                selected: false,
+            }]
+        } else {
+            picker_window(&matches, self.selected, max_items)
+        };
+        Some(PickerView {
+            header,
+            rows: rows_out,
+        })
     }
 }

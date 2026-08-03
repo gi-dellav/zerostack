@@ -1,4 +1,5 @@
-use super::draw_picker_list;
+use super::{picker_list_view, truncate_item};
+use crate::ui::renderer::PickerView;
 
 /// Slash commands that are always available, regardless of which optional
 /// features were compiled in. Feature-gated commands are appended by
@@ -103,7 +104,6 @@ pub struct ListPicker {
     pub matches: Vec<String>,
     pub selected: usize,
     items: Vec<String>,
-    monochrome: bool,
 }
 
 impl ListPicker {
@@ -115,7 +115,6 @@ impl ListPicker {
             matches: Vec::new(),
             selected: 0,
             items: Vec::new(),
-            monochrome: false,
         }
     }
 
@@ -123,10 +122,6 @@ impl ListPicker {
         let mut picker = ListPicker::new();
         picker.items = available_commands().iter().map(|s| s.to_string()).collect();
         picker
-    }
-
-    pub fn set_monochrome(&mut self, monochrome: bool) {
-        self.monochrome = monochrome;
     }
 
     pub fn set_items(&mut self, items: Vec<String>) {
@@ -204,16 +199,25 @@ impl ListPicker {
         self.matches.get(self.selected).map(|s| s.as_str())
     }
 
-    pub fn draw(&self, empty_message: Option<&str>, live_rows: u16) -> std::io::Result<()> {
+    /// The picker overlay as live-block rows, or `None` when inactive.
+    /// `reserved` counts the rows below the picker (input + separators +
+    /// statusline) so the list fits the remaining screen.
+    pub fn view(&self, empty_message: Option<&str>, reserved: u16) -> Option<PickerView> {
         if !self.active {
-            return Ok(());
+            return None;
         }
-        draw_picker_list(
-            &self.matches,
+        let (cols, rows) = crossterm::terminal::size().ok()?;
+        let max_items = (rows.saturating_sub(reserved)).min(10) as usize;
+        let matches: Vec<String> = self
+            .matches
+            .iter()
+            .map(|m| truncate_item(m, cols))
+            .collect();
+        Some(picker_list_view(
+            &matches,
             self.selected,
-            self.monochrome,
+            max_items,
             empty_message,
-            live_rows + 1,
-        )
+        ))
     }
 }

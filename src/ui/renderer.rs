@@ -263,6 +263,32 @@ pub(crate) enum PromptSnapshot {
     },
 }
 
+/// One row of a picker overlay, as painted inside the live block. `text` is
+/// the final display string (prefix and truncation applied by the picker);
+/// `selected` only chooses the highlight color.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PickerRow {
+    pub text: String,
+    pub selected: bool,
+}
+
+/// A picker overlay rendered as a section of the live block (between the
+/// streaming region and the input box) so the block's erase/redraw always
+/// covers it — no row a picker painted can be left behind.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PickerView {
+    /// Optional header row above the list (e.g. the models group tabs).
+    pub header: Option<String>,
+    pub rows: Vec<PickerRow>,
+}
+
+impl PickerView {
+    /// Display rows the view occupies (header + list).
+    pub fn height(&self) -> usize {
+        self.rows.len() + usize::from(self.header.is_some())
+    }
+}
+
 /// Everything `draw_live_block` paints, compared between frames to decide how
 /// much of the live block (streaming region + input area + statusline) needs
 /// repainting.
@@ -277,6 +303,7 @@ pub(crate) struct BottomSnapshot {
     pub(crate) spinner_frame: u8,
     pub(crate) input_vscroll_offset: usize,
     pub(crate) prompt: PromptSnapshot,
+    pub(crate) picker: Option<PickerView>,
     pub(crate) statusline: Vec<Vec<StatusSpan>>,
     pub(crate) feed_generation: u64,
     pub(crate) watermark: Option<Watermark>,
@@ -324,6 +351,7 @@ struct LiveArgs {
     cursor: usize,
     statusline: Vec<Vec<StatusSpan>>,
     is_running: bool,
+    picker: Option<PickerView>,
 }
 
 pub struct Renderer {
@@ -361,6 +389,8 @@ pub struct Renderer {
     /// statusline-only redraw to locate the statusline rows relatively.
     live_stream_rows: usize,
     live_input_rows: usize,
+    /// Picker-overlay rows of the last full draw (0 = no picker painted).
+    live_picker_rows: usize,
     /// Set when the live block was erased externally (`suspend`/`finish` or a
     /// flush that printed over it): the cursor already sits where the next
     /// draw must start, so no upward move is needed.
@@ -403,6 +433,7 @@ impl Renderer {
             live_caret: None,
             live_stream_rows: 0,
             live_input_rows: 0,
+            live_picker_rows: 0,
             live_erased: false,
             bottom_dirty: true,
             last_bottom_snapshot: None,
@@ -521,13 +552,6 @@ impl Renderer {
         }
     }
 
-    /// Force a full live-block redraw on the next frame. Used when something
-    /// painted over the screen outside the tracked paths (e.g. an active
-    /// picker overlay).
-    pub fn invalidate(&mut self) {
-        self.bottom_dirty = true;
-    }
-
     /// Number of rows the input area will occupy for the given content. Kept in
     /// sync with the height logic used while drawing the input in
     /// `draw_live_block`.
@@ -555,10 +579,11 @@ impl Renderer {
         (rows as usize).saturating_sub(input_h + self.statusline_height + 2)
     }
 
-    /// Rows the live block currently occupies (0 before the first draw).
-    /// Pickers use it to paint just above the block.
-    pub fn live_block_height(&self) -> usize {
-        self.live_height
+    /// Rows below the picker overlay section: input area + separators +
+    /// statusline. Picker view builders use it to cap their list height.
+    pub(crate) fn rows_below_picker(&self, input_line: &str) -> usize {
+        let (_, rows) = self.terminal_size();
+        self.input_visible_height(input_line, rows) + self.statusline_height + 2
     }
 
     fn commit_partial(&mut self) {
@@ -704,7 +729,13 @@ impl Renderer {
             return self.flush_committed("");
         };
         self.flush_committed(&args.input)?;
-        self.draw_live_block(&args.input, args.cursor, &args.statusline, args.is_running)
+        self.draw_live_block(
+            &args.input,
+            args.cursor,
+            &args.statusline,
+            args.is_running,
+            args.picker.as_ref(),
+        )
     }
 
     pub fn write_line(&mut self, text: &str, color: Color) -> io::Result<()> {
@@ -759,6 +790,7 @@ impl Renderer {
         self.live_height = 0;
         self.live_cursor_off = 0;
         self.live_caret = None;
+        self.live_picker_rows = 0;
         self.live_erased = false;
         self.bottom_dirty = true;
         Ok(())
@@ -940,7 +972,8 @@ impl Renderer {
         statusline: &[Vec<StatusSpan>],
         cols: u16,
     ) -> io::Result<()> {
-        let status_start = self.live_stream_rows + 1 + self.live_input_rows + 1;
+        let status_start =
+            self.live_stream_rows + self.live_picker_rows + 1 + self.live_input_rows + 1;
         // Move from the post-draw cursor position to the first statusline row.
         if status_start > self.live_cursor_off {
             write!(
@@ -983,12 +1016,14 @@ impl Renderer {
     }
 
     /// Snapshot of everything `draw_live_block` would paint for these arguments.
+    #[allow(clippy::too_many_arguments)]
     fn bottom_snapshot(
         &self,
         input_line: &str,
         cursor_pos: usize,
         statusline: &[Vec<StatusSpan>],
         is_running: bool,
+        picker: Option<&PickerView>,
         cols: u16,
         rows: u16,
     ) -> BottomSnapshot {
@@ -1015,6 +1050,7 @@ impl Renderer {
             spinner_frame: self.spinner_frame,
             input_vscroll_offset: self.input_vscroll_offset,
             prompt,
+            picker: picker.cloned(),
             statusline: statusline.to_vec(),
             feed_generation: self.feed.generation(),
             watermark: self.watermark,
@@ -1062,27 +1098,33 @@ impl Renderer {
     }
 
     /// Draw the live block — the only region ever redrawn: streaming region
-    /// (tail of the running feed block + partial scratch), then the input
-    /// box (or a permission/chain prompt) between two separators, then the
-    /// statusline. All positioning is relative to the block's previous
-    /// position: the cursor never moves above the block's start, so
-    /// committed lines above it are left untouched in native scrollback.
+    /// (tail of the running feed block + partial scratch), then the picker
+    /// overlay (when one is active), then the input box (or a permission/chain
+    /// prompt) between two separators, then the statusline. All positioning is
+    /// relative to the block's previous position: the cursor never moves above
+    /// the block's start, so committed lines above it are left untouched in
+    /// native scrollback. Because the picker is a block section, its rows are
+    /// always covered by the block's erase/redraw — nothing it painted can be
+    /// left behind when it closes or shrinks.
     pub fn draw_live_block(
         &mut self,
         input_line: &str,
         cursor_pos: usize,
         statusline: &[Vec<StatusSpan>],
         is_running: bool,
+        picker: Option<&PickerView>,
     ) -> io::Result<()> {
         self.last_live_args = Some(LiveArgs {
             input: input_line.to_string(),
             cursor: cursor_pos,
             statusline: statusline.to_vec(),
             is_running,
+            picker: picker.cloned(),
         });
         let (cols, rows) = self.backend.size()?;
-        let snapshot =
-            self.bottom_snapshot(input_line, cursor_pos, statusline, is_running, cols, rows);
+        let snapshot = self.bottom_snapshot(
+            input_line, cursor_pos, statusline, is_running, picker, cols, rows,
+        );
         match Self::bottom_redraw_plan(
             self.last_bottom_snapshot.as_ref(),
             &snapshot,
@@ -1104,7 +1146,12 @@ impl Renderer {
         write!(self.backend, "{}", Clear(ClearType::FromCursorDown))?;
 
         let width = cols.saturating_sub(1 + self.chat_margin) as usize;
-        let stream_rows = self.streaming_rows(input_line, rows);
+        let picker_rows = picker.map(PickerView::height).unwrap_or(0);
+        // The picker overlay takes rows from the streaming region, not from
+        // the input area.
+        let stream_rows = self
+            .streaming_rows(input_line, rows)
+            .saturating_sub(picker_rows);
         let wm = self.current_watermark(width);
         let split = self.pending_split(width, wm);
         let skip = split.live.len().saturating_sub(stream_rows);
@@ -1116,6 +1163,33 @@ impl Renderer {
             writeln!(self.backend)?;
         }
         let stream_len = stream.len();
+
+        // Picker overlay: a block section like any other, so the next erase
+        // covers it (close, shrink and resize all redraw the whole block).
+        if let Some(view) = picker {
+            if let Some(ref header) = view.header {
+                write!(self.backend, "\r")?;
+                let fg = self.color(Color::DarkGrey);
+                write!(self.backend, "{}", SetForegroundColor(fg))?;
+                write!(self.backend, "{}", header)?;
+                write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+                write!(self.backend, "{}", ResetColor)?;
+                writeln!(self.backend)?;
+            }
+            for row in &view.rows {
+                write!(self.backend, "\r")?;
+                let fg = self.color(if row.selected {
+                    Color::Green
+                } else {
+                    Color::DarkGrey
+                });
+                write!(self.backend, "{}", SetForegroundColor(fg))?;
+                write!(self.backend, "{}", row.text)?;
+                write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
+                write!(self.backend, "{}", ResetColor)?;
+                writeln!(self.backend)?;
+            }
+        }
 
         let prompt_lines: Option<[String; 2]> = if let Some(ref pp) = self.permission_prompt {
             Some([pp.tool.to_string(), pp.options.to_string()])
@@ -1154,6 +1228,7 @@ impl Renderer {
             self.live_height = total;
             self.live_stream_rows = stream_len;
             self.live_input_rows = 2;
+            self.live_picker_rows = 0;
             self.live_cursor_off = total - 1;
             self.live_caret = None;
             self.record_bottom_drawn(snapshot);
@@ -1278,10 +1353,10 @@ impl Renderer {
         let cursor_render_idx = cursor_row
             .saturating_sub(first_visible)
             .min(visible_line_count.saturating_sub(1));
-        let caret_off = stream_len + 1 + cursor_render_idx;
+        let caret_off = stream_len + picker_rows + 1 + cursor_render_idx;
         let cursor_x = (prompt_width + cursor_col_in_row) as u16;
         let cursor_x = cursor_x.min(cols.saturating_sub(1));
-        let total = stream_len + 1 + visible_line_count + 1 + self.statusline_height;
+        let total = stream_len + picker_rows + 1 + visible_line_count + 1 + self.statusline_height;
         // The cursor sits at the end of the last statusline row; move it up
         // to the caret row.
         let up = (total - 1).saturating_sub(caret_off);
@@ -1297,6 +1372,7 @@ impl Renderer {
         self.live_height = total;
         self.live_stream_rows = stream_len;
         self.live_input_rows = visible_line_count;
+        self.live_picker_rows = picker_rows;
         self.live_cursor_off = caret_off;
         self.live_caret = Some((cursor_x, caret_off));
         // The draw itself settles `input_vscroll_offset` (cursor follow /

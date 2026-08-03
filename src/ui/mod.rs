@@ -155,23 +155,25 @@ pub(crate) fn refresh_display(
         btw_out: btw.output,
     };
     let statusline = crate::ui::statusline::build(ui.session, &statusline_ctx);
-    renderer.draw_live_block(&input.buffer, input.cursor, &statusline, run.is_running)?;
-    if let Some(ref mut picker) = input.picker {
-        let was_active = picker.active();
-        // Pickers paint straight onto real stdout, bypassing the render
-        // backend; in headless test runs there is no usable terminal (and on
-        // CI stdout is a non-blocking pipe, so the burst of escape sequences
-        // fails with EAGAIN). Key handling is unaffected — only painting.
-        if !renderer.is_headless() {
-            picker.draw(renderer.live_block_height() as u16)?;
-        }
-        if was_active {
-            // The picker painted over the live block, which the dirty-region
-            // tracking cannot see; force a full repaint next frame so a
-            // closing picker never leaves remnants behind.
-            renderer.invalidate();
-        }
-    }
+    // The picker overlay is a live-block section, painted through the render
+    // backend like everything else. In headless test runs there is no usable
+    // terminal to size it against (and CI stdout is a non-blocking pipe), so
+    // skip building the view there — key handling is unaffected.
+    let picker_view = if !renderer.is_headless()
+        && let Some(ref mut picker) = input.picker
+    {
+        let reserved = renderer.rows_below_picker(&input.buffer) as u16;
+        picker.view(reserved)
+    } else {
+        None
+    };
+    renderer.draw_live_block(
+        &input.buffer,
+        input.cursor,
+        &statusline,
+        run.is_running,
+        picker_view.as_ref(),
+    )?;
     Ok(())
 }
 

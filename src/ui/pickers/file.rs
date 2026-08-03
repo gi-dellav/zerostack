@@ -1,14 +1,9 @@
-use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 
-use crossterm::ExecutableCommand;
-use crossterm::cursor::MoveTo;
-use crossterm::style::{Color, ResetColor, SetForegroundColor};
-use crossterm::terminal::Clear;
-
-use super::super::utils::resolve_color;
+use super::{picker_window, truncate_item};
+use crate::ui::renderer::PickerView;
 
 /// Paths per batch sent from the background walk to the picker. Small
 /// batches keep the first matches visible quickly on large trees.
@@ -24,7 +19,6 @@ pub struct FilePicker {
     pub matches: Vec<PathBuf>,
     pub selected: usize,
     file_cache: Vec<PathBuf>,
-    monochrome: bool,
     loading: bool,
     walk_rx: Option<mpsc::Receiver<Vec<PathBuf>>>,
     walk_cancel: Arc<AtomicBool>,
@@ -39,19 +33,10 @@ impl FilePicker {
             matches: Vec::new(),
             selected: 0,
             file_cache: Vec::new(),
-            monochrome: false,
             loading: false,
             walk_rx: None,
             walk_cancel: Arc::new(AtomicBool::new(false)),
         }
-    }
-
-    pub fn set_monochrome(&mut self, monochrome: bool) {
-        self.monochrome = monochrome;
-    }
-
-    fn color(&self, color: Color) -> Color {
-        resolve_color(color, self.monochrome)
     }
 
     pub fn activate(&mut self) {
@@ -200,91 +185,49 @@ impl FilePicker {
         self.loading = false;
     }
 
-    pub fn draw(&mut self, live_rows: u16) -> std::io::Result<()> {
+    /// The picker overlay as live-block rows, or `None` when inactive.
+    /// Drains any arrived walk batches first so freshly found files show up.
+    pub fn view(&mut self, reserved: u16) -> Option<PickerView> {
         if !self.active {
-            return Ok(());
+            return None;
         }
 
         self.try_finish_loading();
 
-        let (cols, rows) = crossterm::terminal::size()?;
-        let mut stdout = std::io::stdout();
-
-        let max_items = (rows.saturating_sub(live_rows)).min(10) as usize;
-
-        if self.loading && self.matches.is_empty() {
-            let r = rows.saturating_sub(live_rows).saturating_sub(1);
-            stdout.execute(MoveTo(0, r))?;
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkGrey))
-            )?;
-            write!(stdout, "scanning files...")?;
-            write!(stdout, "{}", ResetColor)?;
-            stdout.flush()?;
-            return Ok(());
+        let message = if self.loading && self.matches.is_empty() {
+            Some("scanning files...")
+        } else if self.matches.is_empty() {
+            Some("no matches")
+        } else {
+            None
+        };
+        if let Some(message) = message {
+            return Some(PickerView {
+                header: None,
+                rows: vec![crate::ui::renderer::PickerRow {
+                    text: message.to_string(),
+                    selected: false,
+                }],
+            });
         }
 
-        if self.matches.is_empty() {
-            let r = rows.saturating_sub(live_rows).saturating_sub(1);
-            stdout.execute(MoveTo(0, r))?;
-            write!(
-                stdout,
-                "{}",
-                SetForegroundColor(self.color(Color::DarkGrey))
-            )?;
-            write!(stdout, "no matches")?;
-            write!(stdout, "{}", ResetColor)?;
-            stdout.flush()?;
-            return Ok(());
-        }
-
-        let list_height = max_items.min(self.matches.len());
-        let start_idx = self
-            .selected
-            .saturating_sub(list_height / 2)
-            .min(self.matches.len().saturating_sub(list_height));
-        let end_idx = (start_idx + list_height).min(self.matches.len());
-
-        let top_row = rows
-            .saturating_sub(live_rows)
-            .saturating_sub(list_height as u16);
-
-        for i in start_idx..end_idx {
-            let render_row = top_row + (i - start_idx) as u16;
-            stdout.execute(MoveTo(0, render_row))?;
-            write!(
-                stdout,
-                "{}",
-                Clear(crossterm::terminal::ClearType::CurrentLine)
-            )?;
-
-            let path = &self.matches[i];
-            let mut display = path.to_string_lossy().to_string();
-            if Path::new(&path).is_dir() {
-                display.push('/');
-            }
-            let truncated: String = display
-                .chars()
-                .take(cols.saturating_sub(3) as usize)
-                .collect();
-
-            if i == self.selected {
-                write!(stdout, "{}", SetForegroundColor(self.color(Color::Green)))?;
-                write!(stdout, "▸ {}", truncated)?;
-            } else {
-                write!(
-                    stdout,
-                    "{}",
-                    SetForegroundColor(self.color(Color::DarkGrey))
-                )?;
-                write!(stdout, "  {}", truncated)?;
-            }
-            write!(stdout, "{}", ResetColor)?;
-        }
-        stdout.flush()?;
-        Ok(())
+        let (cols, rows) = crossterm::terminal::size().ok()?;
+        let max_items = (rows.saturating_sub(reserved)).min(10) as usize;
+        let matches: Vec<String> = self
+            .matches
+            .iter()
+            .map(|path| {
+                let mut display = path.to_string_lossy().to_string();
+                if Path::new(&path).is_dir() {
+                    display.push('/');
+                }
+                truncate_item(&display, cols)
+            })
+            .collect();
+        Some(PickerView {
+            header: None,
+            rows: picker_window(&matches, self.selected, max_items),
+        })
     }
 }
 

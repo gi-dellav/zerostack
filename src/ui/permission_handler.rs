@@ -35,7 +35,7 @@ pub async fn handle_permission_request(
         options: "  (y) allow once  (a) allow always  (n) deny  (ESC) abort".into(),
     });
     renderer.flush_committed("")?;
-    renderer.draw_live_block("", 0, &[], false)?;
+    renderer.draw_live_block("", 0, &[], false, None)?;
 
     let decision = loop {
         tokio::select! {

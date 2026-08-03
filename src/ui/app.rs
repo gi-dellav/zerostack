@@ -174,7 +174,6 @@ impl<'a> App<'a> {
         }
 
         let mut input = InputEditor::new();
-        input.set_monochrome(ui.cli.no_color);
         input.set_prompt_names(ui.context.prompts.keys().cloned().collect());
         input.set_theme_names(ui.context.themes.keys().cloned().collect());
         if let Some(editor) = &ui.cfg.editor {

@@ -5,6 +5,7 @@ use crate::ui::pickers::handlers;
 use crate::ui::pickers::list::ListPicker;
 use crate::ui::pickers::models::ModelsPicker;
 use crate::ui::pickers::rewind::RewindPicker;
+use crate::ui::renderer::PickerView;
 
 pub enum Picker {
     File(FilePicker),
@@ -25,32 +26,22 @@ impl Picker {
         }
     }
 
-    pub fn set_monochrome(&mut self, monochrome: bool) {
+    /// The picker overlay as live-block rows (`reserved` = rows below the
+    /// picker: input area, separators, statusline), or `None` when inactive.
+    pub fn view(&mut self, reserved: u16) -> Option<PickerView> {
         match self {
-            Picker::File(p) => p.set_monochrome(monochrome),
-            Picker::Command(p) => p.set_monochrome(monochrome),
-            Picker::Prefixed(p, _) => p.set_monochrome(monochrome),
-            Picker::Models(p) => p.set_monochrome(monochrome),
-            Picker::Rewind(p) => p.set_monochrome(monochrome),
-        }
-    }
-
-    /// Paint the picker over the rows just above the live block
-    /// (`live_rows` = the block's current height in rows).
-    pub fn draw(&mut self, live_rows: u16) -> std::io::Result<()> {
-        match self {
-            Picker::File(p) => p.draw(live_rows),
-            Picker::Command(p) => p.draw(None, live_rows),
+            Picker::File(p) => p.view(reserved),
+            Picker::Command(p) => p.view(None, reserved),
             Picker::Prefixed(p, prefix) => {
                 let msg = if *prefix == "/provider " {
                     Some("no matches  (type a registered custom gateway name)")
                 } else {
                     None
                 };
-                p.draw(msg, live_rows)
+                p.view(msg, reserved)
             }
-            Picker::Models(p) => p.draw(live_rows),
-            Picker::Rewind(p) => p.draw(live_rows),
+            Picker::Models(p) => p.view(reserved),
+            Picker::Rewind(p) => p.view(reserved),
         }
     }
 }

@@ -75,6 +75,7 @@ mod dirty {
             spinner_frame: 0,
             input_vscroll_offset: 0,
             prompt: PromptSnapshot::Input,
+            picker: None,
             statusline: vec![vec![StatusSpan::Text {
                 text: "model".to_string(),
                 fg: None,
@@ -222,6 +223,23 @@ mod dirty {
         let prev = bottom_snapshot();
         let mut next = bottom_snapshot();
         next.input_vscroll_offset = 1;
+        assert_eq!(
+            Renderer::bottom_redraw_plan(Some(&prev), &next, false),
+            BottomRedrawPlan::Full
+        );
+    }
+
+    #[test]
+    fn bottom_plan_full_on_picker_change() {
+        let prev = bottom_snapshot();
+        let mut next = bottom_snapshot();
+        next.picker = Some(crate::ui::renderer::PickerView {
+            header: None,
+            rows: vec![crate::ui::renderer::PickerRow {
+                text: "▸ /help".to_string(),
+                selected: true,
+            }],
+        });
         assert_eq!(
             Renderer::bottom_redraw_plan(Some(&prev), &next, false),
             BottomRedrawPlan::Full
@@ -557,9 +575,115 @@ mod input_wrap {
         let mut r = Renderer::with_backend(Box::new(FakeBackend::new(80, 24)));
         // Cursor at the start: with horizontal scrolling only the tail or the
         // head would be visible; wrapped, both halves must be painted.
-        r.draw_live_block(&input, 0, &[], false).unwrap();
+        r.draw_live_block(&input, 0, &[], false, None).unwrap();
         let out = r.captured_output();
         assert!(out.contains(&"a".repeat(78)), "first wrapped row: {out}");
         assert!(out.contains(&"b".repeat(22)), "second wrapped row: {out}");
+    }
+}
+
+/// Picker overlay as a live-block section: rows are painted through the
+/// backend and the block's erase always covers them (regression for picker
+/// remnants left on screen after closing a picker in inline mode).
+mod picker_overlay {
+    use crate::ui::renderer::{FakeBackend, PickerRow, PickerView, Renderer};
+
+    fn headless(cols: u16, rows: u16) -> Renderer {
+        Renderer::with_backend(Box::new(FakeBackend::new(cols, rows)))
+    }
+
+    fn view(n: usize) -> PickerView {
+        PickerView {
+            header: None,
+            rows: (0..n)
+                .map(|i| PickerRow {
+                    text: format!("  item {i}"),
+                    selected: false,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn picker_rows_paint_inside_the_block() {
+        let mut r = headless(80, 24);
+        let mut v = view(3);
+        v.rows[1].selected = true;
+        v.rows[1].text = "▸ item 1".to_string();
+        r.draw_live_block("x", 1, &[], false, Some(&v)).unwrap();
+        let out = r.captured_output();
+        assert!(out.contains("▸ item 1"), "selected row painted: {out}");
+        assert!(out.contains("  item 2"), "plain row painted: {out}");
+        // The input row follows the picker rows (picker sits above the box).
+        let picker_at = out.find("▸ item 1").unwrap();
+        let input_at = out.find("> ").unwrap();
+        assert!(picker_at < input_at, "picker above input: {out}");
+    }
+
+    #[test]
+    fn closing_picker_erases_its_rows() {
+        let mut r = headless(80, 24);
+        r.draw_live_block("x", 1, &[], false, Some(&view(3)))
+            .unwrap();
+        let before = r.captured_output();
+
+        // Same input, picker gone: the snapshot differs, forcing a full
+        // redraw that moves up over the picker rows (3 picker rows + 1
+        // separator above the caret row = MoveUp(4)) and clears below.
+        r.draw_live_block("x", 1, &[], false, None).unwrap();
+        let after = r.captured_output();
+        let delta = &after[before.len()..];
+        assert!(
+            delta.contains("\x1b[4A"),
+            "erase covers picker rows: {delta:?}"
+        );
+        assert!(delta.contains("\x1b[J"), "clears below: {delta:?}");
+        assert!(
+            !delta.contains("item 0"),
+            "picker row not repainted: {delta:?}"
+        );
+    }
+
+    #[test]
+    fn shrinking_picker_still_erases_the_taller_frame() {
+        let mut r = headless(80, 24);
+        r.draw_live_block("x", 1, &[], false, Some(&view(10)))
+            .unwrap();
+        let before = r.captured_output();
+
+        // Filtering shrank the list from 10 rows to 1: the redraw must move
+        // up over the previous 10-row frame (10 + 1 = MoveUp(11)), not the
+        // new height.
+        r.draw_live_block("x", 1, &[], false, Some(&view(1)))
+            .unwrap();
+        let after = r.captured_output();
+        let delta = &after[before.len()..];
+        assert!(
+            delta.contains("\x1b[11A"),
+            "erase covers the previous taller frame: {delta:?}"
+        );
+        assert!(
+            delta.contains("item 0"),
+            "shrunk picker repaints: {delta:?}"
+        );
+    }
+
+    #[test]
+    fn picker_header_row_counts_towards_erase() {
+        let mut r = headless(80, 24);
+        let mut v = view(2);
+        v.header = Some("[Quick 3]  Provider 0".to_string());
+        r.draw_live_block("x", 1, &[], false, Some(&v)).unwrap();
+        let before = r.captured_output();
+        assert!(before.contains("[Quick 3]"), "header painted: {before}");
+
+        // header(1) + rows(2) + separator(1) above the caret = MoveUp(4).
+        r.draw_live_block("x", 1, &[], false, None).unwrap();
+        let after = r.captured_output();
+        let delta = &after[before.len()..];
+        assert!(
+            delta.contains("\x1b[4A"),
+            "header row included in erase height: {delta:?}"
+        );
     }
 }
