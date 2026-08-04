@@ -25,11 +25,14 @@ impl TerminalGuard {
             KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
         ));
         terminal::enable_raw_mode()?;
-        // Anchor the UI to the bottom of the screen: committed lines scroll up
-        // into native scrollback from here, and the live block stays on the
-        // bottom rows where the pickers expect it.
-        let (_, rows) = terminal::size().unwrap_or((80, 24));
-        stdout.execute(MoveTo(0, rows.saturating_sub(1)))?;
+        // Anchor the UI to the bottom of the screen unless the user opts into
+        // pure inline mode. In inline mode the UI prints below the shell prompt
+        // and relies on the terminal's native scrollback, which some terminals
+        // (e.g. Ghostty) handle more robustly.
+        if env::var_os("ZEROSTACK_NO_ANCHOR").is_none() {
+            let (_, rows) = terminal::size().unwrap_or((80, 24));
+            stdout.execute(MoveTo(0, rows.saturating_sub(1)))?;
+        }
         Ok(TerminalGuard)
     }
 }
