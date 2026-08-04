@@ -5,7 +5,7 @@ use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm}
 #[cfg(feature = "rtk")]
 use crate::extras::rtk::Rtk;
 use crate::extras::truncate::head_lines;
-use crate::sandbox::Sandbox;
+use crate::sandbox::{Sandbox, mask_hint};
 
 pub(crate) fn split_bash_commands(input: &str) -> Vec<String> {
     let mut result = Vec::new();
@@ -76,6 +76,23 @@ pub(crate) fn split_bash_commands(input: &str) -> Vec<String> {
     }
 
     result
+}
+
+/// Gates `sandbox::mask_hint` on the exit status: a masked-path hint belongs
+/// in a tool result only when the command actually failed. Kept as its own
+/// function so that gate is testable on its own, separately from the
+/// substring-matching logic inside `mask_hint`.
+pub(crate) fn mask_hint_for_exit(
+    exit_code: i32,
+    command: &str,
+    stderr: &str,
+    masked_roots: &[std::path::PathBuf],
+    home: &std::path::Path,
+) -> Option<String> {
+    if exit_code == 0 {
+        return None;
+    }
+    mask_hint(command, stderr, masked_roots, home)
 }
 
 pub struct BashTool {
@@ -231,6 +248,20 @@ impl Tool for BashTool {
 
         let result = match coaching {
             Some(msg) => format!("{}\n\n{}", msg, result),
+            None => result,
+        };
+        // Append last, after truncation and coaching, so a masked-path hint
+        // always survives at the end of the tool result the model sees.
+        let result = match dirs::home_dir().and_then(|home| {
+            mask_hint_for_exit(
+                exit_code,
+                &command,
+                &stderr,
+                &self.sandbox.masked_paths(),
+                &home,
+            )
+        }) {
+            Some(hint) => format!("{result}\n{hint}"),
             None => result,
         };
         tracing::debug!(

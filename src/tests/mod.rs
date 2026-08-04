@@ -85,6 +85,8 @@ mod sandbox_agent_cutoff_tests;
 #[cfg(test)]
 mod sandbox_expose_tests;
 #[cfg(test)]
+mod sandbox_hint_tests;
+#[cfg(test)]
 mod sandbox_mask_tests;
 #[cfg(test)]
 mod sandbox_required_tests;

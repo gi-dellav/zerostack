@@ -486,6 +486,43 @@ impl Sandbox {
     }
 }
 
+/// One-line-per-root guidance for a failed sandboxed command: names every
+/// masked root that `command` or `stderr` mentions, in either the `~/`
+/// spelling or the absolute spelling under `home`. Pure and best-effort
+/// (string containment, not path parsing), so it is safe to call on every
+/// failure; `bash.rs` gates the call itself on a non-zero exit status.
+pub(crate) fn mask_hint(
+    command: &str,
+    stderr: &str,
+    masked_roots: &[std::path::PathBuf],
+    home: &std::path::Path,
+) -> Option<String> {
+    let mut lines = Vec::new();
+    for root in masked_roots {
+        let absolute = root.to_string_lossy();
+        let tilde = root
+            .strip_prefix(home)
+            .ok()
+            .map(|rel| format!("~/{}", rel.display()));
+        let mentioned = command.contains(absolute.as_ref())
+            || stderr.contains(absolute.as_ref())
+            || tilde
+                .as_deref()
+                .is_some_and(|t| command.contains(t) || stderr.contains(t));
+        if mentioned {
+            let display = tilde.unwrap_or_else(|| absolute.into_owned());
+            lines.push(format!(
+                "note: {display} is masked by sandbox; add to sandbox-expose to allow"
+            ));
+        }
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
 fn spawn_pipe_reader(
     pipe: Option<impl tokio::io::AsyncRead + Send + Unpin + 'static>,
 ) -> (
