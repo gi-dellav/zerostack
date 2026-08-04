@@ -434,6 +434,14 @@ impl Startup {
                 );
             }
         }
+        if let Ok(cwd) = std::env::current_dir()
+            && let Some(root) = self.sandbox.shadowed_mask_root(&cwd)
+        {
+            tracing::warn!(
+                "sandbox: the working directory is inside {}, so the project bind partially shadows the mask on it",
+                root.display()
+            );
+        }
         let edit_system = self.cli.resolve_edit_system(&self.cfg);
         tools::set_edit_system(edit_system);
         tools::set_deny_repeated_reads(self.cfg.deny_repeated_reads.unwrap_or(true));

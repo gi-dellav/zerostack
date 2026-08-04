@@ -13,12 +13,37 @@ pub struct Sandbox {
     shell: String,
     // Test seams: `backend_available` replaces the cached PATH probe for the
     // backend binary (and `backend_installed_now` the fresh one) so tests
-    // behave the same on hosts with and without bwrap, while `cache_dir` keeps
-    // the bwrap arg builder away from the real user cache.
+    // behave the same on hosts with and without bwrap, `cache_dir` keeps the
+    // bwrap arg builder away from the real user cache, and `mask_roots`
+    // replaces the built-in credential list with temp dirs so mask assertions
+    // do not depend on the developer's home.
     backend_available: Option<bool>,
     backend_installed_now: Option<bool>,
     cache_dir: Option<std::path::PathBuf>,
+    mask_roots: Option<Vec<std::path::PathBuf>>,
     active_groups: Arc<Mutex<HashSet<u32>>>,
+}
+
+/// Well-known credential stores, relative to the home directory. Each is
+/// covered by a tmpfs inside the bwrap sandbox, so sandboxed commands read them
+/// as empty rather than as the user's keys and tokens.
+const MASK_DIRS: [&str; 9] = [
+    ".ssh",
+    ".aws",
+    ".gnupg",
+    ".kube",
+    ".docker",
+    ".config/gh",
+    ".config/gcloud",
+    ".config/op",
+    ".config/sops/age",
+];
+
+fn builtin_mask_roots() -> Vec<std::path::PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    MASK_DIRS.iter().map(|rel| home.join(rel)).collect()
 }
 
 static BWRAP_AVAILABLE: OnceLock<bool> = OnceLock::new();
@@ -93,6 +118,7 @@ impl Sandbox {
             backend_available: None,
             backend_installed_now: None,
             cache_dir: None,
+            mask_roots: None,
             active_groups: Arc::new(Mutex::new(HashSet::new())),
         }
     }
@@ -136,6 +162,43 @@ impl Sandbox {
     pub fn with_cache_dir(mut self, dir: std::path::PathBuf) -> Self {
         self.cache_dir = Some(dir);
         self
+    }
+
+    #[cfg(test)]
+    pub fn with_mask_roots(mut self, roots: Vec<std::path::PathBuf>) -> Self {
+        self.mask_roots = Some(roots);
+        self
+    }
+
+    /// Credential directories this sandbox masks, narrowed to what exists on
+    /// the host: bwrap creates every `--tmpfs` mountpoint, and creating one on
+    /// the read-only `/` bind aborts the whole launch.
+    pub fn masked_paths(&self) -> Vec<std::path::PathBuf> {
+        if !self.masking_active() {
+            return Vec::new();
+        }
+        self.mask_roots
+            .clone()
+            .unwrap_or_else(builtin_mask_roots)
+            .into_iter()
+            .filter(|root| root.exists())
+            .collect()
+    }
+
+    /// Masking is a bwrap mount policy, so it needs the sandbox enabled, the
+    /// bwrap backend, and a backend that will actually run.
+    fn masking_active(&self) -> bool {
+        self.enabled
+            && self.backend_binary() == "bwrap"
+            && (self.backend_available() || self.backend_available_now())
+    }
+
+    /// The mask root `cwd` sits under, if any. The working directory is bound
+    /// after the masks, so it shadows that mask for its own subtree.
+    pub fn shadowed_mask_root(&self, cwd: &std::path::Path) -> Option<std::path::PathBuf> {
+        self.masked_paths()
+            .into_iter()
+            .find(|root| cwd.starts_with(root))
     }
 
     /// Binary this sandbox probes for. Anything other than `zerobox` uses the
@@ -240,7 +303,15 @@ impl Sandbox {
             }
         }
         // must bind /etc/resolv.conf before /.
-        cmd.args(["--ro-bind", "/", "/", "--bind"]);
+        cmd.args(["--ro-bind", "/", "/"]);
+        // Masks shadow the read-only root, and the cwd bind below in turn
+        // shadows any mask it falls under, so a project living inside a masked
+        // directory stays usable.
+        for root in self.masked_paths() {
+            cmd.arg("--tmpfs");
+            cmd.arg(root.as_os_str());
+        }
+        cmd.arg("--bind");
         cmd.arg(cwd.as_os_str());
         cmd.arg(cwd.as_os_str());
         // Bind ~/.cache (or $XDG_CACHE_HOME) as writable after "/" bind

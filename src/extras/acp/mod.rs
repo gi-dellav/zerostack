@@ -191,6 +191,17 @@ async fn handle_new_session(
             "sandbox is set to false but sandbox-required is set, enabling the sandbox anyway"
         );
     }
+    if let Some(root) = Sandbox::new(
+        state.cli.resolve_sandbox(&state.cfg),
+        &state.cli.resolve_sandbox_backend(&state.cfg),
+    )
+    .shadowed_mask_root(&req.cwd)
+    {
+        tracing::warn!(
+            "sandbox: the session directory is inside {}, so the project bind partially shadows the mask on it",
+            root.display()
+        );
+    }
 
     state.sessions.lock().await.insert(
         session_id.clone(),
