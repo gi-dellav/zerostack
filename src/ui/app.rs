@@ -731,6 +731,17 @@ impl<'a> App<'a> {
             return Ok(());
         }
 
+        let ctrl_up = key.code == KeyCode::Up && key.modifiers.contains(KeyModifiers::CONTROL);
+        let ctrl_down = key.code == KeyCode::Down && key.modifiers.contains(KeyModifiers::CONTROL);
+        if ctrl_up {
+            self.renderer.scroll_line_up();
+            return Ok(());
+        }
+        if ctrl_down {
+            self.renderer.scroll_line_down();
+            return Ok(());
+        }
+
         match key.code {
             KeyCode::PageUp => {
                 self.renderer.scroll_page_up();

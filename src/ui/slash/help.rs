@@ -293,6 +293,10 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
     }
     write_ok(ctx.renderer, "keys:");
     write_result(ctx.renderer, "  PgUp/PgDn             scroll chat history");
+    write_result(
+        ctx.renderer,
+        "  Ctrl+Up/Ctrl+Down      scroll chat one line",
+    );
     write_result(ctx.renderer, "  Home/End               jump to top/bottom");
     write_result(
         ctx.renderer,
@@ -308,5 +312,8 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
     );
     write_result(ctx.renderer, "  Ctrl+R                 toggle reasoning");
     write_result(ctx.renderer, "  Ctrl+C / Ctrl+D        interrupt/quit");
-    write_result(ctx.renderer, "  mouse scroll           scroll chat");
+    write_result(
+        ctx.renderer,
+        "  mouse scroll           scroll chat (requires mouse_capture)",
+    );
 }
