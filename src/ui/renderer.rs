@@ -58,6 +58,45 @@ impl RenderBackend for CrosstermBackend {
     }
 }
 
+/// Diagnostic backend wrapper: tees everything sent to the terminal into the
+/// file named by `ZEROSTACK_TRACE_RENDER`. This lets us inspect the exact
+/// ANSI stream that a real terminal (e.g. Ghostty) receives.
+struct TraceBackend {
+    inner: Box<dyn RenderBackend>,
+    log: std::io::BufWriter<std::fs::File>,
+}
+
+impl TraceBackend {
+    fn new(inner: Box<dyn RenderBackend>, path: &std::path::Path) -> io::Result<Self> {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)?;
+        Ok(Self {
+            inner,
+            log: std::io::BufWriter::new(file),
+        })
+    }
+}
+
+impl io::Write for TraceBackend {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.log.write_all(buf)?;
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.log.flush()?;
+        self.inner.flush()
+    }
+}
+
+impl RenderBackend for TraceBackend {
+    fn size(&self) -> io::Result<(u16, u16)> {
+        self.inner.size()
+    }
+}
+
 /// Test backend: fixed terminal geometry, records every byte written so tests
 /// can assert on the frames the renderer emitted.
 #[cfg(test)]
@@ -449,9 +488,16 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new() -> io::Result<Self> {
-        Ok(Self::with_backend(Box::new(CrosstermBackend {
+        let backend: Box<dyn RenderBackend> = Box::new(CrosstermBackend {
             stdout: io::stdout(),
-        })))
+        });
+        let backend = if let Some(path) = env::var_os("ZEROSTACK_TRACE_RENDER") {
+            Box::new(TraceBackend::new(backend, std::path::Path::new(&path))?)
+                as Box<dyn RenderBackend>
+        } else {
+            backend
+        };
+        Ok(Self::with_backend(backend))
     }
 
     pub(crate) fn with_backend(backend: Box<dyn RenderBackend>) -> Self {
