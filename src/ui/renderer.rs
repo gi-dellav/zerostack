@@ -1,3 +1,4 @@
+use std::env;
 use std::io::{self, Write};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
@@ -644,6 +645,9 @@ impl Renderer {
     /// `code` is the single-letter phase (A/B/C/D); `args` is appended after
     /// a semicolon when non-empty. The 7-bit ST (`ESC \\`) terminator is used.
     pub(crate) fn osc_133(&mut self, code: char, args: &str) -> io::Result<()> {
+        if env::var_os("ZEROSTACK_DISABLE_OSC133").is_some() {
+            return Ok(());
+        }
         if args.is_empty() {
             write!(self.backend, "\x1b]133;{}\x1b\\", code)
         } else {

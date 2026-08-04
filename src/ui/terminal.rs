@@ -1,3 +1,4 @@
+use std::env;
 use std::io::Write;
 
 use crossterm::ExecutableCommand;
@@ -17,7 +18,9 @@ impl TerminalGuard {
     pub fn new() -> std::io::Result<Self> {
         let mut stdout = std::io::stdout();
         stdout.execute(EnableBracketedPaste)?;
-        stdout.execute(EnableFocusChange)?;
+        if env::var_os("ZEROSTACK_DISABLE_FOCUS").is_none() {
+            stdout.execute(EnableFocusChange)?;
+        }
         let _ = stdout.execute(PushKeyboardEnhancementFlags(
             KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
         ));
@@ -37,7 +40,9 @@ impl Drop for TerminalGuard {
         let mut stdout = std::io::stdout();
         let _ = stdout.execute(PopKeyboardEnhancementFlags);
         let _ = stdout.execute(DisableBracketedPaste);
-        let _ = stdout.execute(DisableFocusChange);
+        if env::var_os("ZEROSTACK_DISABLE_FOCUS").is_none() {
+            let _ = stdout.execute(DisableFocusChange);
+        }
         let _ = stdout.flush();
     }
 }
