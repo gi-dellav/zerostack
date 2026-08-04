@@ -592,6 +592,29 @@ mod input_wrap {
         assert!(out.contains(&"a".repeat(78)), "first wrapped row: {out}");
         assert!(out.contains(&"b".repeat(22)), "second wrapped row: {out}");
     }
+
+    #[test]
+    fn separator_line_avoids_full_width_auto_wrap() {
+        // Writing exactly `cols` characters puts many terminals into a pending
+        // auto-wrap state, which in the inline model leaves a blank row on the
+        // next redraw. The separator must stop one column short and clear the
+        // rest of the line.
+        let mut r = Renderer::with_backend(Box::new(FakeBackend::new(80, 24)));
+        r.draw_live_block("", 0, &[], false, None).unwrap();
+        let out = r.captured_output();
+        assert!(
+            !out.contains(&"─".repeat(80)),
+            "separator must not write the full 80 columns: {out}"
+        );
+        assert!(
+            out.contains(&"─".repeat(79)),
+            "separator should be one column short: {out}"
+        );
+        assert!(
+            out.contains("\x1b[K"),
+            "separator should clear to end-of-line"
+        );
+    }
 }
 
 /// Picker overlay as a live-block section: rows are painted through the

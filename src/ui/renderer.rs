@@ -1060,8 +1060,14 @@ impl Renderer {
         }
         let fg = self.color(Color::DarkGrey);
         write!(self.backend, "{}", SetForegroundColor(fg))?;
-        let sep: String = "─".repeat(cols as usize);
+        // Leave the last column untouched and clear to the end of the line.
+        // Writing exactly `cols` characters would put some terminals into a
+        // pending-auto-wrap state, causing an extra blank line on the next
+        // redraw in the inline rendering model.
+        let width = cols.saturating_sub(1) as usize;
+        let sep: String = "─".repeat(width);
         write!(self.backend, "{}", sep)?;
+        write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
         write!(self.backend, "{}", ResetColor)?;
         Ok(())
     }
