@@ -2,6 +2,16 @@ use crate::cli;
 use crate::config;
 use crate::session;
 
+/// Renders the resolved `sandbox-expose` values for the `--print-config`
+/// table: `(none)` when nothing is exposed, otherwise a comma-joined list.
+pub(crate) fn format_sandbox_expose_display(sandbox_expose: &[String]) -> String {
+    if sandbox_expose.is_empty() {
+        "(none)".to_string()
+    } else {
+        sandbox_expose.join(", ")
+    }
+}
+
 pub(crate) fn print_section(title: &str, entries: &[(&str, String)]) {
     println!("{}:", title);
     let width = entries.iter().map(|(k, _)| k.len()).max().unwrap_or(0);
@@ -76,12 +86,19 @@ pub(crate) fn print_config(cli: &cli::Cli, cfg: &config::Config) {
     let sandbox = cli.resolve_sandbox(cfg);
     let sandbox_required = cli.resolve_sandbox_required(cfg);
     let sandbox_backend = cli.resolve_sandbox_backend(cfg);
-    let sandbox_expose = cli.resolve_sandbox_expose(cfg);
-    let sandbox_expose_display = if sandbox_expose.is_empty() {
-        "(none)".to_string()
-    } else {
-        sandbox_expose.join(", ")
-    };
+    let sandbox_expose_raw = cli.resolve_sandbox_expose(cfg);
+    let home = dirs::home_dir().unwrap_or_default();
+    let (sandbox_expose, _rejected) = crate::sandbox::partition_expose(
+        &sandbox_expose_raw,
+        &crate::sandbox::builtin_mask_roots(),
+        Some(&home),
+    );
+    let sandbox_expose_display = format_sandbox_expose_display(
+        &sandbox_expose
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>(),
+    );
     let shell = cli.resolve_shell(cfg);
     let edit_system = cli.resolve_edit_system(cfg);
     let compact = cfg.resolve_compact_enabled();

@@ -416,21 +416,17 @@ impl Startup {
         let sandbox_required = self.cli.resolve_sandbox_required(&self.cfg);
         let sandbox_backend = self.cli.resolve_sandbox_backend(&self.cfg);
         let sandbox_expose_raw = self.cli.resolve_sandbox_expose(&self.cfg);
-        let sandbox_expose_home = dirs::home_dir().unwrap_or_default();
-        let (sandbox_expose, sandbox_expose_rejected) = crate::sandbox::partition_expose(
-            &sandbox_expose_raw,
-            &crate::sandbox::builtin_mask_roots(),
-            &sandbox_expose_home,
-        );
-        for value in &sandbox_expose_rejected {
-            tracing::warn!(
-                "sandbox-expose value '{value}' is not a masked path or subpath of one, ignoring it"
-            );
+        let sandbox_setup = crate::sandbox::build_sandbox(&crate::sandbox::SandboxSettings {
+            enabled: sandbox_enabled,
+            required: sandbox_required,
+            backend: &sandbox_backend,
+            shell: &self.cli.resolve_shell(&self.cfg),
+            expose: &sandbox_expose_raw,
+        });
+        self.sandbox = sandbox_setup.sandbox;
+        for warning in &sandbox_setup.warnings {
+            tracing::warn!("{warning}");
         }
-        self.sandbox = Sandbox::new(sandbox_enabled, &sandbox_backend)
-            .with_required(sandbox_required)
-            .with_shell(&self.cli.resolve_shell(&self.cfg))
-            .with_expose(sandbox_expose);
         if self.cli.sandbox_setting_conflict(&self.cfg) {
             tracing::warn!(
                 "sandbox is set to false but sandbox-required is set, enabling the sandbox anyway"
@@ -446,14 +442,6 @@ impl Startup {
                     "sandbox is enabled but backend '{sandbox_backend}' was not found, commands will run unsandboxed"
                 );
             }
-        }
-        if let Ok(cwd) = std::env::current_dir()
-            && let Some(root) = self.sandbox.shadowed_mask_root(&cwd)
-        {
-            tracing::warn!(
-                "sandbox: the working directory is inside {}, so the project bind partially shadows the mask on it",
-                root.display()
-            );
         }
         let edit_system = self.cli.resolve_edit_system(&self.cfg);
         tools::set_edit_system(edit_system);

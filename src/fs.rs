@@ -133,7 +133,17 @@ async fn resolve_symlink_target(path: &Path) -> PathBuf {
 }
 
 pub fn expand_tilde(s: &str) -> String {
-    let home = || dirs::home_dir().map(|p| p.to_string_lossy().to_string());
+    expand_tilde_with_home(s, dirs::home_dir().as_deref())
+}
+
+/// Core of [`expand_tilde`] with the home directory supplied by the caller, so
+/// code that already knows which home it is expanding against (the sandbox
+/// mask/expose validation, which is pure by design) does not have to re-derive
+/// it from process state. `None` models a host with no home directory: every
+/// `~`/`$HOME` form is then returned unchanged, which is what the callers of
+/// [`expand_tilde`] have always seen in that situation.
+pub fn expand_tilde_with_home(s: &str, home: Option<&Path>) -> String {
+    let home = || home.map(|p| p.to_string_lossy().to_string());
 
     if s == "~" || s == "$HOME" {
         if let Some(h) = home() {

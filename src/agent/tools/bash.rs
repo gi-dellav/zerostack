@@ -78,21 +78,27 @@ pub(crate) fn split_bash_commands(input: &str) -> Vec<String> {
     result
 }
 
-/// Gates `sandbox::mask_hint` on the exit status: a masked-path hint belongs
-/// in a tool result only when the command actually failed. Kept as its own
-/// function so that gate is testable on its own, separately from the
-/// substring-matching logic inside `mask_hint`.
+/// The masked-path hint for a finished command, or `None`. A hint belongs in a
+/// tool result only when the command actually failed, and this is the only
+/// place that gate exists: the caller invokes this unconditionally, so there
+/// is no second copy of the predicate to disagree with, and the branch under
+/// test here is the branch production takes.
+///
+/// The mask list is taken as a `&Sandbox` rather than resolved by the caller
+/// so the work behind it stays on the failing side of the gate: a successful
+/// command pays for neither `dirs::home_dir()` nor the up-to-nine `exists()`
+/// stat calls in `Sandbox::masked_roots`.
 pub(crate) fn mask_hint_for_exit(
     exit_code: i32,
     command: &str,
     stderr: &str,
-    masked_roots: &[std::path::PathBuf],
-    home: &std::path::Path,
+    sandbox: &Sandbox,
 ) -> Option<String> {
     if exit_code == 0 {
         return None;
     }
-    mask_hint(command, stderr, masked_roots, home)
+    let home = dirs::home_dir()?;
+    mask_hint(command, stderr, &sandbox.masked_roots(), &home)
 }
 
 pub struct BashTool {
@@ -251,16 +257,10 @@ impl Tool for BashTool {
             None => result,
         };
         // Append last, after truncation and coaching, so a masked-path hint
-        // always survives at the end of the tool result the model sees.
-        let result = match dirs::home_dir().and_then(|home| {
-            mask_hint_for_exit(
-                exit_code,
-                &command,
-                &stderr,
-                &self.sandbox.masked_paths(),
-                &home,
-            )
-        }) {
+        // always survives at the end of the tool result the model sees. The
+        // exit-code gate lives inside `mask_hint_for_exit`, which is also what
+        // keeps a successful command from paying for the mask list.
+        let result = match mask_hint_for_exit(exit_code, &command, &stderr, &self.sandbox) {
             Some(hint) => format!("{result}\n{hint}"),
             None => result,
         };

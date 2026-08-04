@@ -74,7 +74,7 @@ fn test_partition_accepts_exact_mask_root() {
     let ssh = home.join(".ssh");
     let raw = vec!["~/.ssh".to_string()];
 
-    let (valid, rejected) = partition_expose(&raw, std::slice::from_ref(&ssh), &home);
+    let (valid, rejected) = partition_expose(&raw, std::slice::from_ref(&ssh), Some(&home));
 
     assert_eq!(valid, vec![ssh]);
     assert!(
@@ -89,7 +89,7 @@ fn test_partition_accepts_subpath_of_mask_root() {
     let ssh = home.join(".ssh");
     let raw = vec!["~/.ssh/known_hosts".to_string()];
 
-    let (valid, rejected) = partition_expose(&raw, &[ssh], &home);
+    let (valid, rejected) = partition_expose(&raw, &[ssh], Some(&home));
 
     assert_eq!(valid, vec![home.join(".ssh/known_hosts")]);
     assert!(
@@ -104,7 +104,7 @@ fn test_partition_rejects_path_outside_mask_list() {
     let ssh = home.join(".ssh");
     let raw = vec!["/etc".to_string()];
 
-    let (valid, rejected) = partition_expose(&raw, &[ssh], &home);
+    let (valid, rejected) = partition_expose(&raw, &[ssh], Some(&home));
 
     assert!(
         valid.is_empty(),
@@ -121,13 +121,155 @@ fn test_partition_rejects_sibling_component_trap() {
     let ssh = home.join(".ssh");
     let raw = vec!["~/.ssh2".to_string()];
 
-    let (valid, rejected) = partition_expose(&raw, &[ssh], &home);
+    let (valid, rejected) = partition_expose(&raw, &[ssh], Some(&home));
 
     assert!(
         valid.is_empty(),
         "`~/.ssh2` must not pass as a subpath of `~/.ssh`: {valid:?}"
     );
     assert_eq!(rejected, vec!["~/.ssh2".to_string()]);
+}
+
+#[test]
+fn test_partition_accepts_dollar_home_spelling() {
+    // Every other path-taking config key accepts `$HOME/...`; expose rejecting
+    // it would be a trap with no reason behind it.
+    let home = scratch_dir("home-dollar");
+    let ssh = home.join(".ssh");
+    let raw = vec!["$HOME/.ssh".to_string()];
+
+    let (valid, rejected) = partition_expose(&raw, std::slice::from_ref(&ssh), Some(&home));
+
+    assert_eq!(valid, vec![ssh]);
+    assert!(
+        rejected.is_empty(),
+        "`$HOME/.ssh` names the same directory as `~/.ssh`: {rejected:?}"
+    );
+}
+
+#[test]
+fn test_partition_rejects_parent_dir_escape_to_home() {
+    // `~/.ssh/..` passes a component-wise subpath test while naming the whole
+    // home directory, which would re-bind everything the masks hide.
+    let home = scratch_dir("home-escape");
+    let ssh = home.join(".ssh");
+    let raw = vec!["~/.ssh/..".to_string()];
+
+    let (valid, rejected) = partition_expose(&raw, &[ssh], Some(&home));
+
+    assert!(
+        valid.is_empty(),
+        "a `..` component must never be exposed: {valid:?}"
+    );
+    assert_eq!(rejected, raw);
+}
+
+#[test]
+fn test_partition_rejects_parent_dir_escape_into_a_sibling_mask() {
+    let home = scratch_dir("home-escape-sibling");
+    let ssh = home.join(".ssh");
+    let aws = home.join(".aws");
+    let raw = vec!["~/.ssh/../.aws".to_string()];
+
+    let (valid, rejected) = partition_expose(&raw, &[ssh, aws], Some(&home));
+
+    assert!(
+        valid.is_empty(),
+        "the direct spelling is the way to expose another mask root: {valid:?}"
+    );
+    assert_eq!(rejected, raw);
+}
+
+#[test]
+fn test_partition_rejects_parent_dir_escape_out_of_home() {
+    let home = scratch_dir("home-escape-out");
+    let ssh = home.join(".ssh");
+    let raw = vec!["~/.ssh/../../../etc".to_string()];
+
+    let (valid, rejected) = partition_expose(&raw, &[ssh], Some(&home));
+
+    assert!(
+        valid.is_empty(),
+        "climbing out of the mask list must be rejected like any other outside value: {valid:?}"
+    );
+    assert_eq!(rejected, raw);
+}
+
+#[test]
+fn test_partition_expose_with_no_home_leaves_tilde_form_unexpanded() {
+    // `home: None` models a host with no home directory. Per
+    // `expand_tilde_with_home`'s documented behavior, a `~` form must be
+    // returned unchanged rather than expanded against a manufactured empty
+    // path, so it can never accidentally satisfy a `mask_roots` entry.
+    let ssh = PathBuf::from("/nonexistent-home/.ssh");
+    let raw = vec!["~/.ssh".to_string()];
+
+    let (valid, rejected) = partition_expose(&raw, &[ssh], None);
+
+    assert!(
+        valid.is_empty(),
+        "a `~` form must not expand against a missing home: {valid:?}"
+    );
+    assert_eq!(rejected, raw);
+}
+
+#[test]
+fn test_partition_expose_with_no_home_still_accepts_an_absolute_mask_root() {
+    // The `None` home only affects `~`/`$HOME` expansion; an already-absolute
+    // value must still validate normally, so `None` is not a blanket
+    // rejection of everything.
+    let root = PathBuf::from("/nonexistent-home/.ssh");
+    let raw = vec!["/nonexistent-home/.ssh".to_string()];
+
+    let (valid, rejected) = partition_expose(&raw, std::slice::from_ref(&root), None);
+
+    assert_eq!(valid, vec![root]);
+    assert!(
+        rejected.is_empty(),
+        "an absolute path needs no home to validate: {rejected:?}"
+    );
+}
+
+// --- Shared construction: one validation path for every entry point ---
+
+#[test]
+fn test_build_sandbox_returns_the_rejected_value_warning() {
+    let setup = crate::sandbox::build_sandbox(&crate::sandbox::SandboxSettings {
+        enabled: true,
+        required: false,
+        backend: "bwrap",
+        shell: "bash",
+        expose: &["/etc".to_string()],
+    });
+
+    assert!(
+        setup
+            .warnings
+            .iter()
+            .any(|w| w.contains("sandbox-expose value '/etc'")),
+        "the out-of-list value must be reported verbatim to whoever logs it: {:?}",
+        setup.warnings
+    );
+}
+
+#[test]
+fn test_build_sandbox_is_quiet_without_expose_values() {
+    let setup = crate::sandbox::build_sandbox(&crate::sandbox::SandboxSettings {
+        enabled: true,
+        required: false,
+        backend: "bwrap",
+        shell: "bash",
+        expose: &[],
+    });
+
+    assert!(
+        !setup
+            .warnings
+            .iter()
+            .any(|w| w.contains("sandbox-expose value")),
+        "no expose values, so nothing to warn about: {:?}",
+        setup.warnings
+    );
 }
 
 // --- Arg assembly: --ro-bind-try after masks, before the cwd bind ---
