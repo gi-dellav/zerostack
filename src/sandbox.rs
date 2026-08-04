@@ -24,6 +24,10 @@ pub struct Sandbox {
     // Already-validated `sandbox-expose` paths (see `partition_expose`),
     // restored read-only on top of the masks.
     expose: Vec<std::path::PathBuf>,
+    // `ssh_auth_sock` replaces the host `SSH_AUTH_SOCK` env read: `None` means
+    // "use the real env var", `Some(None)` means "pretend it is unset",
+    // `Some(Some(path))` pins the socket path a test masks.
+    ssh_auth_sock: Option<Option<std::path::PathBuf>>,
     active_groups: Arc<Mutex<HashSet<u32>>>,
 }
 
@@ -156,6 +160,7 @@ impl Sandbox {
             cache_dir: None,
             mask_roots: None,
             expose: Vec::new(),
+            ssh_auth_sock: None,
             active_groups: Arc::new(Mutex::new(HashSet::new())),
         }
     }
@@ -215,6 +220,15 @@ impl Sandbox {
         self
     }
 
+    /// Overrides the host `SSH_AUTH_SOCK` read: `Some(path)` pins the socket
+    /// path the agent-cutoff mask targets, `None` models a host with no
+    /// ssh-agent running.
+    #[cfg(test)]
+    pub fn with_ssh_auth_sock(mut self, sock: Option<std::path::PathBuf>) -> Self {
+        self.ssh_auth_sock = Some(sock);
+        self
+    }
+
     /// Credential directories this sandbox masks, narrowed to what exists on
     /// the host: bwrap creates every `--tmpfs` mountpoint, and creating one on
     /// the read-only `/` bind aborts the whole launch.
@@ -236,6 +250,17 @@ impl Sandbox {
         self.enabled
             && self.backend_binary() == "bwrap"
             && (self.backend_available() || self.backend_available_now())
+    }
+
+    /// The host's advertised ssh-agent socket, if any: the path
+    /// `SSH_AUTH_SOCK` points to, which the bwrap branch masks with
+    /// `/dev/null` so the agent stays unreachable even if a command
+    /// reconstructs the variable by hand.
+    fn ssh_auth_sock(&self) -> Option<std::path::PathBuf> {
+        if let Some(sock) = &self.ssh_auth_sock {
+            return sock.clone();
+        }
+        std::env::var_os("SSH_AUTH_SOCK").map(std::path::PathBuf::from)
     }
 
     /// The mask root `cwd` sits under, if any. The working directory is bound
@@ -355,6 +380,13 @@ impl Sandbox {
         for root in self.masked_paths() {
             cmd.arg("--tmpfs");
             cmd.arg(root.as_os_str());
+        }
+        // The advertised ssh-agent socket is masked too, so a command that
+        // reconstructs SSH_AUTH_SOCK by hand still cannot reach the agent.
+        if let Some(sock) = self.ssh_auth_sock() {
+            cmd.arg("--ro-bind-try");
+            cmd.arg("/dev/null");
+            cmd.arg(sock.as_os_str());
         }
         // Expose re-opens holes in the masks above, read-only: `--ro-bind-try`
         // can never grant write access, which is what turns "only shrink,
@@ -510,7 +542,11 @@ pub(crate) fn kill_process_group(pid: u32) {
     }
 }
 
-fn essential_env() -> Vec<(&'static str, String)> {
+// SSH_AUTH_SOCK and SSH_AGENT_PID are deliberately absent: forwarding them
+// would keep a running ssh-agent reachable from inside the sandbox, which the
+// agent-socket mask above closes even against a command that reconstructs
+// SSH_AUTH_SOCK by hand.
+pub(crate) fn essential_env() -> Vec<(&'static str, String)> {
     let preserve = [
         "PATH",
         "HOME",
@@ -520,8 +556,6 @@ fn essential_env() -> Vec<(&'static str, String)> {
         "TERM",
         "LANG",
         "LC_ALL",
-        "SSH_AUTH_SOCK",
-        "SSH_AGENT_PID",
         "SSH_ASKPASS",
         "GIT_ASKPASS",
         "DISPLAY",

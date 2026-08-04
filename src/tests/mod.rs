@@ -81,6 +81,8 @@ mod resumed_history_tests;
 #[cfg(all(test, feature = "rtk"))]
 mod rtk_tests;
 #[cfg(test)]
+mod sandbox_agent_cutoff_tests;
+#[cfg(test)]
 mod sandbox_expose_tests;
 #[cfg(test)]
 mod sandbox_mask_tests;
