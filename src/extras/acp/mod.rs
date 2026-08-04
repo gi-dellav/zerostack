@@ -191,6 +191,20 @@ async fn handle_new_session(
             "sandbox is set to false but sandbox-required is set, enabling the sandbox anyway"
         );
     }
+    // Rejected-value warnings are emitted once per session, so they live here
+    // and not in run_prompt (which runs on every prompt).
+    let sandbox_expose_raw = state.cli.resolve_sandbox_expose(&state.cfg);
+    let sandbox_expose_home = dirs::home_dir().unwrap_or_default();
+    let (_, sandbox_expose_rejected) = crate::sandbox::partition_expose(
+        &sandbox_expose_raw,
+        &crate::sandbox::builtin_mask_roots(),
+        &sandbox_expose_home,
+    );
+    for value in &sandbox_expose_rejected {
+        tracing::warn!(
+            "sandbox-expose value '{value}' is not a masked path or subpath of one, ignoring it"
+        );
+    }
     if let Some(root) = Sandbox::new(
         state.cli.resolve_sandbox(&state.cfg),
         &state.cli.resolve_sandbox_backend(&state.cfg),
@@ -287,12 +301,20 @@ async fn run_prompt(
     let model = client.completion_model(model_str.to_string());
 
     let (permission, ask_tx) = build_acp_permission(state);
+    let sandbox_expose_raw = state.cli.resolve_sandbox_expose(&state.cfg);
+    let sandbox_expose_home = dirs::home_dir().unwrap_or_default();
+    let (sandbox_expose, _) = crate::sandbox::partition_expose(
+        &sandbox_expose_raw,
+        &crate::sandbox::builtin_mask_roots(),
+        &sandbox_expose_home,
+    );
     let sandbox = Sandbox::new(
         state.cli.resolve_sandbox(&state.cfg),
         &state.cli.resolve_sandbox_backend(&state.cfg),
     )
     .with_required(state.cli.resolve_sandbox_required(&state.cfg))
-    .with_shell(&state.cli.resolve_shell(&state.cfg));
+    .with_shell(&state.cli.resolve_shell(&state.cfg))
+    .with_expose(sandbox_expose);
 
     // Track session history for future context persistence
     let _extra_messages = {

@@ -76,6 +76,12 @@ pub(crate) fn print_config(cli: &cli::Cli, cfg: &config::Config) {
     let sandbox = cli.resolve_sandbox(cfg);
     let sandbox_required = cli.resolve_sandbox_required(cfg);
     let sandbox_backend = cli.resolve_sandbox_backend(cfg);
+    let sandbox_expose = cli.resolve_sandbox_expose(cfg);
+    let sandbox_expose_display = if sandbox_expose.is_empty() {
+        "(none)".to_string()
+    } else {
+        sandbox_expose.join(", ")
+    };
     let shell = cli.resolve_shell(cfg);
     let edit_system = cli.resolve_edit_system(cfg);
     let compact = cfg.resolve_compact_enabled();
@@ -179,6 +185,7 @@ pub(crate) fn print_config(cli: &cli::Cli, cfg: &config::Config) {
             ("sandbox", sandbox.to_string()),
             ("sandbox-backend", sandbox_backend),
             ("sandbox-required", sandbox_required.to_string()),
+            ("sandbox-expose", sandbox_expose_display),
             ("no-tools", no_tools.to_string()),
             ("tools", tools_allowlist),
             ("no-context-files", no_context_files.to_string()),

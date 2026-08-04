@@ -415,9 +415,22 @@ impl Startup {
         let sandbox_enabled = self.cli.resolve_sandbox(&self.cfg);
         let sandbox_required = self.cli.resolve_sandbox_required(&self.cfg);
         let sandbox_backend = self.cli.resolve_sandbox_backend(&self.cfg);
+        let sandbox_expose_raw = self.cli.resolve_sandbox_expose(&self.cfg);
+        let sandbox_expose_home = dirs::home_dir().unwrap_or_default();
+        let (sandbox_expose, sandbox_expose_rejected) = crate::sandbox::partition_expose(
+            &sandbox_expose_raw,
+            &crate::sandbox::builtin_mask_roots(),
+            &sandbox_expose_home,
+        );
+        for value in &sandbox_expose_rejected {
+            tracing::warn!(
+                "sandbox-expose value '{value}' is not a masked path or subpath of one, ignoring it"
+            );
+        }
         self.sandbox = Sandbox::new(sandbox_enabled, &sandbox_backend)
             .with_required(sandbox_required)
-            .with_shell(&self.cli.resolve_shell(&self.cfg));
+            .with_shell(&self.cli.resolve_shell(&self.cfg))
+            .with_expose(sandbox_expose);
         if self.cli.sandbox_setting_conflict(&self.cfg) {
             tracing::warn!(
                 "sandbox is set to false but sandbox-required is set, enabling the sandbox anyway"

@@ -21,6 +21,9 @@ pub struct Sandbox {
     backend_installed_now: Option<bool>,
     cache_dir: Option<std::path::PathBuf>,
     mask_roots: Option<Vec<std::path::PathBuf>>,
+    // Already-validated `sandbox-expose` paths (see `partition_expose`),
+    // restored read-only on top of the masks.
+    expose: Vec<std::path::PathBuf>,
     active_groups: Arc<Mutex<HashSet<u32>>>,
 }
 
@@ -39,11 +42,44 @@ const MASK_DIRS: [&str; 9] = [
     ".config/sops/age",
 ];
 
-fn builtin_mask_roots() -> Vec<std::path::PathBuf> {
+pub(crate) fn builtin_mask_roots() -> Vec<std::path::PathBuf> {
     let Some(home) = dirs::home_dir() else {
         return Vec::new();
     };
     MASK_DIRS.iter().map(|rel| home.join(rel)).collect()
+}
+
+/// Splits raw `sandbox-expose` values into ones that restore read-only access
+/// to a masked entry and ones to reject. A value is valid when, after `~`
+/// expansion against `home`, it equals a `mask_roots` entry or is a subpath of
+/// one; `Path::starts_with` compares whole components, so `~/.ssh2` is never
+/// mistaken for a subpath of `~/.ssh`. Pure: no warnings, no I/O.
+pub(crate) fn partition_expose(
+    raw: &[String],
+    mask_roots: &[std::path::PathBuf],
+    home: &std::path::Path,
+) -> (Vec<std::path::PathBuf>, Vec<String>) {
+    let mut valid = Vec::new();
+    let mut rejected = Vec::new();
+    for value in raw {
+        let expanded = expand_tilde(value, home);
+        if mask_roots.iter().any(|root| expanded.starts_with(root)) {
+            valid.push(expanded);
+        } else {
+            rejected.push(value.clone());
+        }
+    }
+    (valid, rejected)
+}
+
+fn expand_tilde(value: &str, home: &std::path::Path) -> std::path::PathBuf {
+    if let Some(rest) = value.strip_prefix("~/") {
+        home.join(rest)
+    } else if value == "~" {
+        home.to_path_buf()
+    } else {
+        std::path::PathBuf::from(value)
+    }
 }
 
 static BWRAP_AVAILABLE: OnceLock<bool> = OnceLock::new();
@@ -119,6 +155,7 @@ impl Sandbox {
             backend_installed_now: None,
             cache_dir: None,
             mask_roots: None,
+            expose: Vec::new(),
             active_groups: Arc::new(Mutex::new(HashSet::new())),
         }
     }
@@ -141,6 +178,14 @@ impl Sandbox {
     /// unsandboxed if the backend binary is missing.
     pub fn with_required(mut self, required: bool) -> Self {
         self.required = required;
+        self
+    }
+
+    /// Already-validated `sandbox-expose` paths (see `partition_expose`).
+    /// Each is restored read-only on top of the masks via `--ro-bind-try`, so
+    /// expose can never grant write access.
+    pub fn with_expose(mut self, expose: Vec<std::path::PathBuf>) -> Self {
+        self.expose = expose;
         self
     }
 
@@ -310,6 +355,14 @@ impl Sandbox {
         for root in self.masked_paths() {
             cmd.arg("--tmpfs");
             cmd.arg(root.as_os_str());
+        }
+        // Expose re-opens holes in the masks above, read-only: `--ro-bind-try`
+        // can never grant write access, which is what turns "only shrink,
+        // never widen" from policy into mechanism.
+        for path in &self.expose {
+            cmd.arg("--ro-bind-try");
+            cmd.arg(path.as_os_str());
+            cmd.arg(path.as_os_str());
         }
         cmd.arg("--bind");
         cmd.arg(cwd.as_os_str());

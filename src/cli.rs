@@ -146,6 +146,13 @@ pub struct Cli {
     pub sandbox_required: bool,
 
     #[arg(
+        long = "sandbox-expose",
+        action = clap::ArgAction::Append,
+        help = "Restore read-only access to a masked credential path or subpath (repeatable)"
+    )]
+    pub sandbox_expose: Vec<String>,
+
+    #[arg(
         long = "shell",
         help = "Shell binary to use for bash tool (default: bash)"
     )]
@@ -388,6 +395,18 @@ impl Cli {
             .clone()
             .or_else(|| cfg.sandbox_backend.clone())
             .unwrap_or_else(|| "bwrap".to_string())
+    }
+
+    /// Raw `sandbox-expose` values, unexpanded and unvalidated: a non-empty
+    /// CLI list replaces the config list wholesale, following the existing
+    /// CLI-over-config resolution convention. `~` expansion and validation
+    /// against the mask list happen in `sandbox::partition_expose`.
+    pub fn resolve_sandbox_expose(&self, cfg: &config::Config) -> Vec<String> {
+        if !self.sandbox_expose.is_empty() {
+            self.sandbox_expose.clone()
+        } else {
+            cfg.sandbox_expose.clone().unwrap_or_default()
+        }
     }
 
     pub fn resolve_shell(&self, cfg: &config::Config) -> String {
