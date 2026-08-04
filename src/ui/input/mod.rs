@@ -35,6 +35,7 @@ pub struct InputEditor {
     kill_ring: Vec<CompactString>,
     yank_pos: Option<usize>,
     yank_len: usize,
+    mouse_capture: bool,
 }
 
 impl InputEditor {
@@ -56,6 +57,7 @@ impl InputEditor {
             kill_ring: Vec::with_capacity(MAX_KILL_RING),
             yank_pos: None,
             yank_len: 0,
+            mouse_capture: true,
         }
     }
 
@@ -113,6 +115,10 @@ impl InputEditor {
         if let Some(ref mut picker) = self.picker {
             picker.set_monochrome(monochrome);
         }
+    }
+
+    pub fn set_mouse_capture(&mut self, mouse_capture: bool) {
+        self.mouse_capture = mouse_capture;
     }
 
     pub fn set_prompt_names(&mut self, names: Vec<String>) {
@@ -236,10 +242,12 @@ impl InputEditor {
 
         let _ = crossterm::terminal::disable_raw_mode();
         let mut stdout = std::io::stdout();
-        let _ = crossterm::ExecutableCommand::execute(
-            &mut stdout,
-            crossterm::event::DisableMouseCapture,
-        );
+        if self.mouse_capture {
+            let _ = crossterm::ExecutableCommand::execute(
+                &mut stdout,
+                crossterm::event::DisableMouseCapture,
+            );
+        }
         let _ = crossterm::ExecutableCommand::execute(
             &mut stdout,
             crossterm::terminal::LeaveAlternateScreen,
@@ -261,10 +269,12 @@ impl InputEditor {
             &mut stdout,
             crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
         );
-        let _ = crossterm::ExecutableCommand::execute(
-            &mut stdout,
-            crossterm::event::EnableMouseCapture,
-        );
+        if self.mouse_capture {
+            let _ = crossterm::ExecutableCommand::execute(
+                &mut stdout,
+                crossterm::event::EnableMouseCapture,
+            );
+        }
         let _ = crossterm::terminal::enable_raw_mode();
 
         if let Ok(content) = std::fs::read_to_string(&tmp) {

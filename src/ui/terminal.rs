@@ -7,20 +7,24 @@ use crossterm::event::{
 };
 use crossterm::terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen};
 
-pub struct TerminalGuard;
+pub struct TerminalGuard {
+    mouse_capture: bool,
+}
 
 impl TerminalGuard {
-    pub fn new() -> std::io::Result<Self> {
+    pub fn new(mouse_capture: bool) -> std::io::Result<Self> {
         let mut stdout = std::io::stdout();
         stdout.execute(EnterAlternateScreen)?;
         stdout.execute(Clear(ClearType::All))?;
-        stdout.execute(EnableMouseCapture)?;
+        if mouse_capture {
+            stdout.execute(EnableMouseCapture)?;
+        }
         stdout.execute(EnableBracketedPaste)?;
         let _ = stdout.execute(PushKeyboardEnhancementFlags(
             KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES,
         ));
         terminal::enable_raw_mode()?;
-        Ok(TerminalGuard)
+        Ok(TerminalGuard { mouse_capture })
     }
 }
 
@@ -30,7 +34,9 @@ impl Drop for TerminalGuard {
         let mut stdout = std::io::stdout();
         let _ = stdout.execute(PopKeyboardEnhancementFlags);
         let _ = stdout.execute(DisableBracketedPaste);
-        let _ = stdout.execute(DisableMouseCapture);
+        if self.mouse_capture {
+            let _ = stdout.execute(DisableMouseCapture);
+        }
         let _ = stdout.execute(LeaveAlternateScreen);
         let _ = stdout.flush();
     }

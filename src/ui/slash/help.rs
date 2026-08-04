@@ -8,8 +8,8 @@ pub fn handle_welcome(renderer: &mut crate::ui::renderer::Renderer) {
     let _ = crate::ui::events::show_welcome(renderer);
 }
 
-pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer) {
-    match run_tutor() {
+pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer, mouse_capture: bool) {
+    match run_tutor(mouse_capture) {
         Ok(()) => {}
         Err(e) => {
             let _ = renderer.write_line(&format!("{}", e), crate::ui::slash::C_ERROR);
@@ -17,10 +17,12 @@ pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer) {
     }
 }
 
-fn run_tutor() -> anyhow::Result<()> {
+fn run_tutor(mouse_capture: bool) -> anyhow::Result<()> {
     let _ = crossterm::terminal::disable_raw_mode();
     let mut stdout = std::io::stdout();
-    let _ = stdout.execute(crossterm::event::DisableMouseCapture);
+    if mouse_capture {
+        let _ = stdout.execute(crossterm::event::DisableMouseCapture);
+    }
     let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
     let _ = stdout.flush();
 
@@ -30,7 +32,9 @@ fn run_tutor() -> anyhow::Result<()> {
     let _ = stdout.execute(crossterm::terminal::Clear(
         crossterm::terminal::ClearType::All,
     ));
-    let _ = stdout.execute(crossterm::event::EnableMouseCapture);
+    if mouse_capture {
+        let _ = stdout.execute(crossterm::event::EnableMouseCapture);
+    }
     let _ = crossterm::terminal::enable_raw_mode();
 
     result
