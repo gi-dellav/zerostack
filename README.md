@@ -152,6 +152,15 @@ into a guarantee: bash commands are refused whenever the backend is unavailable,
 and the rest of the session keeps working. See [SECURITY.md](SECURITY.md) for
 what the sandbox does and does not protect against.
 
+With the `bwrap` backend, well-known credential directories (`~/.ssh`,
+`~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, and the `gh`, `gcloud`, `op` and
+`sops/age` directories under the config base) are masked by default, so
+sandboxed commands read them as empty rather than as your keys and tokens,
+and the advertised ssh-agent is unreachable. `sandbox-expose` (config key or
+repeatable `--sandbox-expose <path>` flag) restores read-only access to one
+entry or a subpath of one. See [docs/CONFIG.md](docs/CONFIG.md) for the key
+and [SECURITY.md](SECURITY.md) for the full threat model.
+
 ## Quick start
 
 ```bash

@@ -415,9 +415,18 @@ impl Startup {
         let sandbox_enabled = self.cli.resolve_sandbox(&self.cfg);
         let sandbox_required = self.cli.resolve_sandbox_required(&self.cfg);
         let sandbox_backend = self.cli.resolve_sandbox_backend(&self.cfg);
-        self.sandbox = Sandbox::new(sandbox_enabled, &sandbox_backend)
-            .with_required(sandbox_required)
-            .with_shell(&self.cli.resolve_shell(&self.cfg));
+        let sandbox_expose_raw = self.cli.resolve_sandbox_expose(&self.cfg);
+        let sandbox_setup = crate::sandbox::build_sandbox(&crate::sandbox::SandboxSettings {
+            enabled: sandbox_enabled,
+            required: sandbox_required,
+            backend: &sandbox_backend,
+            shell: &self.cli.resolve_shell(&self.cfg),
+            expose: &sandbox_expose_raw,
+        });
+        self.sandbox = sandbox_setup.sandbox;
+        for warning in &sandbox_setup.warnings {
+            tracing::warn!("{warning}");
+        }
         if self.cli.sandbox_setting_conflict(&self.cfg) {
             tracing::warn!(
                 "sandbox is set to false but sandbox-required is set, enabling the sandbox anyway"

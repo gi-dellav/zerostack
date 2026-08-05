@@ -17,7 +17,7 @@ use crate::event::AgentEvent;
 use crate::permission::SecurityMode;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::{PermCheck, PermissionChecker};
-use crate::sandbox::Sandbox;
+use crate::sandbox::{SandboxSettings, SandboxSetup};
 
 const AGENT_VERSION: &str = "1.0.5";
 
@@ -30,6 +30,20 @@ struct AcpState {
     cfg: Config,
     context: ContextFiles,
     sessions: Mutex<HashMap<SessionId, SessionState>>,
+}
+
+/// The session sandbox and the warnings building it produced, from this
+/// server's resolved settings. Shared by `handle_new_session` (which logs the
+/// warnings once) and `run_prompt` (which needs the sandbox on every prompt),
+/// so the two can never disagree about what is masked or exposed.
+fn sandbox_setup(state: &AcpState) -> SandboxSetup {
+    crate::sandbox::build_sandbox(&SandboxSettings {
+        enabled: state.cli.resolve_sandbox(&state.cfg),
+        required: state.cli.resolve_sandbox_required(&state.cfg),
+        backend: &state.cli.resolve_sandbox_backend(&state.cfg),
+        shell: &state.cli.resolve_shell(&state.cfg),
+        expose: &state.cli.resolve_sandbox_expose(&state.cfg),
+    })
 }
 
 // --- TCP Transport ---
@@ -191,6 +205,15 @@ async fn handle_new_session(
             "sandbox is set to false but sandbox-required is set, enabling the sandbox anyway"
         );
     }
+    // Sandbox warnings are emitted once per session, so they live here and not
+    // in run_prompt (which runs on every prompt). The sandbox itself is rebuilt
+    // per prompt from the same settings; building it here is what makes the
+    // warnings describe the sandbox that will actually run, including the
+    // directory it binds, which is this process's working directory and not
+    // `req.cwd` (the ACP server never chdirs to it).
+    for warning in &sandbox_setup(state).warnings {
+        tracing::warn!("{warning}");
+    }
 
     state.sessions.lock().await.insert(
         session_id.clone(),
@@ -276,12 +299,9 @@ async fn run_prompt(
     let model = client.completion_model(model_str.to_string());
 
     let (permission, ask_tx) = build_acp_permission(state);
-    let sandbox = Sandbox::new(
-        state.cli.resolve_sandbox(&state.cfg),
-        &state.cli.resolve_sandbox_backend(&state.cfg),
-    )
-    .with_required(state.cli.resolve_sandbox_required(&state.cfg))
-    .with_shell(&state.cli.resolve_shell(&state.cfg));
+    // Warnings are dropped here on purpose: handle_new_session already logged
+    // them once for this session.
+    let sandbox = sandbox_setup(state).sandbox;
 
     // Track session history for future context persistence
     let _extra_messages = {

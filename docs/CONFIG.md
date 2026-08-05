@@ -198,6 +198,7 @@ Accepted top-level keys:
 | `sandbox`                 | boolean | Run bash commands in the sandbox. Best effort: if the selected backend binary is missing, commands still run unsandboxed and a warning is logged. See `SECURITY.md` in the repository for what the sandbox does and does not protect against. Default: `false`. |
 | `sandbox-backend`         | string  | Sandbox backend: `bwrap` (default, Linux only) or `zerobox` (macOS and Linux).                                                                                              |
 | `sandbox-required`        | boolean | Refuse to run bash commands when the sandbox backend is unavailable, instead of falling back to running them unsandboxed. Implies `sandbox`. Default: `false`.               |
+| `sandbox-expose`          | array   | Bwrap backend only. Restores read-only access to a masked credential directory or a subpath of one. `~` and `$HOME` expansion supported. Repeatable CLI flag `--sandbox-expose <path>`; when passed, it replaces this list wholesale. Values that are not a masked entry or a subpath of one, and values containing `..`, are warned about once at startup and ignored. Default: `[]` (nothing exposed). See Sandbox credential masking below. |
 | `default_permission_mode` | string  | Permission mode when no mode boolean/CLI flag is set. Accepts: `standard` (default), `restrictive`, `readonly`, `guarded`, `yolo`.                                          |
 | `show_tool_details`       | boolean or integer | Show tool-result previews in the TUI. `false` hides output, `true` shows all lines, an integer limits to that many lines (e.g. `3`). Default: `3`. |
 | `show_reasoning`          | boolean | Show streamed reasoning text in the TUI. Can still be toggled at runtime with `Ctrl+R` or `/reasoning`. Default: `false`. |
@@ -217,6 +218,55 @@ Accepted top-level keys:
 | `acp_host`                | string  | TCP bind host for ACP server mode (equivalent to `--acp-host`).                                                                                                              |
 | `acp_port`                | integer | TCP bind port for ACP server mode (equivalent to `--acp-port`, default: 7243).                                                                                               |
 | `colors`                  | object  | Background color overrides for the TUI. See the colors section below.                                                                                                       |
+
+## Sandbox credential masking
+
+On the `bwrap` backend, nine well-known credential directories are masked with
+a tmpfs by default, so sandboxed bash commands see each one as empty rather
+than reading your keys and tokens (only entries that exist on the host are
+masked):
+
+| Directory | Why it is masked |
+| --- | --- |
+| `~/.ssh` | SSH private keys and `known_hosts` |
+| `~/.aws` | AWS credentials and config |
+| `~/.gnupg` | GPG keyrings and the gpg-agent SSH socket |
+| `~/.kube` | Kubernetes cluster credentials |
+| `~/.docker` | Docker registry auth tokens |
+| `~/.config/gh` | GitHub CLI OAuth token |
+| `~/.config/gcloud` | Google Cloud credentials |
+| `~/.config/op` | 1Password CLI session state |
+| `~/.config/sops/age` | sops/age decryption keys |
+
+The last four are relative to the XDG config base: when `$XDG_CONFIG_HOME` is
+set to an absolute path, they are `$XDG_CONFIG_HOME/gh`, `.../gcloud`,
+`.../op` and `.../sops/age` instead, since that is where those tools read
+their credentials.
+
+The tmpfs is a normal writable filesystem, not a read-only view: a command
+that writes into a masked directory (`ssh-keygen -f ~/.ssh/id_x`,
+`gh auth login`, `aws configure`) succeeds and exits `0`, then loses whatever
+it wrote when the sandbox exits. A read-only mask is possible (bwrap supports
+`--remount-ro`), but it is not the default, since it would make those same
+tools fail hard instead of silently losing their output.
+
+Use `sandbox-expose` (config key, string array, `~` and `$HOME` expansion) or
+the repeatable `--sandbox-expose <path>` CLI flag to restore read-only access
+to a masked entry or a subpath of one (for example `~/.ssh/known_hosts` without
+the private keys). When `--sandbox-expose` is passed at least once on the
+command line, it replaces the config list wholesale, following the usual
+CLI-over-config convention; otherwise the config list is used. A value is valid
+only when, after expansion, it equals one of the entries above or is a subpath
+of one, and contains no `..` component (`~/.ssh/..` names the whole home
+directory, not a masked entry); anything else is warned about once at startup,
+quoting the value, and ignored. Because the restore is a read-only bind on top of the mask,
+`sandbox-expose` can never grant write access. Like any other config key,
+`sandbox-expose` can be set from a project-local `.zerostack/config.toml`,
+trusted exactly like the global config, so review it in untrusted checkouts
+as noted above (see Project-local override). Masking, the ssh-agent cutoff,
+and `sandbox-expose` all apply to the `bwrap` backend only; see `SECURITY.md`
+for the full gap list, including what remains readable and the ssh-agent
+recovery paths.
 
 ## System Prompt Suffix (`SUFFIX.md`)
 

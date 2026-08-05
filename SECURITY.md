@@ -65,16 +65,62 @@ With the `bwrap` backend:
   network, which means it can exfiltrate anything it can read. The `zerobox`
   backend behaves differently here: it denies network access by default under
   its own policy.
-- **Your home directory is readable.** `/` is mounted read only, not hidden, so
-  everything under `$HOME` is visible inside the sandbox: SSH keys, cloud
-  credentials, `.env` files, browser profiles, shell history.
+- **Most of your home directory is still readable.** `/` is mounted read only,
+  not hidden, so everything under `$HOME` is visible inside the sandbox except
+  the nine credential directories masked by default: `~/.ssh`, `~/.aws`,
+  `~/.gnupg`, `~/.kube`, `~/.docker`, `~/.config/gh`, `~/.config/gcloud`,
+  `~/.config/op`, `~/.config/sops/age` (the last four follow
+  `$XDG_CONFIG_HOME` instead of `~/.config` when that variable is set to an
+  absolute path, which is where those tools look). Each of these, when present on the
+  host, is covered by a tmpfs, so a sandboxed command sees it as an empty
+  directory rather than reading your keys and tokens. That tmpfs is a normal
+  writable filesystem owned by the sandboxed user, not a read-only view, so a
+  command that writes into a masked directory succeeds and then loses the
+  write when the sandbox exits: `ssh-keygen -f ~/.ssh/id_x`, `gh auth login`,
+  and `aws configure` all exit `0` having silently discarded whatever they
+  wrote, and because the exit status is zero, the hint that names a masked
+  path on a failed command never fires for these. A read-only mask is
+  possible (bwrap supports `--remount-ro`), but it would make any tool that
+  writes into its own credential directory fail hard instead of silently
+  losing the write, which is why the mask stays writable by default today.
+  Use `sandbox-expose`
+  (config key or repeatable `--sandbox-expose <path>` flag) to restore
+  read-only access to a masked entry or a subpath of one when a command
+  legitimately needs it; see `docs/CONFIG.md`. Three gaps remain: single-file
+  credentials such as `~/.netrc` and `~/.npmrc` have no clean bwrap
+  file-hiding primitive and are not masked; everything else under `$HOME`
+  outside the nine directories above (`.env` files, browser profiles, shell
+  history) stays fully readable; and live IPC credential endpoints are not
+  touched by directory masking at all. The sandbox environment allowlist
+  still forwards `DBUS_SESSION_BUS_ADDRESS` and `XDG_RUNTIME_DIR`, and `/run`
+  stays readable through the read-only root bind, so the freedesktop secret
+  service (gnome-keyring, KWallet) remains reachable from inside the sandbox,
+  and tools built on it, such as `secret-tool`, `git-credential-libsecret`,
+  `docker-credential-secretservice`, and the Python `keyring` package, can
+  still read stored tokens. Masking directories does not address this, and it
+  is not addressed by this change.
 - **The whole user cache directory is writable.** `~/.cache` (or
   `$XDG_CACHE_HOME`) is bind mounted read write so that build tooling works.
   Anything cached there, including tool caches other programs trust, can be
   modified.
-- **A running SSH agent stays reachable.** The environment allowlist includes
-  `SSH_AUTH_SOCK` and `SSH_AGENT_PID`, so a sandboxed command can sign with the
-  keys your agent holds.
+- **The advertised agent socket is masked, not every possible agent.**
+  `SSH_AUTH_SOCK` and `SSH_AGENT_PID` are removed from the sandbox environment
+  allowlist, and the socket path the host's `SSH_AUTH_SOCK` points to is bound
+  over with `/dev/null`, so a sandboxed command cannot reach the agent even by
+  reconstructing the variable by hand. This targets the socket the host
+  advertises: a secondary agent socket running elsewhere (for example a
+  systemd `ssh-agent.socket` alongside gnome-keyring) can remain reachable
+  under `/run/user`. The gpg-agent SSH socket is covered the same way as any
+  other advertised agent: whatever socket `SSH_AUTH_SOCK` points to gets the
+  `/dev/null` bind regardless of where it lives. The `~/.gnupg` directory
+  mask additionally hides a gpg-agent socket when the socket file itself sits
+  inside `~/.gnupg`, which is not the case on mainstream systemd
+  distributions, where GnuPG's socket directory is `/run/user/$UID/gnupg`
+  instead (confirm with `gpgconf --list-dirs socketdir`). There is no
+  in-sandbox switch to re-enable the agent; recovery paths are
+  `sandbox-expose ~/.ssh` for direct key-file auth
+  (passphrase-less keys) and the `!` prefix, which runs the command outside
+  the sandbox with the agent intact.
 - **Kernel level escapes are out of scope of this design.** bubblewrap uses user
   namespaces; a kernel vulnerability, or a host configured to grant more than the
   usual namespace privileges, can defeat the isolation.
@@ -103,8 +149,8 @@ a container with the network and credentials you are willing to expose.
 
 | Backend | Isolation |
 | --- | --- |
-| `bwrap` (default) | Linux only. The bubblewrap mounts and namespaces described above, with the network left open. |
-| `zerobox` | macOS and Linux. Denies writes, network access, and environment variables by default, with per-domain network allowances. zerostack invokes `zerobox --allow-write <cwd> -- <shell> -c <command>`, so the working directory is writable and the rest of the policy is whatever zerobox enforces. |
+| `bwrap` (default) | Linux only. The bubblewrap mounts and namespaces described above, with the network left open. The nine built-in credential directories are masked by default and the advertised ssh-agent socket is cut off; see above. |
+| `zerobox` | macOS and Linux. Denies writes, network access, and environment variables by default, with per-domain network allowances. zerostack invokes `zerobox --allow-write <cwd> -- <shell> -c <command>`, so the working directory is writable and the rest of the policy is whatever zerobox enforces. Credential masking does not apply here: zerobox exposes no mount-policy surface to inject it, and whether its own defaults limit reads under `$HOME` has not been verified. |
 | none | With the sandbox off (the default), bash commands run directly as your user with no isolation at all. The permission system is the only gate. |
 
 ## Best effort versus guarantee
