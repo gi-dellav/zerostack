@@ -101,6 +101,16 @@ fn auth_resolver_ollama_returns_empty_key() {
 }
 
 #[test]
+fn auth_resolver_reads_orcarouter_env_var() {
+    let env = mock_env(vec![("ORCAROUTER_API_KEY", "orca-key-111")]);
+    let resolver = AuthResolver::new(ProviderKind::OrcaRouter)
+        .with_cli_key(None)
+        .with_config_keys(None);
+    let result = resolver.resolve_with_env(env).unwrap();
+    assert_eq!(result, "orca-key-111");
+}
+
+#[test]
 fn auth_resolver_errors_when_no_key_available() {
     let env = mock_env(vec![]);
     let resolver = AuthResolver::new(ProviderKind::OpenAI)
@@ -135,6 +145,10 @@ fn provider_kind_from_name_recognizes_all() {
     assert_eq!(
         ProviderKind::from_name("ollama"),
         Some(ProviderKind::Ollama)
+    );
+    assert_eq!(
+        ProviderKind::from_name("orcarouter"),
+        Some(ProviderKind::OrcaRouter)
     );
     // "custom" is an alias for OpenAI
     assert_eq!(

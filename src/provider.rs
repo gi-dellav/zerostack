@@ -56,14 +56,20 @@ pub fn resolve_provider_config(
     }
     let kind = ProviderKind::from_name(name).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: '{}'. Supported: openrouter, openai, anthropic, gemini, ollama. Run `zerostack --setup` to configure providers.",
+            "Unknown provider: '{}'. Supported: openrouter, openai, anthropic, gemini, ollama, orcarouter. Run `zerostack --setup` to configure providers.",
             name
         )
     })?;
 
     Ok(ProviderConfig {
         kind,
-        base_url: None,
+        base_url: if kind == ProviderKind::OrcaRouter {
+            // OrcaRouter is an OpenAI-compatible gateway; unlike rig's built-in
+            // providers it has no internal default, so pin it here.
+            Some("https://api.orcarouter.ai/v1".to_string())
+        } else {
+            None
+        },
         api_key_env: None,
         danger_accept_invalid_certs: false,
     })
@@ -109,6 +115,7 @@ pub(crate) fn default_model_for_provider(
         "gemini" | "google" => "gemini-2.5-pro",
         "openrouter" => "openrouter/auto", // OpenRouter's always-valid auto-router
         "ollama" => "llama3.1",
+        "orcarouter" => "orcarouter/fusion-flash",
         _ => return None,
     };
     Some((m.to_string(), None))
@@ -161,6 +168,7 @@ pub enum AnyClient {
     Anthropic(anthropic::Client),
     Gemini(gemini::Client),
     Ollama(ollama::Client),
+    OrcaRouter(openai::CompletionsClient),
 }
 
 /// Extra OpenRouter request body params that pin a Claude model to the
@@ -214,6 +222,7 @@ impl AnyClient {
             AnyClient::Anthropic(_) => "anthropic",
             AnyClient::Gemini(_) => "gemini",
             AnyClient::Ollama(_) => "ollama",
+            AnyClient::OrcaRouter(_) => "orcarouter",
         }
     }
 
@@ -230,6 +239,11 @@ impl AnyClient {
             }
             AnyClient::Gemini(c) => AnyModel::Gemini(c.completion_model(name)),
             AnyClient::Ollama(c) => AnyModel::Ollama(c.completion_model(name)),
+            // OrcaRouter exposes an OpenAI-compatible Chat Completions endpoint, so
+            // its models reuse rig's OpenAI Completions model type.
+            AnyClient::OrcaRouter(c) => {
+                AnyModel::OpenAI(OpenAiModel::Completions(c.completion_model(name)))
+            }
         }
     }
 
@@ -333,8 +347,10 @@ impl AnyClient {
             AnyClient::Gemini(c) => c.list_models().await?,
             AnyClient::Ollama(c) => c.list_models().await?,
             // If any arm above does NOT impl ModelListingClient it won't compile —
-            // move it down here to the manual fallback.
-            AnyClient::OpenAI(OpenAiClient::Completions(_)) => {
+            // move it down here to the manual fallback. OrcaRouter is an
+            // OpenAI-compatible gateway; its model list is fetched via
+            // `list_models_manual` (see `ui/slash/providers.rs`).
+            AnyClient::OpenAI(OpenAiClient::Completions(_)) | AnyClient::OrcaRouter(_) => {
                 anyhow::bail!("rig model listing unavailable for this client")
             }
         };
@@ -1071,6 +1087,7 @@ pub fn create_client(
         ProviderKind::Gemini => build_gemini_client(&key, base_url.as_deref()),
         ProviderKind::Ollama => build_ollama_client(&key, base_url.as_deref()),
         ProviderKind::OpenRouter => build_openrouter_client(&key, base_url.as_deref()),
+        ProviderKind::OrcaRouter => build_orcarouter_client(&key, base_url.as_deref()),
     }
 }
 
@@ -1115,6 +1132,19 @@ fn build_openrouter_client(key: &str, base_url: Option<&str>) -> anyhow::Result<
         .with_app_identity("zerostack", "https://github.com/gi-dellav/zerostack")
         .with_app_categories(&["cli-agent", "coding"]);
     Ok(AnyClient::OpenRouter(builder.build()?))
+}
+
+fn build_orcarouter_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {
+    // OrcaRouter (https://www.orcarouter.ai) is an OpenAI-compatible gateway —
+    // its API is served at https://api.orcarouter.ai/v1/chat/completions — so
+    // we reuse rig's OpenAI Chat Completions client pointed at OrcaRouter's
+    // base URL rather than OpenRouter's (which carries OpenRouter-only headers).
+    let base = base_url.unwrap_or("https://api.orcarouter.ai/v1");
+    let client = openai::CompletionsClient::builder()
+        .api_key(key)
+        .base_url(base)
+        .build()?;
+    Ok(AnyClient::OrcaRouter(client))
 }
 
 /// Builds an OpenAiModel (Responses / Completions) into the matching OpenAiAgent.
