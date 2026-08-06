@@ -156,7 +156,14 @@ struct Ctx {
 }
 
 fn builtin_provider_names() -> &'static [&'static str] {
-    &["openrouter", "openai", "anthropic", "gemini", "ollama"]
+    &[
+        "openrouter",
+        "openai",
+        "anthropic",
+        "gemini",
+        "ollama",
+        "orcarouter",
+    ]
 }
 
 fn provider_env_var(name: &str) -> &'static str {
@@ -166,6 +173,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "anthropic" => "ANTHROPIC_API_KEY",
         "gemini" => "GEMINI_API_KEY",
         "ollama" => "OLLAMA_API_KEY",
+        "orcarouter" => "ORCAROUTER_API_KEY",
         _ => "",
     }
 }

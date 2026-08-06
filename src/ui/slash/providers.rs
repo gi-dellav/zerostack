@@ -61,7 +61,7 @@ pub(crate) async fn fetch_models_cached(
         is_custom,
         refresh
     );
-    let mut models = if is_custom {
+    let mut models = if is_custom || provider == "orcarouter" {
         list_models_manual(
             provider,
             cli.api_key.as_deref(),

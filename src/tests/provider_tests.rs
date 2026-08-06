@@ -216,6 +216,22 @@ fn resolve_builtin_openrouter() {
 }
 
 #[test]
+fn resolve_builtin_orcarouter() {
+    let cfg = resolve_provider_config("orcarouter", &HashMap::new()).unwrap();
+    assert_eq!(cfg.kind, ProviderKind::OrcaRouter);
+    assert_eq!(
+        cfg.base_url.as_deref(),
+        Some("https://api.orcarouter.ai/v1")
+    );
+}
+
+#[test]
+fn create_orcarouter_client() {
+    let client = create_client("orcarouter", Some("test-key"), &HashMap::new(), None).unwrap();
+    assert!(matches!(client, AnyClient::OrcaRouter(_)));
+}
+
+#[test]
 fn resolve_unknown_provider_errors() {
     let result = resolve_provider_config("nonexistent_provider_xyz", &HashMap::new());
     assert!(result.is_err());

@@ -181,11 +181,17 @@ impl<'a> App<'a> {
         }
         input.set_quick_model_names(config::quick_models_map(ui.cfg).into_keys().collect());
         {
-            let mut providers: Vec<String> =
-                ["anthropic", "openai", "gemini", "openrouter", "ollama"]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect();
+            let mut providers: Vec<String> = [
+                "anthropic",
+                "openai",
+                "gemini",
+                "openrouter",
+                "ollama",
+                "orcarouter",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
             providers.extend(ui.cfg.custom_providers_map().keys().cloned());
             input.set_provider_names(providers);
         }

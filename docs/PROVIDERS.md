@@ -1,10 +1,10 @@
 ---
-description: "Configure LLM providers in zerostack: OpenRouter, OpenAI-compatible endpoints, Anthropic, Gemini, Ollama, custom headers, and prompt caching."
+description: "Configure LLM providers in zerostack: OpenRouter, OrcaRouter, OpenAI-compatible endpoints, Anthropic, Gemini, Ollama, custom headers, and prompt caching."
 ---
 
 # Providers
 
-zerostack supports five built-in providers and allows custom provider
+zerostack supports six built-in providers and allows custom provider
 definitions for OpenAI-compatible endpoints.
 
 ## Built-in Providers
@@ -12,6 +12,7 @@ definitions for OpenAI-compatible endpoints.
 | Provider   | Config name         | Default env var for API key |
 | ---------- | ------------------- | --------------------------- |
 | OpenRouter | `openrouter`        | `OPENROUTER_API_KEY`        |
+| OrcaRouter | `orcarouter`        | `ORCAROUTER_API_KEY`        |
 | OpenAI     | `openai`            | `OPENAI_API_KEY`            |
 | Anthropic  | `anthropic`         | `ANTHROPIC_API_KEY`         |
 | Gemini     | `gemini` / `google` | `GEMINI_API_KEY`            |
@@ -29,6 +30,26 @@ The model is set with `--model` or `ZS_MODEL`:
 ```
 zerostack --provider openai --model gpt-4o
 ```
+
+### OrcaRouter
+
+[OrcaRouter](https://www.orcarouter.ai) is an OpenAI-compatible gateway that
+gives you access to a wide range of AI models through a single API key. It also
+runs gateway-level, zero-trust security for AI agents on the same endpoint —
+screening every prompt/response and governing every tool call on a default-deny
+basis, with no application code changes.
+
+Set the `ORCAROUTER_API_KEY` environment variable and select the provider with
+`--provider orcarouter`:
+
+```
+export ORCAROUTER_API_KEY="[api_key]"
+zerostack --provider orcarouter --model orcarouter/fusion-flash
+```
+
+OrcaRouter models use the `provider/model` format (e.g. `deepseek/deepseek-v4-flash`).
+Run `/models refresh` inside zerostack to pull the current model list from
+`https://api.orcarouter.ai/v1/models`.
 
 ## Provider Recipes
 

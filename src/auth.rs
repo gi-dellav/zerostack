@@ -9,6 +9,7 @@ pub enum ProviderKind {
     Anthropic,
     Gemini,
     Ollama,
+    OrcaRouter,
 }
 
 impl ProviderKind {
@@ -19,6 +20,7 @@ impl ProviderKind {
             "anthropic" => Some(Self::Anthropic),
             "gemini" | "google" => Some(Self::Gemini),
             "ollama" => Some(Self::Ollama),
+            "orcarouter" => Some(Self::OrcaRouter),
             _ => None,
         }
     }
@@ -132,6 +134,7 @@ impl AuthResolver {
             ProviderKind::Gemini => "GEMINI_API_KEY",
             ProviderKind::Ollama => "OLLAMA_API_KEY",
             ProviderKind::OpenRouter => "OPENROUTER_API_KEY",
+            ProviderKind::OrcaRouter => "ORCAROUTER_API_KEY",
         }
     }
 
@@ -142,6 +145,7 @@ impl AuthResolver {
             ProviderKind::Anthropic => "anthropic",
             ProviderKind::Gemini => "gemini",
             ProviderKind::Ollama => "ollama",
+            ProviderKind::OrcaRouter => "orcarouter",
         }
     }
 }
