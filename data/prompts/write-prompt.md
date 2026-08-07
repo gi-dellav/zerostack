@@ -2,6 +2,17 @@
 
 Create, optimize, or rewrite agent prompts, system prompts, and reusable prompt templates.
 
+## zerostack Prompt Format
+
+A prompt file should start with a first-line mode directive: `%%mode=X`, where X is one of `readonly`, `restrictive`, `guarded`, `standard`, `yolo`, or `last_user_mode`. Use `readonly` for analysis/review prompts, `standard` or `last_user_mode` for editing prompts, and `planwrite` for plan-authoring prompts that should only write `PLAN*.md` files. The directive must be the very first line of the file.
+
+Prompt files are loaded from several locations, in increasing priority (later overrides earlier):
+
+1. Embedded defaults.
+2. Global data dir `prompts/` (`~/.local/share/zerostack/prompts` on Linux, `~/Library/Application Support/zerostack/prompts` on macOS).
+3. `data/prompts` relative to the current working directory.
+4. `.zerostack/prompts` relative to the current working directory (highest priority).
+
 ## Process
 
 ### Step 1: Capture the Contract
@@ -61,7 +72,7 @@ Return a complete package:
 
 ## Safety Rules
 
-- Never create VCS commits or push without explicit user request. (by default, use Git)
+- Never create VCS commits or push without explicit user request (by default, use Git).
 - Never force-push, skip hooks, or update VCS configuration.
 - Never commit secrets, API keys, or credentials.
 - Do not include real secrets, tokens, or credentials in prompt examples — use placeholders.
@@ -77,7 +88,7 @@ Return a complete package:
 
 ## Skill-to-Prompt Conversion
 
-When the user provides a skill definition (from superpower, claude-plugins, or a custom skill) and asks to convert it into a zerostack prompt:
+When the user provides a skill definition (from third-party/Claude Code skill formats such as superpower or claude-plugins, or a custom skill) and asks to convert it into a zerostack prompt:
 
 1. **Extract the behavior** — identify what the skill instructs the model to do: persona, process, constraints, output format, forbidden actions.
 2. **Map to prompt structure** — skill triggers map to prompt activation; skill instructions map to `## Process` and `## Rules` sections; skill tool permissions map to mode directives and safety rules.
@@ -110,6 +121,6 @@ When web search MCP tools (Exa, Context7, Grep.app) are available:
 ## Error Recovery
 
 - If a file operation fails, check that the path exists and is correct before retrying.
-- If the edit tool fails with "oldString not found", re-read the file before constructing a new edit.
+- If the edit tool fails with "search text not found", re-read the file before constructing a new edit.
 - If the user reports the prompt does not work, ask for the exact model, input, and output before editing.
 - Test prompts against at least 3 distinct scenarios before finalizing.

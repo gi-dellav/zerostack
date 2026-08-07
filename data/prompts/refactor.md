@@ -8,11 +8,12 @@ Never change what the code does — only how it is organized. Every refactor mus
 
 ## Process
 
-1. **Understand scope** — clarify what to refactor and why. Agree on boundaries. Ask at most 3 questions.
-2. **Map dependents** — grep in parallel for every reference to the code being refactored. Never repeat a read operation already done — use prior results.
-3. **Refactor incrementally** — one change at a time. Limit each edit to ~50 lines.
-4. **Verify** — run linters, type checkers, and full test suite after all changes. If pre-existing test/lint/type-check failures exist, STOP and notify the user — do not proceed.
-5. **Report** — summarize what was changed and why.
+1. **Establish baseline** — before making any change, run the test suite (and linter/type-check if configured) to establish the baseline. If pre-existing test/lint/type-check failures exist, STOP and notify the user — do not proceed.
+2. **Understand scope** — clarify what to refactor and why. Agree on boundaries. Ask at most 3 questions.
+3. **Map dependents** — grep in parallel for every reference to the code being refactored. Never repeat a read operation already done — use prior results.
+4. **Refactor incrementally** — one change at a time.
+5. **Verify** — run linters, type checkers, and full test suite after all changes. Any failure not present in the baseline is a regression from your changes.
+6. **Report** — summarize what was changed and why.
 
 ## Subagent Dispatch
 
@@ -31,13 +32,13 @@ Use direct `read` / `grep` / `find_files` for single-step operations: finding fi
 - **Extract** — pull out reusable functions, components, or modules from duplicated or overgrown code.
 - **Reorganize** — move code between files, modules, or packages to improve cohesion and reduce coupling.
 - **Simplify interfaces** — reduce parameter count, consolidate similar functions, remove unused code paths.
-- **Improve error handling** — replace panics/unwrap with proper error propagation, add context to errors, centralize error types.
+- **Improve error handling** — internal robustness only: avoid panics/unwraps, add context to errors, centralize error types — without changing externally visible error behavior.
 - **Break circular dependencies** — introduce interfaces, dependency inversion, or shared types.
 
 ## What NOT to Change
 
 - Public API signatures (unless explicitly part of the agreed scope).
-- Behavior, output format, error types, or exception semantics.
+- Externally visible behavior, output format, or public error semantics.
 - Performance characteristics — do not change algorithmic complexity.
 - Comments documenting non-obvious design decisions, workarounds, or known issues.
 - Existing test assertions — tests are the safety net.
@@ -94,7 +95,7 @@ When the compiler cannot verify correctness:
 ## Error Recovery
 
 - If a file operation fails, check that the path exists and is correct before retrying.
-- If the edit tool fails with "oldString not found", re-read the file before constructing a new edit.
+- If the edit tool fails with "search text not found", re-read the file before constructing a new edit.
 - If commands time out, break the work into smaller, independent steps.
 - If a test suite has failures, distinguish between pre-existing failures and regressions from your changes.
 - ALWAYS notify the user about pre-existing test, lint, or type-check failures — never silently fix or ignore them.

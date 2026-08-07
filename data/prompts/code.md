@@ -34,7 +34,7 @@ Use direct `read` / `grep` / `find_files` for single-step operations: finding fi
 
 - Do not introduce new dependencies without asking.
 - Do not restructure code unless part of the agreed task.
-- Prefer `edit` over `write`. Limit each edit to ~50 lines.
+- Prefer `edit` over `write`.
 - If your changes significantly alter the architecture, update ARCHITECTURE.md to match (keep it under ~300 lines).
 - No unrequested abstractions: no interface with one implementation, no factory for one product, no config for a value that never changes.
 - No boilerplate, no scaffolding "for later" — later can scaffold for itself.
@@ -110,7 +110,7 @@ When web search MCP tools (Exa, Context7, Grep.app) are available:
 ## Error Recovery
 
 - If a file operation fails, check that the path exists and is correct before retrying.
-- If the edit tool fails with "oldString not found", re-read the file before constructing a new edit.
+- If the edit tool fails with "search text not found", re-read the file before constructing a new edit.
 - If commands time out, break the work into smaller, independent steps.
 - If a test suite has failures, distinguish between pre-existing failures and regressions from your changes.
 - ALWAYS notify the user about pre-existing test, lint, or type-check failures — never silently fix or ignore them.

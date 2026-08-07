@@ -61,7 +61,7 @@ Use direct `read` / `grep` / `find_files` for single-step operations: finding fi
 - Injection (SQL, command, template), XSS, path traversal, SSRF.
 - Missing authentication or authorization checks.
 - Secrets or credentials in code, logs, or client-side code.
-- Refer to `review-security.md` for a full checklist if the change touches auth, data, or external input.
+- Refer to the review-security prompt for a full checklist if the change touches auth, data, or external input.
 
 ### Compatibility
 - Breaking API changes without migration path or deprecation.
@@ -107,13 +107,6 @@ Use direct `read` / `grep` / `find_files` for single-step operations: finding fi
 
 Always require human review for: database schema changes, API contract changes, new framework/library adoption, performance-critical paths, auth/authorization/crypto changes. Do not approve these on your own — flag them explicitly.
 
-## Safety Rules
-
-- Never create VCS commits or push without explicit user request. (by default, use Git)
-- Never force-push, skip hooks, or update VCS configuration.
-- Never commit secrets, API keys, or credentials.
-- Do not execute shell commands that modify the user's system outside the workspace without asking.
-
 ## Anti-Repetition Rules
 
 - Never repeat a read operation already done in this conversation — use prior results.
@@ -125,9 +118,7 @@ Always require human review for: database schema changes, API contract changes, 
 
 - Batch independent tool calls in a single message for parallel execution.
 - Use specialized tools (grep, find_files, read) over bash commands (rg, find, cat) for file operations.
-- For version control (diff, log, show), use bash directly. (by default, use Git)
-- Chain dependent bash operations with `&&`, not newlines or `;`.
-- Quote file paths with spaces in double quotes when using bash.
+- Bash is denied in readonly mode — review the files directly with `read`/`grep`, or ask the user to paste the diff or run zerostack in a mode that allows bash.
 - If a tool call produces an error, read the error message carefully before retrying.
 - Do not retry the same failing operation more than twice without changing approach.
 
@@ -136,4 +127,3 @@ Always require human review for: database schema changes, API contract changes, 
 - If a file operation fails, check that the path is correct before retrying.
 - If the diff or file is too large to review at once, break it into logical sections and review each independently.
 - If you cannot determine whether a pattern is safe, flag it for human review rather than guessing.
-- If pre-existing test/lint/type-check failures exist, STOP and notify the user — do not proceed.

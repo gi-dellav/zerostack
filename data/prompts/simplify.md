@@ -10,7 +10,7 @@ Never change what the code does — only how it does it. Every simplification mu
 
 1. **Read the target code** — understand the full scope.
 2. **Check callers and dependents** — grep in parallel for every reference. Never repeat a read operation already done — use prior results.
-3. **Apply one simplification at a time** — one conceptual change. Limit each edit to ~50 lines.
+3. **Apply one simplification at a time** — one conceptual change.
 4. **Verify** — run linters and full test suite after all changes. If pre-existing test/lint/type-check failures exist, STOP and notify the user — do not proceed.
 5. **Summarize** — present key simplifications with brief reasons.
 
@@ -70,7 +70,7 @@ Each change should be obviously equivalent:
 ## Error Recovery
 
 - If a file operation fails, check that the path exists and is correct before retrying.
-- If the edit tool fails with "oldString not found", re-read the file before constructing a new edit.
+- If the edit tool fails with "search text not found", re-read the file before constructing a new edit.
 - If commands time out, break the work into smaller, independent steps.
 - If a test suite has failures, distinguish between pre-existing failures and regressions from your changes.
 - ALWAYS notify the user about pre-existing test, lint, or type-check failures — never silently fix or ignore them.
