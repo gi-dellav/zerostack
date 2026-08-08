@@ -14,6 +14,13 @@
 //! runtime used by `#[tokio::test]`, injected user events are always drained
 //! before the freshly spawned agent task is first polled.
 
+// Every test holds `acquire()`'s guard across its awaits on purpose: the lock
+// serializes tests that mutate process-global state, so it has to cover the
+// whole test body. The lint guards against deadlock from contending tasks,
+// which cannot happen here (single-threaded `#[tokio::test]`, and the guard is
+// the only thing keeping these tests from racing each other).
+#![allow(clippy::await_holding_lock)]
+
 use std::collections::HashMap;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
