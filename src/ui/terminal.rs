@@ -1,6 +1,7 @@
 use std::io::Write;
 
 use crossterm::ExecutableCommand;
+use crossterm::cursor::Show;
 use crossterm::event::{
     DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
     KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
@@ -37,6 +38,7 @@ impl Drop for TerminalGuard {
         if self.mouse_capture {
             let _ = stdout.execute(DisableMouseCapture);
         }
+        let _ = stdout.execute(Show);
         let _ = stdout.execute(LeaveAlternateScreen);
         let _ = stdout.flush();
     }
