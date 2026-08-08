@@ -129,7 +129,7 @@ impl<'a> App<'a> {
         let headless = headless_backend.is_some();
         let _terminal_guard = match headless {
             true => None,
-            false => Some(TerminalGuard::new()?),
+            false => Some(TerminalGuard::new(ui.cfg.resolve_mouse_capture())?),
         };
 
         ui.session.show_cost_always = ui.cfg.resolve_show_cost_always();
@@ -174,6 +174,7 @@ impl<'a> App<'a> {
 
         let mut input = InputEditor::new();
         input.set_monochrome(ui.cli.no_color);
+        input.set_mouse_capture(ui.cfg.resolve_mouse_capture());
         input.set_prompt_names(ui.context.prompts.keys().cloned().collect());
         input.set_theme_names(ui.context.themes.keys().cloned().collect());
         if let Some(editor) = &ui.cfg.editor {
@@ -727,6 +728,17 @@ impl<'a> App<'a> {
                 ),
                 Color::White,
             )?;
+            return Ok(());
+        }
+
+        let ctrl_up = key.code == KeyCode::Up && key.modifiers.contains(KeyModifiers::CONTROL);
+        let ctrl_down = key.code == KeyCode::Down && key.modifiers.contains(KeyModifiers::CONTROL);
+        if ctrl_up {
+            self.renderer.scroll_line_up();
+            return Ok(());
+        }
+        if ctrl_down {
+            self.renderer.scroll_line_down();
             return Ok(());
         }
 
@@ -1656,9 +1668,12 @@ impl<'a> App<'a> {
                     .clone()
                     .or_else(|| std::env::var("EDITOR").ok())
                     .unwrap_or_else(|| "editor".to_string());
+                let mouse_capture = self.ui.cfg.resolve_mouse_capture();
                 let _ = crossterm::terminal::disable_raw_mode();
                 let mut stdout = std::io::stdout();
-                let _ = stdout.execute(crossterm::event::DisableMouseCapture);
+                if mouse_capture {
+                    let _ = stdout.execute(crossterm::event::DisableMouseCapture);
+                }
                 let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
                 let _ = stdout.flush();
                 let _ = std::process::Command::new("sh")
@@ -1671,7 +1686,9 @@ impl<'a> App<'a> {
                 let _ = stdout.execute(crossterm::terminal::Clear(
                     crossterm::terminal::ClearType::All,
                 ));
-                let _ = stdout.execute(crossterm::event::EnableMouseCapture);
+                if mouse_capture {
+                    let _ = stdout.execute(crossterm::event::EnableMouseCapture);
+                }
                 let _ = crossterm::terminal::enable_raw_mode();
                 render_session(
                     &mut self.renderer,
@@ -1965,9 +1982,12 @@ impl<'a> App<'a> {
             self.running.store(false, Ordering::Relaxed);
             let _ = h.join();
         }
+        let mouse_capture = self.ui.cfg.resolve_mouse_capture();
         let _ = crossterm::terminal::disable_raw_mode();
         let mut stdout = std::io::stdout();
-        let _ = stdout.execute(crossterm::event::DisableMouseCapture);
+        if mouse_capture {
+            let _ = stdout.execute(crossterm::event::DisableMouseCapture);
+        }
         let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
         let _ = stdout.flush();
         let _ = std::process::Command::new("lazygit").status();
@@ -1975,7 +1995,9 @@ impl<'a> App<'a> {
         let _ = stdout.execute(crossterm::terminal::Clear(
             crossterm::terminal::ClearType::All,
         ));
-        let _ = stdout.execute(crossterm::event::EnableMouseCapture);
+        if mouse_capture {
+            let _ = stdout.execute(crossterm::event::EnableMouseCapture);
+        }
         let _ = crossterm::terminal::enable_raw_mode();
         self.rebind_event_thread();
         Ok(())
