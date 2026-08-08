@@ -1,5 +1,78 @@
-use crate::print::format_sandbox_expose_display;
-use crate::sandbox::partition_expose;
+use crate::print::{format_sandbox_expose_display, format_sandbox_network_display};
+use crate::sandbox::{Sandbox, partition_expose};
+
+/// The `sandbox-network` row as `--print-config` builds it: from a sandbox
+/// carrying the resolved settings, with the backend probe pinned so the
+/// answer does not change with whether the developer's host has bwrap.
+fn network_row(enabled: bool, backend: &str, network: bool, backend_available: bool) -> String {
+    format_sandbox_network_display(
+        Sandbox::new(enabled, backend)
+            .with_network(network)
+            .with_backend_available(backend_available)
+            .network_effect(),
+    )
+}
+
+/// The `sandbox-network` row reports what is in effect, the same way the
+/// `sandbox-expose` row does: `sandbox-network = false` is a bwrap policy, so
+/// with the sandbox off, another backend selected, or bwrap not installed it
+/// does nothing, and a bare `false` would read as a promise the session is
+/// not keeping.
+#[test]
+fn sandbox_network_display_open_network_is_plain_true() {
+    assert_eq!(network_row(true, "bwrap", true, true), "true");
+    assert_eq!(network_row(false, "bwrap", true, true), "true");
+    // An open network is open however the rest of the session is configured,
+    // so the row never annotates `true`.
+    assert_eq!(network_row(true, "bwrap", true, false), "true");
+    assert_eq!(network_row(true, "zerobox", true, true), "true");
+}
+
+#[test]
+fn sandbox_network_display_effective_when_sandboxed_under_bwrap() {
+    assert_eq!(network_row(true, "bwrap", false, true), "false");
+}
+
+#[test]
+fn sandbox_network_display_flags_a_disabled_sandbox() {
+    assert_eq!(
+        network_row(false, "bwrap", false, true),
+        "false (no effect: sandbox is off)"
+    );
+}
+
+#[test]
+fn sandbox_network_display_flags_the_zerobox_backend() {
+    assert_eq!(
+        network_row(true, "zerobox", false, true),
+        "false (no effect: bwrap backend only)"
+    );
+}
+
+/// The variant the row used to be missing, and the one that mattered most: on
+/// a host with no bwrap the sandbox falls back to running commands bare, with
+/// the network intact, and a row printing a plain `false` told the user their
+/// commands were offline while every one of them was online. The reason the
+/// row is rendered from a sandbox rather than from resolved booleans is that
+/// this question is a probe, not a setting.
+#[test]
+fn sandbox_network_display_flags_a_missing_backend() {
+    assert_eq!(
+        network_row(true, "bwrap", false, false),
+        "false (no effect: bwrap is not installed)"
+    );
+}
+
+/// The sandbox being off wins over the backend also being missing: with
+/// nothing wrapping the command, which binary is on `PATH` is not the thing
+/// the user needs to fix first.
+#[test]
+fn sandbox_network_display_prefers_the_disabled_sandbox_reason() {
+    assert_eq!(
+        network_row(false, "bwrap", false, false),
+        "false (no effect: sandbox is off)"
+    );
+}
 
 #[test]
 fn sandbox_expose_display_empty() {

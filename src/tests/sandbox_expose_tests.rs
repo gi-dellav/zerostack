@@ -1,33 +1,12 @@
 use std::path::PathBuf;
 
-use tokio::process::Command;
-
 use crate::cli::Cli;
 use crate::config::Config;
-use crate::sandbox::{Sandbox, partition_expose};
+use crate::sandbox::partition_expose;
+use crate::tests::sandbox_support::{args_of, bwrap_sandbox, pair_at, scratch_dir, triple_at};
 
-fn scratch_dir(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("zerostack-expose-{}-{}", name, std::process::id()))
-}
-
-fn args_of(cmd: &Command) -> Vec<String> {
-    cmd.as_std()
-        .get_args()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect()
-}
-
-/// Index of `flag` in an adjacent `flag value` pair, so `--tmpfs /tmp` never
-/// answers a question asked about `--tmpfs <mask root>`.
-fn pair_at(args: &[String], flag: &str, value: &str) -> Option<usize> {
-    args.windows(2).position(|w| w[0] == flag && w[1] == value)
-}
-
-/// Index of `flag` in an adjacent `flag src dst` triple, matching the
-/// `--ro-bind-try <path> <path>` shape expose emits.
-fn triple_at(args: &[String], flag: &str, src: &str, dst: &str) -> Option<usize> {
-    args.windows(3)
-        .position(|w| w[0] == flag && w[1] == src && w[2] == dst)
+fn dir(name: &str) -> PathBuf {
+    scratch_dir("expose", name)
 }
 
 // --- Resolver: CLI replaces config wholesale ---
@@ -70,7 +49,7 @@ fn test_resolve_sandbox_expose_defaults_to_empty() {
 
 #[test]
 fn test_partition_accepts_exact_mask_root() {
-    let home = scratch_dir("home-exact");
+    let home = dir("home-exact");
     let ssh = home.join(".ssh");
     let raw = vec!["~/.ssh".to_string()];
 
@@ -85,7 +64,7 @@ fn test_partition_accepts_exact_mask_root() {
 
 #[test]
 fn test_partition_accepts_subpath_of_mask_root() {
-    let home = scratch_dir("home-subpath");
+    let home = dir("home-subpath");
     let ssh = home.join(".ssh");
     let raw = vec!["~/.ssh/known_hosts".to_string()];
 
@@ -100,7 +79,7 @@ fn test_partition_accepts_subpath_of_mask_root() {
 
 #[test]
 fn test_partition_rejects_path_outside_mask_list() {
-    let home = scratch_dir("home-outside");
+    let home = dir("home-outside");
     let ssh = home.join(".ssh");
     let raw = vec!["/etc".to_string()];
 
@@ -117,7 +96,7 @@ fn test_partition_rejects_path_outside_mask_list() {
 fn test_partition_rejects_sibling_component_trap() {
     // Component-wise containment, not string prefixes: `~/.ssh2` is not under
     // `~/.ssh`, even though the string "~/.ssh" is a text prefix of it.
-    let home = scratch_dir("home-sibling");
+    let home = dir("home-sibling");
     let ssh = home.join(".ssh");
     let raw = vec!["~/.ssh2".to_string()];
 
@@ -134,7 +113,7 @@ fn test_partition_rejects_sibling_component_trap() {
 fn test_partition_accepts_dollar_home_spelling() {
     // Every other path-taking config key accepts `$HOME/...`; expose rejecting
     // it would be a trap with no reason behind it.
-    let home = scratch_dir("home-dollar");
+    let home = dir("home-dollar");
     let ssh = home.join(".ssh");
     let raw = vec!["$HOME/.ssh".to_string()];
 
@@ -151,7 +130,7 @@ fn test_partition_accepts_dollar_home_spelling() {
 fn test_partition_rejects_parent_dir_escape_to_home() {
     // `~/.ssh/..` passes a component-wise subpath test while naming the whole
     // home directory, which would re-bind everything the masks hide.
-    let home = scratch_dir("home-escape");
+    let home = dir("home-escape");
     let ssh = home.join(".ssh");
     let raw = vec!["~/.ssh/..".to_string()];
 
@@ -166,7 +145,7 @@ fn test_partition_rejects_parent_dir_escape_to_home() {
 
 #[test]
 fn test_partition_rejects_parent_dir_escape_into_a_sibling_mask() {
-    let home = scratch_dir("home-escape-sibling");
+    let home = dir("home-escape-sibling");
     let ssh = home.join(".ssh");
     let aws = home.join(".aws");
     let raw = vec!["~/.ssh/../.aws".to_string()];
@@ -182,7 +161,7 @@ fn test_partition_rejects_parent_dir_escape_into_a_sibling_mask() {
 
 #[test]
 fn test_partition_rejects_parent_dir_escape_out_of_home() {
-    let home = scratch_dir("home-escape-out");
+    let home = dir("home-escape-out");
     let ssh = home.join(".ssh");
     let raw = vec!["~/.ssh/../../../etc".to_string()];
 
@@ -240,6 +219,7 @@ fn test_build_sandbox_returns_the_rejected_value_warning() {
         backend: "bwrap",
         shell: "bash",
         expose: &["/etc".to_string()],
+        network: true,
     });
 
     assert!(
@@ -260,6 +240,7 @@ fn test_build_sandbox_is_quiet_without_expose_values() {
         backend: "bwrap",
         shell: "bash",
         expose: &[],
+        network: true,
     });
 
     assert!(
@@ -276,15 +257,12 @@ fn test_build_sandbox_is_quiet_without_expose_values() {
 
 #[test]
 fn test_expose_emits_ro_bind_try_between_masks_and_cwd_bind() {
-    let root = scratch_dir("expose-arg-assembly");
+    let root = dir("expose-arg-assembly");
     std::fs::create_dir_all(&root).unwrap();
-    let cache_dir = scratch_dir("expose-arg-assembly-cache");
+    let cache_dir = dir("expose-arg-assembly-cache");
 
-    let sandbox = Sandbox::new(true, "bwrap")
-        .with_backend_available(true)
-        .with_cache_dir(cache_dir.clone())
-        .with_mask_roots(vec![root.clone()])
-        .with_expose(vec![root.clone()]);
+    let sandbox =
+        bwrap_sandbox(vec![root.clone()], cache_dir.clone()).with_expose(vec![root.clone()]);
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
     let root_str = root.to_string_lossy();
@@ -316,14 +294,11 @@ fn test_expose_emits_ro_bind_try_between_masks_and_cwd_bind() {
 
 #[test]
 fn test_no_expose_emits_no_ro_bind_try() {
-    let root = scratch_dir("no-expose");
+    let root = dir("no-expose");
     std::fs::create_dir_all(&root).unwrap();
-    let cache_dir = scratch_dir("no-expose-cache");
+    let cache_dir = dir("no-expose-cache");
 
-    let sandbox = Sandbox::new(true, "bwrap")
-        .with_backend_available(true)
-        .with_cache_dir(cache_dir.clone())
-        .with_mask_roots(vec![root.clone()]);
+    let sandbox = bwrap_sandbox(vec![root.clone()], cache_dir.clone());
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
     let root_str = root.to_string_lossy();

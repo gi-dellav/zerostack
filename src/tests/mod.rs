@@ -91,7 +91,11 @@ mod sandbox_hint_tests;
 #[cfg(test)]
 mod sandbox_mask_tests;
 #[cfg(test)]
+mod sandbox_network_tests;
+#[cfg(test)]
 mod sandbox_required_tests;
+#[cfg(test)]
+mod sandbox_support;
 #[cfg(all(test, feature = "export"))]
 mod session_export_tests;
 #[cfg(test)]
