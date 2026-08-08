@@ -161,6 +161,17 @@ repeatable `--sandbox-expose <path>` flag) restores read-only access to one
 entry or a subpath of one. See [docs/CONFIG.md](docs/CONFIG.md) for the key
 and [SECURITY.md](SECURITY.md) for the full threat model.
 
+Sandboxed commands keep the host network by default. `sandbox-network = false`
+(or `--sandbox-network=false`) takes it away, which is what stops a command
+that read something sensitive from sending it anywhere. Each bash call then
+gets a fresh network namespace with only its own private loopback: a server the
+command starts and uses within that same command still works, but the internet,
+the LAN, and anything already listening on your machine (a dev server, a local
+registry) are unreachable, and the namespace itself is gone by the next bash
+call, taking anything bound to it (like a backgrounded server) with it; the
+working directory, by contrast, is shared with the host and persists across
+calls. That tradeoff is why the network stays open unless you ask.
+
 ## Quick start
 
 ```bash

@@ -165,6 +165,7 @@ If you want to use zerostack from scripts, from other programs, or if you just w
 | `--sandbox` | Run the agent inside a sandbox (Experimental) |
 | `--sandbox-required` | Refuse bash commands when the sandbox backend is unavailable (implies `--sandbox`) |
 | `--sandbox-expose <path>` | Restore read-only access to a masked credential path or subpath (repeatable) |
+| `--sandbox-network[=true\|false]` | Whether sandboxed bash commands can reach the host network (default: `true`; bare flag or `=true` enables it, `=false` leaves each command only its own private loopback) |
 | `--worktree` | Run the agent inside a git worktree (Experimental) |
 | `--parallel` | Run the agent inside a self-managed git worktree (Experimental) |
 | `--load-prompt <prompt>` | Use a specific prompt |

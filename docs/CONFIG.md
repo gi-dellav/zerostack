@@ -199,6 +199,7 @@ Accepted top-level keys:
 | `sandbox-backend`         | string  | Sandbox backend: `bwrap` (default, Linux only) or `zerobox` (macOS and Linux).                                                                                              |
 | `sandbox-required`        | boolean | Refuse to run bash commands when the sandbox backend is unavailable, instead of falling back to running them unsandboxed. Implies `sandbox`. Default: `false`.               |
 | `sandbox-expose`          | array   | Bwrap backend only. Restores read-only access to a masked credential directory or a subpath of one. `~` and `$HOME` expansion supported. Repeatable CLI flag `--sandbox-expose <path>`; when passed, it replaces this list wholesale. Values that are not a masked entry or a subpath of one, and values containing `..`, are warned about once at startup and ignored. Default: `[]` (nothing exposed). See Sandbox credential masking below. |
+| `sandbox-network`         | boolean | Bwrap backend only. When `false`, each sandboxed bash command runs in a fresh network namespace with only its own private loopback: a server it starts and uses within that one command still works on `127.0.0.1`, while the internet, the LAN, and anything listening on the *host's* loopback are unreachable. CLI flag `--sandbox-network[=true\|false]`, which wins over this key in both directions. Does not imply `sandbox`: with the sandbox off, the setting has no effect and a warning is logged once at startup. Default: `true` (network open). See Sandbox network isolation below. |
 | `default_permission_mode` | string  | Permission mode when no mode boolean/CLI flag is set. Accepts: `standard` (default), `restrictive`, `readonly`, `guarded`, `yolo`.                                          |
 | `show_tool_details`       | boolean or integer | Show tool-result previews in the TUI. `false` hides output, `true` shows all lines, an integer limits to that many lines (e.g. `3`). Default: `3`. |
 | `show_reasoning`          | boolean | Show streamed reasoning text in the TUI. Can still be toggled at runtime with `Ctrl+R` or `/reasoning`. Default: `false`. |
@@ -268,6 +269,76 @@ as noted above (see Project-local override). Masking, the ssh-agent cutoff,
 and `sandbox-expose` all apply to the `bwrap` backend only; see `SECURITY.md`
 for the full gap list, including what remains readable and the ssh-agent
 recovery paths.
+
+## Sandbox network isolation
+
+On the `bwrap` backend, sandboxed bash commands share the host network by
+default, which is the historical behavior. Set `sandbox-network = false` (or
+pass `--sandbox-network=false`) to run them in their own network namespace
+instead:
+
+```toml
+sandbox = true
+sandbox-network = false
+```
+
+### What "no network" means here
+
+Each bash call gets a fresh network namespace containing nothing but its own
+private loopback device, which bubblewrap brings up for it. Two consequences,
+and they pull in opposite directions:
+
+- **Loopback inside one command still works.** A command that starts a server
+  and then talks to it on `127.0.0.1` is fine, because both ends live in the
+  same namespace. `cargo test`, `pytest`, and anything else that binds a local
+  port inside a single command keep working.
+- **The host is gone, including the host's loopback.** No internet, no LAN,
+  and no reaching a service that is already listening on your machine: a dev
+  server on `localhost:3000`, a database on `localhost:5432`, or a local
+  package registry are all invisible from inside the sandbox, because they
+  live on the host's loopback and the sandbox has its own.
+
+The namespace lasts exactly as long as the command. A server backgrounded by
+one bash call is unreachable from the next one, which also takes away the
+"start it in one step, curl it in the next" pattern.
+
+Those last two points are why the default is `true`: turning the network off
+breaks host dev servers, private registries, and any workflow split across
+several bash calls, and that is too much to change under people silently.
+
+The CLI flag takes an optional value (bare `--sandbox-network` for `true`, or
+`--sandbox-network=false`) rather than being a plain on/off switch, because the
+key defaults to `true` and a plain switch could not express turning the
+network back on for a single run over a config that turns it off.
+
+`sandbox-network` is a modifier, not an enforcer. Unlike `sandbox-required`, it
+never switches the sandbox on: with `sandbox = false` there is nothing to cut
+the network from, so the setting has no effect and a warning is logged once at
+startup. Pairing it with `sandbox-required` is what turns the no-network
+promise into a guarantee, since a missing backend otherwise falls back to
+running commands bare, with the network intact.
+
+Like `sandbox-expose`, this key can be set from a project-local
+`.zerostack/config.toml`, which is trusted exactly like the global config. A
+checkout can therefore set `sandbox-network = true` and undo a global
+`false`, so review that file in untrusted checkouts (see Project-local
+override). Passing `--sandbox-network=false` on the command line settles the
+question for that run, since the CLI wins over both config files.
+
+When the network is off and a command fails with a resolver or unreachable
+network error, the tool result gets one extra line telling the model the
+sandbox cut the network and to ask you whether it should be enabled, so it
+stops retrying the command instead. The hint reads stderr, so a command that
+folds stderr into stdout with `2>&1` simply does not get one. On
+systemd-resolved hosts, `/etc/resolv.conf` points at `127.0.0.53`, which
+inside the fresh namespace is the sandbox's own loopback with nothing
+listening, so DNS failures there surface as connection refused rather than
+network unreachable, which is one reason "connection refused" is in the hint
+pattern list.
+
+Like masking and `sandbox-expose`, this applies to the `bwrap` backend only.
+The `zerobox` backend denies network access under its own policy regardless of
+this key; see `SECURITY.md`.
 
 ## System Prompt Suffix (`SUFFIX.md`)
 

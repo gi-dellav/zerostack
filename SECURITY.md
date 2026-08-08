@@ -36,7 +36,8 @@ With the default `bwrap` backend, a sandboxed command sees:
   working in stays editable
 - a fresh `/tmp` (tmpfs), a private `/proc`, and a minimal `/dev`
 - separate IPC, PID, UTS, and cgroup namespaces, so the command cannot see or
-  signal processes outside the sandbox
+  signal processes outside the sandbox, plus a separate network namespace when
+  `sandbox-network = false` (see below; the default keeps the host network)
 - a cleared environment, repopulated with an allowlist of common variables
   (`PATH`, `HOME`, toolchain and locale variables, and so on)
 - `--die-with-parent`, so the sandboxed process tree does not outlive zerostack
@@ -60,11 +61,62 @@ your situation. Most of them come from how zerostack configures the default
 
 With the `bwrap` backend:
 
-- **Network access is fully open.** zerostack does not unshare the network
-  namespace, so a sandboxed command can reach the internet and your local
-  network, which means it can exfiltrate anything it can read. The `zerobox`
-  backend behaves differently here: it denies network access by default under
-  its own policy.
+- **Network access is open by default.** Out of the box zerostack does not
+  unshare the network namespace, so a sandboxed command can reach the internet
+  and your local network, which means it can exfiltrate anything it can read.
+  Set `sandbox-network = false` (or pass `--sandbox-network=false`) to unshare
+  it. Each bash call then runs in a fresh network namespace holding nothing but
+  its own private loopback device, which bubblewrap brings up for it: a server
+  the command starts and then talks to on `127.0.0.1` still works, because both
+  ends are inside that namespace, while the internet, the LAN, and anything
+  listening on the *host's* loopback (a dev server on `localhost:3000`, a
+  database, a local registry) are all unreachable. This is about routing only:
+  `/sys` is a host bind, so interface names and MAC addresses remain readable
+  from inside the offline namespace (`/proc` is remounted fresh and reflects
+  the new namespace, not the host's). The namespace lasts as long
+  as the command, so a server backgrounded by one bash call is gone for the
+  next one. Unsharing the network also replaces the abstract Unix socket
+  namespace, so abstract-address sockets on the host, which some D-Bus and X11
+  setups use, are cut off with it. Unix sockets that live at a filesystem path
+  are not cut off; see the next gap. Turning this on is what makes credential
+  masking worth more than it is alone: masking limits what a sandboxed command
+  can read but leaves it a way out, and an offline namespace removes the way
+  out but leaves everything outside the masked directories readable. Together
+  they narrow the path from "reads your secrets" to "sends them somewhere"
+  **for the `bash` tool only**, which is the scope of every claim in this
+  section: see "Only the `bash` tool is sandboxed" below for the file reads,
+  MCP servers, hooks, and `!` commands that never enter the sandbox at all.
+  Two things bound that narrowing, and neither is a detail. On a machine
+  running Docker, a session bus, or any other daemon that listens on a socket
+  file, the next gap applies and the way out is still open, so the narrowing
+  is not claimed there at all. And the tool result is itself a way out: a
+  sandboxed command's stdout and stderr are what the `bash` tool returns, and
+  that text is sent to whichever model provider the session is configured
+  with, so anything a command prints has left your machine no matter what the
+  network setting says. Turning the network off removes the command's own
+  network access; it cannot close the channel the agent itself runs on.
+  And without `sandbox-required`, a missing backend still falls back to
+  running commands bare, with the network intact and nothing masked. The
+  `zerobox` backend is unaffected by this key and denies network access by
+  default under its own policy.
+- **Unix sockets on disk stay connectable, even with the network unshared.**
+  A read-only bind mount stops writes to a socket *file*, but it does not stop
+  a `connect(2)` to it: the kernel's read-only protection covers regular
+  files, directories, and symlinks, not connecting to a socket inode. Socket
+  paths under `/run`, `/var/run`, and `/run/user/$UID` are therefore visible
+  and usable from inside the sandbox whatever `sandbox-network` is set to,
+  because they are filesystem objects rather than network ones and live
+  outside the network namespace entirely. The sharpest case is
+  `/run/docker.sock` on a host running Docker: a sandboxed command that can
+  talk to the Docker daemon can ask it to start a container with the host
+  filesystem mounted and the host network attached, which is a full escape
+  from both the mounts and the network namespace, credential masks included.
+  A session bus at `/run/user/$UID/bus` is the same shape at a smaller scale,
+  and so is any other daemon socket your distribution leaves there. zerostack
+  does not mask host socket paths today. Doing so is plausible future
+  hardening, not current behavior, so treat "the sandbox is offline" as a
+  statement about the network stack and not about every way out of the
+  machine.
 - **Most of your home directory is still readable.** `/` is mounted read only,
   not hidden, so everything under `$HOME` is visible inside the sandbox except
   the nine credential directories masked by default: `~/.ssh`, `~/.aws`,
@@ -149,8 +201,8 @@ a container with the network and credentials you are willing to expose.
 
 | Backend | Isolation |
 | --- | --- |
-| `bwrap` (default) | Linux only. The bubblewrap mounts and namespaces described above, with the network left open. The nine built-in credential directories are masked by default and the advertised ssh-agent socket is cut off; see above. |
-| `zerobox` | macOS and Linux. Denies writes, network access, and environment variables by default, with per-domain network allowances. zerostack invokes `zerobox --allow-write <cwd> -- <shell> -c <command>`, so the working directory is writable and the rest of the policy is whatever zerobox enforces. Credential masking does not apply here: zerobox exposes no mount-policy surface to inject it, and whether its own defaults limit reads under `$HOME` has not been verified. |
+| `bwrap` (default) | Linux only. The bubblewrap mounts and namespaces described above, with the host network left open unless `sandbox-network = false` unshares it, in which case each command gets a fresh namespace with only its own private loopback. The nine built-in credential directories are masked by default and the advertised ssh-agent socket is cut off; see above. |
+| `zerobox` | macOS and Linux. Denies writes, network access, and environment variables by default, with per-domain network allowances. `sandbox-network` is a bwrap-only key and does not apply here: zerobox denies network access under its own policy regardless of it. zerostack invokes `zerobox --allow-write <cwd> -- <shell> -c <command>`, so the working directory is writable and the rest of the policy is whatever zerobox enforces. Credential masking does not apply here: zerobox exposes no mount-policy surface to inject it, and whether its own defaults limit reads under `$HOME` has not been verified. |
 | none | With the sandbox off (the default), bash commands run directly as your user with no isolation at all. The permission system is the only gate. |
 
 ## Best effort versus guarantee
@@ -169,6 +221,16 @@ Two different contracts:
 (reading files, editing, planning) keeps working, only bash execution is
 refused. This is the setting to use for unattended or automated runs, where
 nobody is watching the log for the "running unsandboxed" warning.
+
+`sandbox-expose` and `sandbox-network` are neither contract: they are
+modifiers that change what the sandbox does when it runs, and neither of them
+switches the sandbox on. `sandbox-network = false` with `sandbox = false` is a
+no-op, warned about once at startup; `sandbox-network = false` with
+`sandbox = true` alone is best effort in the same way as everything else, since
+a missing backend still runs the command bare and online. Pairing it with
+`sandbox-required` is what makes "the bash tool cannot reach the host network"
+a guarantee, and that sentence is deliberately about the bash tool rather than
+about the session.
 
 Neither setting changes the gaps listed above. `sandbox-required` guarantees
 that the isolation is present, not that the isolation is complete.
