@@ -338,7 +338,7 @@ fn render_main_menu(ctx: &Ctx) -> io::Result<()> {
     write_line(row, 2, "L) Launch agent", Color::White)?;
     write_line(row, 28, "A) Autoconfigure", Color::White)?;
     row += 1;
-    write_line(row, 2, "Q) Quit", Color::White)?;
+    write_line(row, 2, "Q) Quit & Save", Color::White)?;
 
     if let Some(msg) = &ctx.message {
         write_line(row + 2, 2, msg, Color::DarkYellow)?;
@@ -817,8 +817,13 @@ fn run_inner(cfg: &mut Config) -> anyhow::Result<SetupOutcome> {
                         ctx.screen = new_screen;
                         ctx.message = None;
                     }
+                    KeyResult::ApplyConfig(new_screen, new_cfg) => {
+                        ctx.screen = new_screen;
+                        ctx.cfg = new_cfg;
+                        ctx.message = None;
+                    }
                     KeyResult::Outcome(outcome, new_cfg) => {
-                        *cfg = new_cfg.clone();
+                        *cfg = new_cfg;
                         crate::config::save_config(cfg)?;
                         return Ok(outcome);
                     }
@@ -836,6 +841,7 @@ fn run_inner(cfg: &mut Config) -> anyhow::Result<SetupOutcome> {
 #[allow(clippy::large_enum_variant)]
 enum KeyResult {
     Screen(Screen),
+    ApplyConfig(Screen, Config),
     Outcome(SetupOutcome, Config),
 }
 
@@ -908,10 +914,13 @@ fn handle_manage_providers_key(
                     }
                 }
                 let new_selected = selected.min(count.saturating_sub(2));
-                Ok(KeyResult::Screen(Screen::ManageProviders {
-                    selected: new_selected,
-                    confirm_delete: false,
-                }))
+                Ok(KeyResult::ApplyConfig(
+                    Screen::ManageProviders {
+                        selected: new_selected,
+                        confirm_delete: false,
+                    },
+                    new_cfg,
+                ))
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                 Ok(KeyResult::Screen(Screen::ManageProviders {
@@ -1183,7 +1192,7 @@ fn handle_provider_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyRes
                     } else if let Some(ref mut keys) = new_cfg.api_keys {
                         keys.remove(&name);
                     }
-                    return Ok(KeyResult::Screen(Screen::MainMenu));
+                    return Ok(KeyResult::ApplyConfig(Screen::MainMenu, new_cfg));
                 }
 
                 if is_new && new_name.is_empty() {
@@ -1241,7 +1250,7 @@ fn handle_provider_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyRes
                     keys.insert(final_name.clone(), new_api_key_value);
                 }
 
-                Ok(KeyResult::Screen(Screen::MainMenu))
+                Ok(KeyResult::ApplyConfig(Screen::MainMenu, new_cfg))
             }
             KeyCode::Esc => Ok(KeyResult::Screen(Screen::MainMenu)),
             _ => Ok(KeyResult::Screen(ctx.screen.clone())),
@@ -1268,10 +1277,13 @@ fn handle_manage_models_key(
                     m.remove(name);
                 }
                 let new_selected = selected.min(count.saturating_sub(2));
-                Ok(KeyResult::Screen(Screen::ManageModels {
-                    selected: new_selected,
-                    confirm_delete: false,
-                }))
+                Ok(KeyResult::ApplyConfig(
+                    Screen::ManageModels {
+                        selected: new_selected,
+                        confirm_delete: false,
+                    },
+                    new_cfg,
+                ))
             }
             KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
                 Ok(KeyResult::Screen(Screen::ManageModels {
@@ -1640,12 +1652,15 @@ fn handle_model_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyResult
                 );
 
                 if is_new && name != new_name {
-                    Ok(KeyResult::Screen(Screen::ManageModels {
-                        selected: 0,
-                        confirm_delete: false,
-                    }))
+                    Ok(KeyResult::ApplyConfig(
+                        Screen::ManageModels {
+                            selected: 0,
+                            confirm_delete: false,
+                        },
+                        new_cfg,
+                    ))
                 } else {
-                    Ok(KeyResult::Screen(Screen::MainMenu))
+                    Ok(KeyResult::ApplyConfig(Screen::MainMenu, new_cfg))
                 }
             }
             KeyCode::Esc => Ok(KeyResult::Screen(Screen::MainMenu)),
