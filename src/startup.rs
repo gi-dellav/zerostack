@@ -422,6 +422,7 @@ impl Startup {
             backend: &sandbox_backend,
             shell: &self.cli.resolve_shell(&self.cfg),
             expose: &sandbox_expose_raw,
+            network: self.cli.resolve_sandbox_network(&self.cfg),
         });
         self.sandbox = sandbox_setup.sandbox;
         for warning in &sandbox_setup.warnings {

@@ -11,16 +11,22 @@ pub struct Sandbox {
     required: bool,
     backend: String,
     shell: String,
+    /// `sandbox-network`: when false, the bwrap branch unshares the network
+    /// namespace. Defaults to true, which is the historical behavior.
+    network: bool,
     // Test seams: `backend_available` replaces the cached PATH probe for the
     // backend binary (and `backend_installed_now` the fresh one) so tests
     // behave the same on hosts with and without bwrap, `cache_dir` keeps the
-    // bwrap arg builder away from the real user cache, and `mask_roots`
+    // bwrap arg builder away from the real user cache, `mask_roots`
     // replaces the built-in credential list with temp dirs so mask assertions
-    // do not depend on the developer's home.
+    // do not depend on the developer's home, and `resolv_conf` moves the
+    // resolver file the sandbox binds off `/etc/resolv.conf`, which does not
+    // exist on every host and so cannot be asserted on directly.
     backend_available: Option<bool>,
     backend_installed_now: Option<bool>,
     cache_dir: Option<std::path::PathBuf>,
     mask_roots: Option<Vec<std::path::PathBuf>>,
+    resolv_conf: Option<std::path::PathBuf>,
     // Already-validated `sandbox-expose` paths (see `partition_expose`),
     // restored read-only on top of the masks.
     expose: Vec<std::path::PathBuf>,
@@ -29,6 +35,29 @@ pub struct Sandbox {
     // `Some(Some(path))` pins the socket path a test masks.
     ssh_auth_sock: Option<Option<std::path::PathBuf>>,
     active_groups: Arc<Mutex<HashSet<u32>>>,
+}
+
+/// What `sandbox-network` does to the commands a session will actually run
+/// (see `Sandbox::network_effect`). A resolved `false` is a request, not an
+/// outcome: three things have to be true for it to reach a command, and
+/// anything that reports the setting to a user has to say which one is
+/// missing rather than printing the request back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NetworkEffect {
+    /// `sandbox-network = true`: commands keep the host network, which is the
+    /// default and the historical behavior.
+    Open,
+    /// Off and honored: every bash command runs in its own network
+    /// namespace.
+    Unshared,
+    /// Off, but the sandbox is disabled, so nothing wraps the command.
+    SandboxOff,
+    /// Off, but the selected backend is not bwrap, whose flag this is.
+    OtherBackend,
+    /// Off, the sandbox is on and the backend is bwrap, but the bwrap binary
+    /// is not installed: without `sandbox-required` the command falls back to
+    /// running bare, with the network intact.
+    BackendMissing,
 }
 
 /// Well-known credential stores that live directly under the home directory.
@@ -184,10 +213,12 @@ impl Sandbox {
             required: false,
             backend: backend.to_string(),
             shell: "bash".to_string(),
+            network: true,
             backend_available: None,
             backend_installed_now: None,
             cache_dir: None,
             mask_roots: None,
+            resolv_conf: None,
             expose: Vec::new(),
             ssh_auth_sock: None,
             active_groups: Arc::new(Mutex::new(HashSet::new())),
@@ -212,6 +243,20 @@ impl Sandbox {
     /// unsandboxed if the backend binary is missing.
     pub fn with_required(mut self, required: bool) -> Self {
         self.required = required;
+        self
+    }
+
+    /// When false, each sandboxed command runs in a fresh network namespace
+    /// with nothing in it but its own private loopback. A server the command
+    /// starts and then talks to on `127.0.0.1` still works; everything on the
+    /// host is gone, including services listening on the host's own loopback,
+    /// and the namespace dies with the command, so a server backgrounded by
+    /// one bash call is unreachable from the next. Bwrap backend only; zerobox
+    /// applies its own network policy. `pub(crate)` rather than `pub`:
+    /// construction is meant to go through `build_sandbox`, which pairs this
+    /// with the sandbox-off conflict warning.
+    pub(crate) fn with_network(mut self, network: bool) -> Self {
+        self.network = network;
         self
     }
 
@@ -253,6 +298,17 @@ impl Sandbox {
         self
     }
 
+    /// Overrides the host resolver file the sandbox binds, so the bind can be
+    /// asserted on from a host that has no `/etc/resolv.conf` (macOS in a
+    /// minimal environment, some containers). Only the source path moves; the
+    /// destination inside the sandbox stays `/etc/resolv.conf`, which is what
+    /// production emits.
+    #[cfg(test)]
+    pub fn with_resolv_conf(mut self, path: std::path::PathBuf) -> Self {
+        self.resolv_conf = Some(path);
+        self
+    }
+
     /// Overrides the host `SSH_AUTH_SOCK` read: `Some(path)` pins the socket
     /// path the agent-cutoff mask targets, `None` models a host with no
     /// ssh-agent running.
@@ -266,7 +322,7 @@ impl Sandbox {
     /// the host: bwrap creates every `--tmpfs` mountpoint, and creating one on
     /// the read-only `/` bind aborts the whole launch.
     pub(crate) fn masked_roots(&self) -> Vec<std::path::PathBuf> {
-        if !self.masking_active() {
+        if !self.bwrap_policy_active() {
             return Vec::new();
         }
         self.mask_roots
@@ -277,17 +333,51 @@ impl Sandbox {
             .collect()
     }
 
-    /// Masking is a bwrap mount policy, so it needs the sandbox enabled, the
-    /// bwrap backend, and a backend that will actually run. The availability
-    /// question is asked exactly the way `wrap_command` asks it, by sharing
-    /// `backend_will_run` with it. Both directions of a mismatch hurt: a
-    /// looser probe here would tell the model a path was masked while the
-    /// command ran bare and read it fine, and a stricter one would leave a
-    /// `sandbox-required` session running under bwrap with no masks emitted at
-    /// all, which is the mount policy silently switching itself off for the
-    /// user who asked for it hardest.
-    fn masking_active(&self) -> bool {
+    /// Whether the bwrap mount and namespace policy actually applies to a
+    /// command: it needs the sandbox enabled, the bwrap backend, and a backend
+    /// that will actually run. Credential masking and `sandbox-network` both
+    /// hang off this, and the availability question is asked exactly the way
+    /// `wrap_command` asks it, by sharing `backend_will_run` with it. Both
+    /// directions of a mismatch hurt: a looser probe here would tell the model
+    /// a path was masked (or the network cut) while the command ran bare and
+    /// reached both fine, and a stricter one would leave a `sandbox-required`
+    /// session running under bwrap with no masks emitted at all, which is the
+    /// mount policy silently switching itself off for the user who asked for
+    /// it hardest.
+    fn bwrap_policy_active(&self) -> bool {
         self.backend_will_run() && self.backend_binary() == "bwrap"
+    }
+
+    /// Whether commands really do run without a network, which is the only
+    /// state in which the network hint (and the tool-description notice built
+    /// on the same question) is a true statement: `sandbox-network` is off
+    /// *and* the bwrap policy that implements it is the one running.
+    /// `pub(crate)` for the hint gate in `agent::tools::bash`.
+    pub(crate) fn network_unshared(&self) -> bool {
+        !self.network && self.bwrap_policy_active()
+    }
+
+    /// What `sandbox-network` actually does to this session's commands, and
+    /// when it does nothing, which of the three preconditions is missing.
+    /// `--print-config` renders this rather than the resolved boolean: the
+    /// only affirmative answer is `bwrap_policy_active` itself, so a row that
+    /// says the network is cut cannot disagree with the code that cuts it,
+    /// and the remaining variants exist purely to explain a `false` that the
+    /// session is not honoring.
+    pub(crate) fn network_effect(&self) -> NetworkEffect {
+        if self.network {
+            return NetworkEffect::Open;
+        }
+        if self.bwrap_policy_active() {
+            return NetworkEffect::Unshared;
+        }
+        if !self.enabled {
+            return NetworkEffect::SandboxOff;
+        }
+        if self.backend_binary() != "bwrap" {
+            return NetworkEffect::OtherBackend;
+        }
+        NetworkEffect::BackendMissing
     }
 
     /// The host's advertised ssh-agent socket, if any: the path
@@ -406,8 +496,8 @@ impl Sandbox {
 
         // Not refused and not launching means the sandbox is optional and its
         // backend is missing; `backend_will_run` is shared with
-        // `masking_active` so the two can never disagree about which probe
-        // decides that.
+        // `bwrap_policy_active` so the two can never disagree about which
+        // probe decides that.
         if !self.backend_will_run() {
             tracing::warn!(
                 "sandbox: {} not found, running unsandboxed",
@@ -435,7 +525,11 @@ impl Sandbox {
         for (k, v) in essential_env() {
             cmd.arg("--setenv").arg(k).arg(v);
         }
-        match std::fs::canonicalize("/etc/resolv.conf") {
+        let resolv_conf = self
+            .resolv_conf
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from("/etc/resolv.conf"));
+        match std::fs::canonicalize(&resolv_conf) {
             Ok(target) => {
                 cmd.arg("--ro-bind-try");
                 cmd.arg(target);
@@ -443,7 +537,8 @@ impl Sandbox {
             }
             Err(e) => {
                 tracing::warn!(
-                    "sandbox: no resolver file could be mounted: could not resolve /etc/resolv.conf: {}",
+                    "sandbox: no resolver file could be mounted: could not resolve {}: {}",
+                    resolv_conf.display(),
                     e
                 );
             }
@@ -525,11 +620,23 @@ impl Sandbox {
             "--unshare-pid",
             "--unshare-uts",
             "--unshare-cgroup",
-            "--die-with-parent",
-            &self.shell,
-            "-c",
-            command,
         ]);
+        // `sandbox-network = false`. bwrap brings up a fresh loopback device
+        // inside the new namespace, so this is not "no sockets": a command
+        // that starts a server and then talks to it on 127.0.0.1 still works,
+        // because both ends live in the same namespace. What goes away is the
+        // host: the internet, the LAN, and anything already listening on the
+        // *host's* loopback, plus the abstract Unix socket namespace, which
+        // bwrap replaces along with the network one. The namespace lasts as
+        // long as the command, so a server one bash call leaves running in the
+        // background is unreachable from the next one. The /etc/resolv.conf
+        // bind above stays unconditional: it costs nothing here, and keeping
+        // it out of this branch is what keeps the rest of the argument
+        // assembly identical between the two settings.
+        if !self.network {
+            cmd.arg("--unshare-net");
+        }
+        cmd.args(["--die-with-parent", &self.shell, "-c", command]);
         configure_child_lifetime(&mut cmd);
         Ok(cmd)
     }
@@ -656,6 +763,8 @@ pub(crate) struct SandboxSettings<'a> {
     pub shell: &'a str,
     /// Raw `sandbox-expose` values, unexpanded and unvalidated.
     pub expose: &'a [String],
+    /// `sandbox-network`: false unshares the network namespace (bwrap only).
+    pub network: bool,
 }
 
 /// Single construction path for the session sandbox, shared by every entry
@@ -668,6 +777,7 @@ pub(crate) fn build_sandbox(settings: &SandboxSettings<'_>) -> SandboxSetup {
     let sandbox = Sandbox::new(settings.enabled, settings.backend)
         .with_required(settings.required)
         .with_shell(settings.shell)
+        .with_network(settings.network)
         .with_expose(expose);
     let mut warnings: Vec<String> = rejected
         .iter()
@@ -677,6 +787,17 @@ pub(crate) fn build_sandbox(settings: &SandboxSettings<'_>) -> SandboxSetup {
             )
         })
         .collect();
+    // `sandbox-network` is a modifier, not an enforcer: unlike
+    // `sandbox-required` it never switches the sandbox on, so with the sandbox
+    // off there is nothing to unshare and the setting silently does nothing.
+    // The warning lives here rather than at the two call sites so the wording
+    // exists once; both entry points already log everything in this list.
+    if !settings.network && !settings.enabled {
+        warnings.push(
+            "sandbox-network is set to false but the sandbox is disabled, so commands still have network access"
+                .to_string(),
+        );
+    }
     warnings.extend(sandbox.shadowed_mask_warning());
     SandboxSetup { sandbox, warnings }
 }
@@ -717,6 +838,63 @@ pub(crate) fn mask_hint(
     } else {
         Some(lines.join("\n"))
     }
+}
+
+/// The failure messages an unshared network produces, in the spellings the
+/// common tools use. The first three are the name-resolution and raw-address
+/// failures (curl and git print "Could not resolve host", Python and Go print
+/// a "name resolution" failure, `ENETUNREACH` surfaces as "Network is
+/// unreachable"); the last two are what reaching for a service on the *host's*
+/// loopback looks like from inside a namespace that has its own, which is the
+/// common case rather than an exotic one.
+///
+/// "could not resolve host" carries the "host" deliberately: bundlers say
+/// `Could not resolve "./missing"` about imports and npm says the same about
+/// dependency trees, and matching the shorter prefix would blame the sandbox
+/// for build errors that have nothing to do with it.
+const NETWORK_FAILURE_PATTERNS: [&str; 5] = [
+    "could not resolve host",
+    "name resolution",
+    "network is unreachable",
+    "connection refused",
+    "cannot assign requested address",
+];
+
+/// Case-insensitive substring search that allocates nothing. The patterns are
+/// pure ASCII, so a byte-window comparison answers the same question as
+/// lowercasing both sides would, without copying stderr, which can be the
+/// whole (untruncated) output of a failed build.
+fn contains_ignore_ascii_case(haystack: &str, needle: &str) -> bool {
+    let (haystack, needle) = (haystack.as_bytes(), needle.as_bytes());
+    haystack.len() >= needle.len()
+        && haystack
+            .windows(needle.len())
+            .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// The guidance line for a command that failed the way an unshared network
+/// makes commands fail. Pure and deliberately narrow: the patterns are the
+/// price of not blaming `sandbox-network` for every failing command, and a
+/// hint that is missed costs nothing, while a hint that fires on an unrelated
+/// failure sends the model to the user with the wrong question. The caller,
+/// `bash::network_hint_for_exit`, holds the two state gates: the command
+/// failed, and the network really is unshared.
+///
+/// Only stderr is matched. The command string is not, because a command that
+/// merely mentions one of these phrases has not failed for that reason, and
+/// stdout is not, because the phrases are common enough in ordinary output to
+/// be a false-positive source. That makes the hint best-effort in both
+/// directions: a command that redirects with `2>&1`, or one whose tooling
+/// localizes its errors, produces nothing for the patterns to match and simply
+/// gets no hint.
+pub(crate) fn network_hint(stderr: &str) -> Option<String> {
+    let matched = NETWORK_FAILURE_PATTERNS
+        .iter()
+        .any(|pattern| contains_ignore_ascii_case(stderr, pattern));
+    matched.then(|| {
+        "note: network is disabled by the sandbox (sandbox-network = false); ask the user whether it should be enabled"
+            .to_string()
+    })
 }
 
 fn spawn_pipe_reader(

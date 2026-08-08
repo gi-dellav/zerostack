@@ -153,6 +153,15 @@ pub struct Cli {
     pub sandbox_expose: Vec<String>,
 
     #[arg(
+        long = "sandbox-network",
+        help = "Allow sandboxed bash commands to use the network. Bare flag or `=true` enables it (the default); use --sandbox-network=false to disable",
+        default_missing_value = "true",
+        num_args = 0..=1,
+        require_equals = true
+    )]
+    pub sandbox_network: Option<bool>,
+
+    #[arg(
         long = "shell",
         help = "Shell binary to use for bash tool (default: bash)"
     )]
@@ -407,6 +416,15 @@ impl Cli {
         } else {
             cfg.sandbox_expose.clone().unwrap_or_default()
         }
+    }
+
+    /// Whether sandboxed bash commands keep the host network. Unlike the other
+    /// sandbox flags this one takes a value: it defaults to true, so a bare
+    /// switch could only ever say "true" again and never turn the network off
+    /// from the command line. `Option<bool>` lets the CLI win in both
+    /// directions over the config key.
+    pub fn resolve_sandbox_network(&self, cfg: &config::Config) -> bool {
+        self.sandbox_network.or(cfg.sandbox_network).unwrap_or(true)
     }
 
     pub fn resolve_shell(&self, cfg: &config::Config) -> String {

@@ -5,7 +5,7 @@ use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm}
 #[cfg(feature = "rtk")]
 use crate::extras::rtk::Rtk;
 use crate::extras::truncate::head_lines;
-use crate::sandbox::{Sandbox, mask_hint};
+use crate::sandbox::{Sandbox, mask_hint, network_hint};
 
 pub(crate) fn split_bash_commands(input: &str) -> Vec<String> {
     let mut result = Vec::new();
@@ -101,6 +101,37 @@ pub(crate) fn mask_hint_for_exit(
     mask_hint(command, stderr, &sandbox.masked_roots(), &home)
 }
 
+/// The no-network hint for a finished command, or `None`. Same shape as
+/// `mask_hint_for_exit`: the caller invokes it unconditionally and every gate
+/// lives here, so the branch under test is the branch production takes. The
+/// sandbox check comes before the string matching because it is the cheap one
+/// and because it is the one that keeps the hint honest: a session that runs
+/// with the network on, or unsandboxed, must never be told the sandbox cut it.
+pub(crate) fn network_hint_for_exit(
+    exit_code: i32,
+    stderr: &str,
+    sandbox: &Sandbox,
+) -> Option<String> {
+    if exit_code == 0 || !sandbox.network_unshared() {
+        return None;
+    }
+    network_hint(stderr)
+}
+
+/// The description every bash tool carries, whatever the session's sandbox
+/// settings are.
+const BASH_DESCRIPTION: &str =
+    "Execute a bash command in the current working directory. Returns stdout and stderr.";
+
+/// Appended to the description when this session's sandbox really will unshare
+/// the network, so the model reads it in the tool definition instead of
+/// discovering it by burning a turn on a command that cannot succeed and then
+/// guessing at the cause. Fixed text and one sentence: a tool description is
+/// prompt-cached context, not a place to render session state. The gate is
+/// `network_unshared`, the same one the failure hint uses, so the two can
+/// never tell the model different stories about the same session.
+const NO_NETWORK_NOTICE: &str = " This session's sandbox runs commands without network access, so the internet, the local network, and services listening on the host are unreachable; a server started and used within a single command still works on 127.0.0.1.";
+
 pub struct BashTool {
     pub permission: Option<PermCheck>,
     pub ask_tx: Option<AskSender>,
@@ -141,8 +172,11 @@ impl Tool for BashTool {
     type Output = String;
 
     fn description(&self) -> String {
-        "Execute a bash command in the current working directory. Returns stdout and stderr."
-            .to_string()
+        let mut description = BASH_DESCRIPTION.to_string();
+        if self.sandbox.network_unshared() {
+            description.push_str(NO_NETWORK_NOTICE);
+        }
+        description
     }
 
     fn parameters(&self) -> serde_json::Value {
@@ -252,18 +286,26 @@ impl Tool for BashTool {
             result
         };
 
-        let result = match coaching {
+        let mut result = match coaching {
             Some(msg) => format!("{}\n\n{}", msg, result),
             None => result,
         };
-        // Append last, after truncation and coaching, so a masked-path hint
-        // always survives at the end of the tool result the model sees. The
-        // exit-code gate lives inside `mask_hint_for_exit`, which is also what
-        // keeps a successful command from paying for the mask list.
-        let result = match mask_hint_for_exit(exit_code, &command, &stderr, &self.sandbox) {
-            Some(hint) => format!("{result}\n{hint}"),
-            None => result,
-        };
+        // Sandbox hints are appended last, after truncation and coaching, so
+        // they always survive at the end of the tool result the model sees, and
+        // in one pass so the result is not copied once per hint. The exit-code
+        // gates live inside the two `*_for_exit` functions, which is also what
+        // keeps a successful command from paying for the mask list or the
+        // stderr scan.
+        for hint in [
+            mask_hint_for_exit(exit_code, &command, &stderr, &self.sandbox),
+            network_hint_for_exit(exit_code, &stderr, &self.sandbox),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            result.push('\n');
+            result.push_str(&hint);
+        }
         tracing::debug!(
             "tool bash done: exit_code={}, output_len={}",
             exit_code,

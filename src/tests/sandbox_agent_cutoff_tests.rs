@@ -1,36 +1,11 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use tokio::process::Command;
+use crate::sandbox::essential_env_from;
+use crate::tests::sandbox_support::{args_of, bwrap_sandbox, pair_at, scratch_dir, triple_at};
 
-use crate::sandbox::{Sandbox, essential_env_from};
-
-fn scratch_dir(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!(
-        "zerostack-agent-cutoff-{}-{}",
-        name,
-        std::process::id()
-    ))
-}
-
-fn args_of(cmd: &Command) -> Vec<String> {
-    cmd.as_std()
-        .get_args()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect()
-}
-
-/// Index of `flag` in an adjacent `flag value` pair, so `--tmpfs /tmp` never
-/// answers a question asked about `--tmpfs <mask root>`.
-fn pair_at(args: &[String], flag: &str, value: &str) -> Option<usize> {
-    args.windows(2).position(|w| w[0] == flag && w[1] == value)
-}
-
-/// Index of `flag` in an adjacent `flag src dst` triple, matching the
-/// `--ro-bind-try <src> <dst>` shape the agent-socket mask emits.
-fn triple_at(args: &[String], flag: &str, src: &str, dst: &str) -> Option<usize> {
-    args.windows(3)
-        .position(|w| w[0] == flag && w[1] == src && w[2] == dst)
+fn dir(name: &str) -> PathBuf {
+    scratch_dir("agent-cutoff", name)
 }
 
 #[test]
@@ -72,14 +47,11 @@ fn touch_socket(dir: &std::path::Path, name: &str) -> PathBuf {
 
 #[test]
 fn test_ssh_auth_sock_seam_emits_dev_null_bind_after_root_bind() {
-    let sock_dir = scratch_dir("sock");
+    let sock_dir = dir("sock");
     let sock = touch_socket(&sock_dir, "agent.sock");
-    let cache_dir = scratch_dir("sock-cache");
-    let sandbox = Sandbox::new(true, "bwrap")
-        .with_backend_available(true)
-        .with_cache_dir(cache_dir.clone())
-        .with_mask_roots(Vec::new())
-        .with_ssh_auth_sock(Some(sock.clone()));
+    let cache_dir = dir("sock-cache");
+    let sandbox =
+        bwrap_sandbox(Vec::new(), cache_dir.clone()).with_ssh_auth_sock(Some(sock.clone()));
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
     let sock_str = sock.to_string_lossy();
@@ -102,14 +74,11 @@ fn test_stale_ssh_auth_sock_emits_no_dev_null_bind() {
     // exists (routine in long-lived tmux sessions). Binding over it would make
     // bwrap create the destination on the read-only `/` bind, which fails with
     // EROFS and aborts every command in the session.
-    let sock = scratch_dir("stale").join("agent.sock");
-    let _ = std::fs::remove_dir_all(scratch_dir("stale"));
-    let cache_dir = scratch_dir("stale-cache");
-    let sandbox = Sandbox::new(true, "bwrap")
-        .with_backend_available(true)
-        .with_cache_dir(cache_dir.clone())
-        .with_mask_roots(Vec::new())
-        .with_ssh_auth_sock(Some(sock.clone()));
+    let sock = dir("stale").join("agent.sock");
+    let _ = std::fs::remove_dir_all(dir("stale"));
+    let cache_dir = dir("stale-cache");
+    let sandbox =
+        bwrap_sandbox(Vec::new(), cache_dir.clone()).with_ssh_auth_sock(Some(sock.clone()));
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
     assert!(
@@ -124,12 +93,9 @@ fn test_stale_ssh_auth_sock_emits_no_dev_null_bind() {
 fn test_empty_ssh_auth_sock_emits_no_dev_null_bind() {
     // `SSH_AUTH_SOCK=` is a common way to disable forwarding; it names no path
     // at all, so there is nothing to mask.
-    let cache_dir = scratch_dir("empty-cache");
-    let sandbox = Sandbox::new(true, "bwrap")
-        .with_backend_available(true)
-        .with_cache_dir(cache_dir.clone())
-        .with_mask_roots(Vec::new())
-        .with_ssh_auth_sock(Some(PathBuf::new()));
+    let cache_dir = dir("empty-cache");
+    let sandbox =
+        bwrap_sandbox(Vec::new(), cache_dir.clone()).with_ssh_auth_sock(Some(PathBuf::new()));
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
     assert!(
@@ -146,13 +112,10 @@ fn test_agent_socket_mask_survives_exposing_the_directory_holding_it() {
     // mask, which brings the gpg-agent SSH socket inside it back: the agent
     // cutoff has no re-enable switch, so the socket bind must come after every
     // expose bind that could re-open it.
-    let gnupg = scratch_dir("gnupg");
+    let gnupg = dir("gnupg");
     let sock = touch_socket(&gnupg, "S.gpg-agent.ssh");
-    let cache_dir = scratch_dir("gnupg-cache");
-    let sandbox = Sandbox::new(true, "bwrap")
-        .with_backend_available(true)
-        .with_cache_dir(cache_dir.clone())
-        .with_mask_roots(vec![gnupg.clone()])
+    let cache_dir = dir("gnupg-cache");
+    let sandbox = bwrap_sandbox(vec![gnupg.clone()], cache_dir.clone())
         .with_expose(vec![gnupg.clone()])
         .with_ssh_auth_sock(Some(sock.clone()));
 
@@ -174,12 +137,8 @@ fn test_agent_socket_mask_survives_exposing_the_directory_holding_it() {
 
 #[test]
 fn test_no_host_ssh_auth_sock_emits_no_dev_null_bind() {
-    let cache_dir = scratch_dir("none-cache");
-    let sandbox = Sandbox::new(true, "bwrap")
-        .with_backend_available(true)
-        .with_cache_dir(cache_dir.clone())
-        .with_mask_roots(Vec::new())
-        .with_ssh_auth_sock(None);
+    let cache_dir = dir("none-cache");
+    let sandbox = bwrap_sandbox(Vec::new(), cache_dir.clone()).with_ssh_auth_sock(None);
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
     assert!(

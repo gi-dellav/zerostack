@@ -43,6 +43,7 @@ fn sandbox_setup(state: &AcpState) -> SandboxSetup {
         backend: &state.cli.resolve_sandbox_backend(&state.cfg),
         shell: &state.cli.resolve_shell(&state.cfg),
         expose: &state.cli.resolve_sandbox_expose(&state.cfg),
+        network: state.cli.resolve_sandbox_network(&state.cfg),
     })
 }
 

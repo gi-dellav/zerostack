@@ -1,12 +1,11 @@
 use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
-use tokio::process::Command;
-
 use crate::sandbox::{Sandbox, mask_roots_for};
+use crate::tests::sandbox_support::{args_of, bwrap_sandbox, pair_at, scratch_dir};
 
-fn scratch_dir(name: &str) -> PathBuf {
-    std::env::temp_dir().join(format!("zerostack-mask-{}-{}", name, std::process::id()))
+fn dir(name: &str) -> PathBuf {
+    scratch_dir("mask", name)
 }
 
 /// A scratch directory *inside* the working directory, which is the directory
@@ -18,26 +17,6 @@ fn cwd_scratch_dir(name: &str) -> PathBuf {
         .unwrap()
         .join("target")
         .join(format!("zerostack-mask-{}-{}", name, std::process::id()))
-}
-
-fn bwrap_sandbox(masks: Vec<PathBuf>, cache_dir: PathBuf) -> Sandbox {
-    Sandbox::new(true, "bwrap")
-        .with_backend_available(true)
-        .with_cache_dir(cache_dir)
-        .with_mask_roots(masks)
-}
-
-fn args_of(cmd: &Command) -> Vec<String> {
-    cmd.as_std()
-        .get_args()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect()
-}
-
-/// Index of `flag` in an adjacent `flag value` pair, so `--tmpfs /tmp` never
-/// answers a question asked about `--tmpfs <mask root>`.
-fn pair_at(args: &[String], flag: &str, value: &str) -> Option<usize> {
-    args.windows(2).position(|w| w[0] == flag && w[1] == value)
 }
 
 /// Every mount this argument list places *at* `dst`, in order, as
@@ -72,9 +51,9 @@ fn last_mount_at(args: &[String], dst: &Path) -> (usize, String) {
 
 #[test]
 fn test_existing_mask_root_is_masked_between_root_bind_and_cwd_bind() {
-    let root = scratch_dir("existing");
+    let root = dir("existing");
     std::fs::create_dir_all(&root).unwrap();
-    let cache_dir = scratch_dir("existing-cache");
+    let cache_dir = dir("existing-cache");
     let sandbox = bwrap_sandbox(vec![root.clone()], cache_dir.clone());
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
@@ -102,9 +81,9 @@ fn test_existing_mask_root_is_masked_between_root_bind_and_cwd_bind() {
 fn test_nonexistent_mask_root_emits_no_tmpfs() {
     // bwrap creates `--tmpfs` mountpoints, which a read-only `/` forbids: a
     // missing entry would abort every sandboxed command on that host.
-    let root = scratch_dir("missing");
+    let root = dir("missing");
     let _ = std::fs::remove_dir_all(&root);
-    let cache_dir = scratch_dir("missing-cache");
+    let cache_dir = dir("missing-cache");
     let sandbox = bwrap_sandbox(vec![root.clone()], cache_dir.clone());
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
@@ -126,7 +105,7 @@ fn test_nonexistent_mask_root_emits_no_tmpfs() {
 
 #[test]
 fn test_zerobox_invocation_is_unchanged_by_masks() {
-    let root = scratch_dir("zerobox");
+    let root = dir("zerobox");
     std::fs::create_dir_all(&root).unwrap();
     let sandbox = Sandbox::new(true, "zerobox")
         .with_backend_available(true)
@@ -149,7 +128,7 @@ fn test_zerobox_invocation_is_unchanged_by_masks() {
 
 #[test]
 fn test_cwd_under_a_mask_root_reports_that_root() {
-    let root = scratch_dir("shadowed");
+    let root = dir("shadowed");
     let cwd = root.join("nvim/lua");
     std::fs::create_dir_all(&cwd).unwrap();
     let sandbox = Sandbox::new(true, "bwrap")
@@ -170,7 +149,7 @@ fn test_cwd_under_a_mask_root_reports_that_root() {
 fn test_sibling_of_a_mask_root_is_not_shadowed() {
     // Component-wise containment, not string prefixes: `~/.ssh2` is not under
     // `~/.ssh`.
-    let base = scratch_dir("sibling");
+    let base = dir("sibling");
     let root = base.join(".ssh");
     let sibling = base.join(".ssh2");
     std::fs::create_dir_all(&root).unwrap();
@@ -191,7 +170,7 @@ fn test_cwd_reached_through_a_symlinked_home_is_shadowed() {
     // `getcwd(3)` fully resolved while the mask root is spelled through the
     // `/home -> /data/home` symlink, so a lexical test reports no shadowing and
     // the user is never told the project bind re-opens part of the mask.
-    let base = scratch_dir("symlinked-home-shadow");
+    let base = dir("symlinked-home-shadow");
     let _ = std::fs::remove_dir_all(&base);
     let real_home = base.join("data/home/tester");
     let project = real_home.join(".gnupg/notes");
@@ -225,7 +204,7 @@ fn test_mask_root_under_the_cwd_is_remasked_after_the_project_bind() {
     // second mask layer they come back, and writable at that.
     let root = cwd_scratch_dir("under-cwd");
     std::fs::create_dir_all(&root).unwrap();
-    let cache_dir = scratch_dir("under-cwd-cache");
+    let cache_dir = dir("under-cwd-cache");
     let sandbox = bwrap_sandbox(vec![root.clone()], cache_dir.clone());
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
@@ -251,7 +230,7 @@ fn test_mask_root_under_the_cwd_is_remasked_after_the_project_bind() {
 fn test_mask_root_under_the_cache_bind_is_remasked() {
     // Same shape via the other read-write bind: the cache directory is bound
     // after the masks too.
-    let cache_dir = scratch_dir("cache-swallow");
+    let cache_dir = dir("cache-swallow");
     let root = cache_dir.join(".aws");
     std::fs::create_dir_all(&root).unwrap();
     let sandbox = bwrap_sandbox(vec![root.clone()], cache_dir.clone());
@@ -282,12 +261,12 @@ fn test_mask_root_symlinked_into_the_project_is_remasked() {
     // containment test sees the collision.
     let real = cwd_scratch_dir("dotfiles");
     std::fs::create_dir_all(real.join("ssh")).unwrap();
-    let home = scratch_dir("symlinked-ssh");
+    let home = dir("symlinked-ssh");
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(&home).unwrap();
     let root = home.join(".ssh");
     symlink(real.join("ssh"), &root).unwrap();
-    let cache_dir = scratch_dir("symlinked-ssh-cache");
+    let cache_dir = dir("symlinked-ssh-cache");
     let sandbox = bwrap_sandbox(vec![root.clone()], cache_dir.clone());
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
@@ -317,7 +296,7 @@ fn test_mask_root_under_a_symlinked_home_is_remasked() {
     // spelled through it while the bind, coming from `getcwd(3)`, is already
     // resolved. Modelled on the cache bind, which the seams let a test place
     // anywhere.
-    let base = scratch_dir("symlinked-home");
+    let base = dir("symlinked-home");
     let _ = std::fs::remove_dir_all(&base);
     let real_home = base.join("data/home/tester");
     std::fs::create_dir_all(real_home.join(".aws")).unwrap();
@@ -348,7 +327,7 @@ fn test_expose_under_a_remasked_root_stays_visible_read_only() {
     std::fs::create_dir_all(&root).unwrap();
     let exposed = root.join("known_hosts");
     std::fs::write(&exposed, b"").unwrap();
-    let cache_dir = scratch_dir("under-cwd-expose-cache");
+    let cache_dir = dir("under-cwd-expose-cache");
     let sandbox =
         bwrap_sandbox(vec![root.clone()], cache_dir.clone()).with_expose(vec![exposed.clone()]);
 
@@ -383,7 +362,7 @@ fn test_mask_root_containing_the_cwd_keeps_the_project_bind_as_the_last_word() {
         .parent()
         .expect("cwd should have a parent")
         .to_path_buf();
-    let cache_dir = scratch_dir("contains-cwd-cache");
+    let cache_dir = dir("contains-cwd-cache");
     let sandbox = bwrap_sandbox(vec![root.clone()], cache_dir.clone());
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
@@ -411,9 +390,9 @@ fn test_mask_root_containing_the_cwd_keeps_the_project_bind_as_the_last_word() {
 
 #[test]
 fn test_mask_root_outside_every_read_write_bind_is_masked_once() {
-    let root = scratch_dir("outside-binds");
+    let root = dir("outside-binds");
     std::fs::create_dir_all(&root).unwrap();
-    let cache_dir = scratch_dir("outside-binds-cache");
+    let cache_dir = dir("outside-binds-cache");
     let sandbox = bwrap_sandbox(vec![root.clone()], cache_dir.clone());
 
     let args = args_of(&sandbox.wrap_command("echo hello").unwrap());
@@ -433,7 +412,7 @@ fn test_optional_sandbox_falling_back_to_bare_masks_nothing() {
     // even if a fresh probe would find one. A masked-path claim there would
     // tell the model a file was hidden while the command ran bare and read it
     // fine.
-    let root = scratch_dir("probe");
+    let root = dir("probe");
     std::fs::create_dir_all(&root).unwrap();
     let sandbox = Sandbox::new(true, "bwrap")
         .with_backend_available(false)
@@ -470,9 +449,9 @@ fn test_required_sandbox_masks_on_the_fresh_probe_that_launches_it() {
     // Masking has to follow it there: gating on the cached probe alone would
     // run bwrap with an empty mask list, leaving every credential directory
     // readable inside the sandbox of the user who set `sandbox-required`.
-    let root = scratch_dir("required-probe");
+    let root = dir("required-probe");
     std::fs::create_dir_all(&root).unwrap();
-    let cache_dir = scratch_dir("required-probe-cache");
+    let cache_dir = dir("required-probe-cache");
     let sandbox = Sandbox::new(true, "bwrap")
         .with_required(true)
         .with_backend_available(false)
@@ -517,7 +496,7 @@ fn test_shadowed_mask_warning_is_computed_against_the_bound_working_directory() 
         "the warning should name the shadowed root: {warning}"
     );
 
-    let elsewhere = scratch_dir("elsewhere");
+    let elsewhere = dir("elsewhere");
     std::fs::create_dir_all(&elsewhere).unwrap();
     let other = Sandbox::new(true, "bwrap")
         .with_backend_available(true)
@@ -595,7 +574,7 @@ fn test_relative_xdg_config_home_is_ignored() {
 
 #[test]
 fn test_disabled_sandbox_masks_nothing() {
-    let root = scratch_dir("disabled");
+    let root = dir("disabled");
     std::fs::create_dir_all(&root).unwrap();
     let sandbox = Sandbox::new(false, "bwrap")
         .with_backend_available(true)
