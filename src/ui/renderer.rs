@@ -426,6 +426,21 @@ impl Renderer {
         self.backend.captured().unwrap_or_default()
     }
 
+    /// Test helper: snapshot of everything the last successful `draw_bottom`
+    /// painted (input area + statusline), or `None` before the first draw.
+    ///
+    /// This is the renderer's recorded *draw intent*, not the raw byte log, so
+    /// it reflects the bottom row regardless of later chat writes that bury the
+    /// bottom's bytes under newer ones in the append-only `FakeBackend`. That
+    /// makes it the right thing to assert against when checking whether the
+    /// bottom is left idle (or a spinner frozen) after a run ends: a byte-scan
+    /// helper cannot observe a frozen spinner the chat later overwrote in the
+    /// tail, but `last_bottom_snapshot().is_running` records the truth.
+    #[cfg(test)]
+    pub(crate) fn last_bottom_snapshot(&self) -> Option<&BottomSnapshot> {
+        self.last_bottom_snapshot.as_ref()
+    }
+
     /// Whether the renderer drives a headless test backend instead of a real
     /// terminal. Used to skip code paths that bypass the backend abstraction
     /// and write straight to stdout (e.g. the pickers), which break on CI
