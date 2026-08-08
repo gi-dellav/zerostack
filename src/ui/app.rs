@@ -537,6 +537,11 @@ impl<'a> App<'a> {
         self.renderer.is_scrolling()
     }
 
+    #[cfg(test)]
+    pub(crate) fn last_bottom_snapshot(&self) -> Option<&crate::ui::renderer::BottomSnapshot> {
+        self.renderer.last_bottom_snapshot()
+    }
+
     /// All feed lines (wrapped to 80 cols) joined with newlines.
     #[cfg(test)]
     pub(crate) fn feed_text(&self) -> String {
@@ -1030,6 +1035,9 @@ impl<'a> App<'a> {
         .await?;
 
         self.finalize_turn(turn_errored).await?;
+        if !self.run.is_running {
+            self.refresh()?;
+        }
         Ok(())
     }
 
