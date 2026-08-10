@@ -22,20 +22,6 @@
       "output_price": 5
     },
     {
-      "id": "claude-opus-4-1",
-      "name": "Claude Opus 4.1 (latest)",
-      "context": 200000,
-      "input_price": 15,
-      "output_price": 75
-    },
-    {
-      "id": "claude-opus-4-1-20250805",
-      "name": "Claude Opus 4.1",
-      "context": 200000,
-      "input_price": 15,
-      "output_price": 75
-    },
-    {
       "id": "claude-opus-4-5",
       "name": "Claude Opus 4.5 (latest)",
       "context": 200000,
