@@ -1308,13 +1308,19 @@ impl Renderer {
 
         let cursor_line_len = display_width(cursor_line_text);
         let mut h_scroll = 0usize;
-        if cursor_line_len > visible_width {
+        // `>=`: an exactly-full line still has its end-of-line caret one column
+        // past the right edge, so it must scroll too.
+        if cursor_line_len >= visible_width {
             if cursor_display_col < self.input_scroll_offset {
                 self.input_scroll_offset = cursor_display_col;
             } else if cursor_display_col >= self.input_scroll_offset + visible_width {
                 self.input_scroll_offset = cursor_display_col - visible_width + 1;
             }
-            let max_h_scroll = cursor_line_len.saturating_sub(visible_width);
+            // +1 leaves a column for the caret, which sits *after* the last
+            // character; without it the `min` unscrolls and pushes it off-screen.
+            let max_h_scroll = cursor_line_len
+                .saturating_sub(visible_width)
+                .saturating_add(1);
             h_scroll = self.input_scroll_offset.min(max_h_scroll);
         } else {
             self.input_scroll_offset = 0;
