@@ -67,6 +67,8 @@ mod multimodal_tests;
 #[cfg(test)]
 mod normalize_tests;
 #[cfg(test)]
+mod parallel_tool_call_tests;
+#[cfg(test)]
 mod paste_burst_tests;
 #[cfg(test)]
 mod picker_tests;

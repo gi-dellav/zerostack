@@ -5,10 +5,19 @@ pub enum AgentEvent {
     Token(CompactString),
     Reasoning(CompactString),
     ToolCall {
+        /// Rig's `internal_call_id` for this call: unique within the process
+        /// (unlike the provider-supplied `ToolCall.id`, which Gemini/Ollama
+        /// set to the function name). Providers may emit a whole batch of
+        /// parallel calls before any of their results, so consumers must pair
+        /// a `ToolResult` with its call by this id, never by "most recent
+        /// call".
+        call_id: CompactString,
         name: CompactString,
         args: serde_json::Value,
     },
     ToolResult {
+        /// The [`AgentEvent::ToolCall::call_id`] this result answers.
+        call_id: CompactString,
         name: CompactString,
         output: CompactString,
     },

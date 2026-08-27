@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use compact_str::CompactString;
 use futures::StreamExt;
 use rig::agent::{Agent, MultiTurnStreamItem, StreamingResult};
@@ -338,7 +340,11 @@ where
         let retry_prompt = prompt.clone();
         let retry_history: Vec<Message> = history.clone();
         let mut tool_interactions: Vec<Message> = Vec::new();
-        let mut last_tool_name: Option<String> = None;
+        // In-flight calls by rig `internal_call_id`. A map, not a single
+        // slot: providers may stream a whole batch of parallel `ToolCall`s
+        // before any of their `ToolResult`s, so pairing by "most recent call"
+        // records the wrong name against a result.
+        let mut pending_tool_names: HashMap<String, String> = HashMap::new();
         let mut empty_response_count: u32 = 0;
         const MAX_EMPTY_RESPONSES: u32 = 3;
         // Overrides the next continuation message (bottom of the outer
@@ -396,6 +402,8 @@ where
         };
 
         loop {
+            // Entries orphaned by an abandoned turn must not outlive it.
+            pending_tool_names.clear();
             while let Some(item) = stream.next().await {
                 match item {
                     Ok(MultiTurnStreamItem::StreamAssistantItem(content)) => {
@@ -410,17 +418,22 @@ where
                                     .send(AgentEvent::Token(CompactString::from(text.text)))
                                     .await;
                             }
-                            StreamedAssistantContent::ToolCall { tool_call, .. } => {
+                            StreamedAssistantContent::ToolCall {
+                                tool_call,
+                                internal_call_id,
+                            } => {
                                 let tool_name = &tool_call.function.name;
                                 tracing::debug!(
                                     "agent tool start: name={}, args_len={}",
                                     tool_name,
                                     tool_call.function.arguments.to_string().len(),
                                 );
-                                last_tool_name = Some(tool_name.clone());
+                                pending_tool_names
+                                    .insert(internal_call_id.clone(), tool_name.clone());
                                 tool_interactions.push(tool_call.clone().into());
                                 let _ = event_tx
                                     .send(AgentEvent::ToolCall {
+                                        call_id: CompactString::from(internal_call_id),
                                         name: CompactString::from(tool_call.function.name),
                                         args: tool_call.function.arguments,
                                     })
@@ -431,10 +444,23 @@ where
                     }
                     Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                         tool_result,
-                        ..
+                        internal_call_id,
                     })) => {
-                        let tool_name =
-                            CompactString::new(last_tool_name.take().unwrap_or_default());
+                        // Reachable on an abandoned turn; rig's `ToolResult`
+                        // carries only call ids, so the name is unrecoverable
+                        // and the consumer pairs on the id instead.
+                        let tool_name = CompactString::new(
+                            pending_tool_names
+                                .remove(&internal_call_id)
+                                .unwrap_or_else(|| {
+                                    tracing::warn!(
+                                        "tool result with no matching pending call \
+                                         (internal_call_id={id})",
+                                        id = internal_call_id.escape_debug(),
+                                    );
+                                    String::new()
+                                }),
+                        );
                         let mut output = String::new();
                         for c in tool_result.content.iter() {
                             if let ToolResultContent::Text(t) = c {
@@ -451,6 +477,7 @@ where
                         );
                         let _ = event_tx
                             .send(AgentEvent::ToolResult {
+                                call_id: CompactString::from(internal_call_id),
                                 name: tool_name.clone(),
                                 output: CompactString::from(output),
                             })
@@ -608,8 +635,9 @@ where
     #[cfg(feature = "hooks")]
     let mut tool_interactions: Vec<Message> = Vec::new();
     let mut full_response = String::new();
-    let mut last_tool_name: Option<String> = None;
-    let mut last_tool_args: Option<serde_json::Value> = None;
+    // In-flight calls by rig `internal_call_id`: (name, args). A map, not a
+    // pair of single slots — see the matching comment in `spawn_agent`.
+    let mut pending_calls: HashMap<String, (String, serde_json::Value)> = HashMap::new();
     // Unconditional (independent of `pure_stdout` and the `hooks` feature)
     // ordered record of this turn's completed tool call/result round trips,
     // returned to the caller (`dispatch_print`) for session persistence. See
@@ -651,6 +679,8 @@ where
 
     while continue_turn {
         continue_turn = false;
+        // Entries orphaned by an abandoned turn must not outlive it.
+        pending_calls.clear();
         loop {
             // Wait for the next stream item while staying available to the
             // subagent channel. `StreamExt::next` is cancel-safe (it only
@@ -690,26 +720,41 @@ where
                     let _ = std::io::Write::flush(&mut std::io::stderr());
                 }
                 Ok(MultiTurnStreamItem::StreamAssistantItem(
-                    StreamedAssistantContent::ToolCall { tool_call, .. },
+                    StreamedAssistantContent::ToolCall {
+                        tool_call,
+                        internal_call_id,
+                    },
                 )) => {
                     let name = tool_call.function.name.clone();
                     let args = tool_call.function.arguments.clone();
-                    last_tool_name = Some(name.clone());
-                    last_tool_args = Some(args.clone());
                     if pure_stdout {
                         let summary = format_tool_args_summary(&args);
                         println!("\n◈ {} {}", name, summary);
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                     }
+                    pending_calls.insert(internal_call_id, (name, args));
                     #[cfg(feature = "hooks")]
                     tool_interactions.push(tool_call.clone().into());
                 }
                 Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                     tool_result,
-                    ..
+                    internal_call_id,
                 })) => {
-                    let name = last_tool_name.take().unwrap_or_default();
-                    let args = last_tool_args.take().unwrap_or(serde_json::Value::Null);
+                    // Reachable: rig streams a result for a call that produced
+                    // no `ToolCall` item when the turn is abandoned over an
+                    // invalid tool call. The recorded pair stays
+                    // self-consistent (a phantom call is recorded alongside
+                    // it, see `startup.rs`); the name has to be empty because
+                    // rig's `ToolResult` carries only call ids, not the name.
+                    let (name, args) =
+                        pending_calls.remove(&internal_call_id).unwrap_or_else(|| {
+                            tracing::warn!(
+                                "tool result with no matching pending call \
+                                 (internal_call_id={id})",
+                                id = internal_call_id.escape_debug(),
+                            );
+                            (String::new(), serde_json::Value::Null)
+                        });
                     let mut output = String::new();
                     for c in tool_result.content.iter() {
                         if let ToolResultContent::Text(t) = c {
@@ -731,12 +776,15 @@ where
                         }
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                     }
-                    // Anything still queued belongs to the call that just
+                    // Attribute anything still queued to the call that just
                     // finished: a subagent only runs inside its `task` call,
                     // and every send completes before that call returns. The
                     // `select!` above normally has them already, but a tool
                     // that sends without ever yielding hands us its result in
                     // the same poll, leaving them queued until here.
+                    // Best-effort under a parallel batch: with several calls
+                    // in flight the side channel carries no call id, so a
+                    // sibling's result can claim the `task` call's subagents.
                     #[cfg(feature = "subagents")]
                     while let Ok(event) = subagent_rx.try_recv() {
                         push_subagent_call(&mut pending_subagent_calls, event);
@@ -824,8 +872,9 @@ where
 /// Vec<Message>` above, which carries the raw `rig` message types needed
 /// only for `Stop`-continuation replay. `dispatch_print` turns each of these
 /// into a `Session::add_tool_call` + `add_tool_result` pair (design.md
-/// decision 5); relies on the single-threaded call/result pairing confirmed
-/// in design.md's Open Questions (2.3).
+/// decision 5); each round trip is paired by rig's `internal_call_id`, so a
+/// parallel batch (every call streamed before the first result) records each
+/// result against its own call.
 #[derive(Debug, Clone)]
 pub struct ToolInteraction {
     pub name: String,
@@ -836,7 +885,10 @@ pub struct ToolInteraction {
     /// concurrency boundary: only this loop knows which main-agent call was
     /// in flight when each event arrived, and `dispatch_print` turns the
     /// nesting into `parent_call_id` once the enclosing call has an id.
-    /// Always empty for anything but a `task` call.
+    /// Empty for anything but a `task` call when that call runs alone; under a
+    /// parallel batch the attribution is best-effort, since queued subagent
+    /// calls attach to the batch's first-arriving result whichever call it
+    /// answers.
     #[cfg(feature = "subagents")]
     pub subagent_calls: Vec<SubagentCall>,
 }
