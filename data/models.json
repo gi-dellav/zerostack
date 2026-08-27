@@ -376,20 +376,6 @@
       "output_price": 12
     },
     {
-      "id": "gemini-2.0-flash",
-      "name": "Gemini 2.0 Flash",
-      "context": 1048576,
-      "input_price": 0.1,
-      "output_price": 0.4
-    },
-    {
-      "id": "gemini-2.0-flash-lite",
-      "name": "Gemini 2.0 Flash-Lite",
-      "context": 1048576,
-      "input_price": 0.075,
-      "output_price": 0.3
-    },
-    {
       "id": "gemini-2.5-computer-use-preview-10-2025",
       "name": "Gemini 2.5 Computer Use Preview 10-2025",
       "context": 131072,
@@ -444,13 +430,6 @@
       "context": 131072,
       "input_price": 2,
       "output_price": 120
-    },
-    {
-      "id": "gemini-3-pro-preview",
-      "name": "Gemini 3 Pro Preview",
-      "context": 1048576,
-      "input_price": 2,
-      "output_price": 12
     },
     {
       "id": "gemini-3.1-flash-image",
@@ -533,22 +512,29 @@
       "id": "gemini-3.6-flash",
       "name": "Gemini 3.6 Flash",
       "context": 1048576,
-      "input_price": 1.5,
-      "output_price": 7.5
+      "input_price": 0.75,
+      "output_price": 3.75
+    },
+    {
+      "id": "gemini-3.7-flash",
+      "name": "Gemini 3.7 Flash",
+      "context": 1048576,
+      "input_price": 0.75,
+      "output_price": 3.75
     },
     {
       "id": "gemini-flash-latest",
       "name": "Gemini Flash Latest",
       "context": 1048576,
-      "input_price": 1.5,
-      "output_price": 9
+      "input_price": 0.75,
+      "output_price": 3.75
     },
     {
       "id": "gemini-flash-lite-latest",
       "name": "Gemini Flash-Lite Latest",
       "context": 1048576,
-      "input_price": 0.25,
-      "output_price": 1.5
+      "input_price": 0.3,
+      "output_price": 2.5
     },
     {
       "id": "gemini-robotics-er-1.6-preview",
@@ -690,7 +676,7 @@
     {
       "id": "deepseek/deepseek-r1",
       "name": "DeepSeek-R1",
-      "context": 163840
+      "context": 64000
     },
     {
       "id": "deepseek/deepseek-r1-0528",
@@ -725,11 +711,21 @@
     {
       "id": "deepseek/deepseek-v4-flash-0731",
       "name": "DeepSeek V4 Flash 0731",
+      "context": 1310720
+    },
+    {
+      "id": "deepseek/deepseek-v4-flash-vision-exp",
+      "name": "DeepSeek V4 Flash Vision Exp",
       "context": 1048576
     },
     {
       "id": "deepseek/deepseek-v4-pro",
       "name": "DeepSeek V4 Pro",
+      "context": 1048576
+    },
+    {
+      "id": "deepseek/deepseek-v4-pro-0813",
+      "name": "DeepSeek V4 Pro 0813",
       "context": 1048576
     },
     {
@@ -828,6 +824,11 @@
       "context": 1048576
     },
     {
+      "id": "google/gemini-3.7-flash",
+      "name": "Gemini 3.7 Flash",
+      "context": 1048576
+    },
+    {
       "id": "google/gemma-2-27b-it",
       "name": "Gemma 2 27B",
       "context": 8192
@@ -889,7 +890,7 @@
     },
     {
       "id": "meta-llama/llama-3.1-8b-instruct",
-      "name": "Llama 3.1 8B Instruct",
+      "name": "Llama-3.1-8B-Instruct",
       "context": 131072
     },
     {
@@ -936,6 +937,11 @@
       "id": "mistralai/ministral-3b-2512",
       "name": "Ministral 3 3B 2512",
       "context": 131072
+    },
+    {
+      "id": "mistralai/ministral-8b",
+      "name": "Ministral 8B",
+      "context": 128000
     },
     {
       "id": "mistralai/ministral-8b-2512",
@@ -1000,7 +1006,7 @@
     {
       "id": "mistralai/mistral-small-3.2-24b-instruct",
       "name": "Mistral Small 3.2 24B",
-      "context": 256000
+      "context": 131072
     },
     {
       "id": "mistralai/mixtral-8x22b-instruct",
@@ -1198,11 +1204,6 @@
       "context": 400000
     },
     {
-      "id": "openai/gpt-5.3-chat",
-      "name": "GPT-5.3 Chat",
-      "context": 128000
-    },
-    {
       "id": "openai/gpt-5.3-codex",
       "name": "GPT-5.3 Codex",
       "context": 400000
@@ -1285,11 +1286,6 @@
     {
       "id": "openai/gpt-oss-20b",
       "name": "GPT OSS 20B",
-      "context": 131072
-    },
-    {
-      "id": "openai/gpt-oss-20b:free",
-      "name": "gpt-oss-20b (free)",
       "context": 131072
     },
     {
@@ -1578,6 +1574,16 @@
       "context": 1000000
     },
     {
+      "id": "qwen/qwen3.8-2.4t-a95b",
+      "name": "Qwen3.8 2.4T A95B",
+      "context": 1048576
+    },
+    {
+      "id": "qwen/qwen3.8-27b",
+      "name": "Qwen3.8 27B",
+      "context": 1000000
+    },
+    {
       "id": "qwen/qwen3.8-max",
       "name": "Qwen3.8 Max",
       "context": 1000000
@@ -1600,6 +1606,11 @@
     {
       "id": "x-ai/grok-4.5",
       "name": "Grok 4.5",
+      "context": 500000
+    },
+    {
+      "id": "x-ai/grok-4.6",
+      "name": "Grok 4.6",
       "context": 500000
     },
     {
@@ -1660,6 +1671,16 @@
     {
       "id": "z-ai/glm-5.2",
       "name": "GLM-5.2",
+      "context": 1048576
+    },
+    {
+      "id": "z-ai/glm-5.2:free",
+      "name": "GLM 5.2 (free)",
+      "context": 256000
+    },
+    {
+      "id": "z-ai/glm-5.3",
+      "name": "GLM-5.3",
       "context": 1048576
     },
     {
