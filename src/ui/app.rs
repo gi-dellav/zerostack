@@ -956,7 +956,7 @@ impl<'a> App<'a> {
 
     async fn handle_agent_event(&mut self, event: AgentEvent) -> anyhow::Result<()> {
         match &event {
-            AgentEvent::ToolCall { name, args } => {
+            AgentEvent::ToolCall { name, args, .. } => {
                 if self.run.turn_trace.len() < TURN_TRACE_MAX {
                     self.run
                         .turn_trace
@@ -1126,6 +1126,7 @@ impl<'a> App<'a> {
         self.run.agent_rx = None;
         self.run.turn_trace.clear();
         self.run.awaiting_compaction_relief = false;
+        self.run.clear_pending_tool_calls();
         self.run.pending_inputs.clear();
         #[cfg(feature = "loop")]
         if let Some(ref mut ls) = self.chain.loop_state {
@@ -2225,6 +2226,7 @@ impl<'a> App<'a> {
                                                         ss.send_stop();
                                                     }
                                                     self.run.agent_rx = None;
+                                                    self.run.clear_pending_tool_calls();
                                                 }
                                             }
                                             None

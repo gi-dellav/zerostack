@@ -4,6 +4,7 @@
 
 use std::collections::VecDeque;
 
+use compact_str::CompactString;
 use tokio::sync::mpsc;
 
 use crate::cli::Cli;
@@ -138,16 +139,61 @@ pub(crate) struct AgentRunState {
     pub response_start_block: Option<usize>,
     pub pending_send: Option<String>,
     pub was_reasoning: bool,
-    pub turn_trace: Vec<compact_str::CompactString>,
+    pub turn_trace: Vec<CompactString>,
     pub awaiting_compaction_relief: bool,
-    /// The id `Session::add_tool_call` stamped for the most recent `ToolCall`
-    /// event, held until the matching `ToolResult` event consumes it via
-    /// `Session::add_tool_result`. The agent event stream is strictly
-    /// sequential (one tool call's result always arrives before the next
-    /// call starts — see design.md's single-threaded-execution finding), so a
-    /// single pending slot is sufficient; it never needs to hold more than
-    /// one id at a time.
-    pub pending_tool_call_id: Option<u64>,
+    /// In-flight `ToolCall` events in arrival order: each event's id (rig's
+    /// `internal_call_id`) paired with the id `Session::add_tool_call` stamped
+    /// for it, removed when the matching `ToolResult` event arrives. Several
+    /// are pending at once because providers may emit a whole batch of
+    /// parallel tool calls (every `ToolCall` event first, then their results),
+    /// so this cannot be a single slot; arrival order is kept so
+    /// [`newest_pending_tool_call`](AgentRunState::newest_pending_tool_call)
+    /// can answer. Reach it only through the methods below, which maintain
+    /// both invariants (unique ids, newest last).
+    pub pending_tool_calls: Vec<(CompactString, u64)>,
+}
+
+impl AgentRunState {
+    /// Record `session_call_id` as the pending call for event id `id`. A
+    /// repeated id violates rig's uniqueness guarantee; the newer call is the
+    /// live one, so it replaces the stale entry and becomes the newest.
+    pub(crate) fn push_pending_tool_call(&mut self, id: CompactString, session_call_id: u64) {
+        if let Some(pos) = self.pending_tool_calls.iter().position(|(k, _)| *k == id) {
+            tracing::warn!(
+                "ToolCall id={escaped} was already in flight; replacing its pending entry \
+                 (rig internal_call_ids are expected to be unique)",
+                escaped = id.escape_debug(),
+            );
+            self.pending_tool_calls.remove(pos);
+        }
+        self.pending_tool_calls.push((id, session_call_id));
+    }
+
+    /// Consume the session call id recorded for event id `id`, if any.
+    pub(crate) fn take_pending_tool_call(&mut self, id: &str) -> Option<u64> {
+        let pos = self.pending_tool_calls.iter().position(|(k, _)| k == id)?;
+        Some(self.pending_tool_calls.remove(pos).1)
+    }
+
+    /// Session call id of the newest call still awaiting its result, or `None`
+    /// when nothing is in flight. `SubagentToolCall` events attach to it: the
+    /// subagent side channel carries no call id, so this is a best-effort
+    /// heuristic — under a parallel batch containing a `task` call it can
+    /// attribute a subagent call to a sibling. (`run_print` records the
+    /// opposite heuristic, attaching queued subagent calls to the batch's
+    /// first-arriving result; both stay best-effort until the side channel
+    /// carries a call id.)
+    #[cfg(any(feature = "subagents", feature = "acp"))]
+    pub(crate) fn newest_pending_tool_call(&self) -> Option<u64> {
+        self.pending_tool_calls.last().map(|&(_, call_id)| call_id)
+    }
+
+    /// Drop every in-flight entry. Called from run teardown: a clean turn
+    /// consumes them all, but an abort or a mid-stream error strands some, and
+    /// a stranded entry must not be visible to the next run.
+    pub(crate) fn clear_pending_tool_calls(&mut self) {
+        self.pending_tool_calls.clear();
+    }
 }
 
 /// What happens when the current run finishes: chained prompts, dot-prompt

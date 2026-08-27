@@ -98,7 +98,11 @@ pub async fn handle_agent_event(
             renderer.render_viewport()?;
             run.agent_line_started = true;
         }
-        AgentEvent::ToolCall { name, args } => {
+        AgentEvent::ToolCall {
+            call_id: event_id,
+            name,
+            args,
+        } => {
             run.was_reasoning = false;
             if run.agent_line_started {
                 renderer.write_line("", Color::White)?;
@@ -106,7 +110,8 @@ pub async fn handle_agent_event(
             }
             run.response_buf.clear();
             run.response_start_block = None;
-            run.pending_tool_call_id = Some(ui.session.add_tool_call(&name, &args));
+            let call_id = ui.session.add_tool_call(&name, &args);
+            run.push_pending_tool_call(event_id, call_id);
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
             let line = format!(
                 "◈ {}",
@@ -116,15 +121,15 @@ pub async fn handle_agent_event(
         }
         #[cfg(any(feature = "subagents", feature = "acp"))]
         AgentEvent::SubagentToolCall { name, args } => {
-            // Peeked, not taken: the enclosing `task` call's `ToolResult` is
-            // still to come and owns the consuming `take()`. Subagent events
-            // are sent from the task the `task` tool spawned, but they reach
-            // this handler through the same mpsc channel as the main agent's
-            // own events, and the subagent finishes before the `task` tool
-            // returns — so they always arrive between that call's `ToolCall`
-            // and `ToolResult`, with its id still pending here.
+            // Subagent events are sent from the task the `task` tool spawned,
+            // but they reach this handler through the same mpsc channel as
+            // the main agent's own events, and the subagent finishes before
+            // the `task` tool returns — so they arrive between that call's
+            // `ToolCall` and `ToolResult`, while its id is still pending here.
+            // (Best-effort under a parallel batch; see
+            // `AgentRunState::newest_pending_tool_call`.)
             ui.session
-                .add_subagent_tool_call(run.pending_tool_call_id, &name, &args);
+                .add_subagent_tool_call(run.newest_pending_tool_call(), &name, &args);
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
             let line = format!(
                 "⌥ {}",
@@ -132,15 +137,12 @@ pub async fn handle_agent_event(
             );
             renderer.write_line(&sanitize_output(&line), C_TOOL)?;
         }
-        AgentEvent::ToolResult { name, output } => {
-            let call_id = run.pending_tool_call_id.take().unwrap_or_else(|| {
-                tracing::warn!(
-                    "ToolResult for {name} arrived with no pending ToolCall id; \
-                     linking to 0 (the agent event stream is expected to be strictly \
-                     sequential, so this should not happen)"
-                );
-                0
-            });
+        AgentEvent::ToolResult {
+            call_id: event_id,
+            name,
+            output,
+        } => {
+            let call_id = resolve_tool_result_call_id(run, ui.session, &event_id, &name);
             ui.session.add_tool_result(call_id, &name, &output);
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
             if name == "todo_write" {
@@ -301,10 +303,39 @@ pub async fn handle_agent_event(
             run.agent_line_started = false;
             run.response_buf.clear();
             run.response_start_block = None;
+            // A mid-stream error strands whatever was in flight.
+            run.clear_pending_tool_calls();
             save_session_if_enabled(ui.session, ui.cli, renderer)?;
         }
     }
     Ok(())
+}
+
+/// Session call id a `ToolResult` event's output belongs to.
+///
+/// Normally the matching `ToolCall` event left a pending entry. rig also has a
+/// path that streams a result for a call that never produced a `ToolCall`
+/// stream item (an invalid tool call the hook stack skips, abandoning the
+/// turn), so an unmatched result is possible. Session call id 0 is a real call
+/// (`Session::next_tool_call_id` starts there), so such a result must not be
+/// linked to it — that would rewrite the first call's recorded evidence.
+/// Instead a call is synthesized for it, with no arguments because none were
+/// ever streamed, keeping the recorded pair self-consistent.
+pub(crate) fn resolve_tool_result_call_id(
+    run: &mut AgentRunState,
+    session: &mut Session,
+    id: &str,
+    name: &str,
+) -> u64 {
+    if let Some(call_id) = run.take_pending_tool_call(id) {
+        return call_id;
+    }
+    tracing::warn!(
+        "ToolResult for {name} arrived with no matching pending ToolCall (id={escaped}); \
+         recording it against a synthesized orphan call",
+        escaped = id.escape_debug(),
+    );
+    session.add_tool_call(name, &serde_json::Value::Null)
 }
 
 fn save_session_if_enabled(
@@ -429,6 +460,10 @@ async fn handle_agent_done(
         ss.send_stop();
     }
     run.agent_rx = None;
+    // A clean turn has consumed every entry already; this covers a turn that
+    // ended with calls still open, and must precede the /loop respawn below so
+    // the next iteration starts empty.
+    run.clear_pending_tool_calls();
 
     #[cfg(feature = "loop")]
     if let Some(ls) = chain.loop_state.as_mut()

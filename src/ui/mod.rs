@@ -1,5 +1,5 @@
 pub(crate) mod app;
-mod event_handler;
+pub(crate) mod event_handler;
 pub(crate) mod events;
 pub(crate) mod feed;
 pub(crate) mod input;
@@ -627,6 +627,10 @@ pub(crate) async fn mid_turn_compact_and_respawn(
     run.is_running = false;
     run.agent_rx = None;
     run.was_reasoning = false;
+    // The aborted run's in-flight calls never get their results; the respawn
+    // below reuses this state, so a stranded entry would be paired with the
+    // new turn's first call.
+    run.clear_pending_tool_calls();
 
     // 2. Record progress so far. `turn_trace` is a capped/truncated digest, so
     // this is best-effort continuity, paired with any partial response text.
@@ -727,6 +731,7 @@ pub(crate) fn stop_turn_context_exhausted(
     run.turn_trace.clear();
     run.response_buf.clear();
     run.response_start_block = None;
+    run.clear_pending_tool_calls();
     if let Some(ss) = ui.status_signals.as_ref() {
         ss.send_stop();
     }

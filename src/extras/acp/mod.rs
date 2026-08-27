@@ -8,6 +8,7 @@ use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::{
     Agent, ByteStreams, Client, ConnectTo, ConnectionTo, Dispatch, Responder, Role, Stdio,
 };
+use compact_str::CompactString;
 use tokio::sync::Mutex;
 
 use crate::cli::Cli;
@@ -342,7 +343,11 @@ async fn run_prompt(
         .await;
     let mut rx = runner.event_rx;
 
-    let mut tool_call_id: Option<ToolCallId> = None;
+    // In-flight main-agent calls by `AgentEvent` id (rig's
+    // `internal_call_id`) to the ACP ToolCallId announced for them. A map,
+    // not a single slot: a parallel batch streams every `ToolCall` before
+    // the first `ToolResult`.
+    let mut tool_call_ids: HashMap<CompactString, ToolCallId> = HashMap::new();
     let mut final_response = String::new();
 
     while let Some(event) = rx.recv().await {
@@ -370,9 +375,13 @@ async fn run_prompt(
                     tracing::warn!("ACP failed to send reasoning notification: {}", e);
                 }
             }
-            AgentEvent::ToolCall { name, args } => {
+            AgentEvent::ToolCall {
+                call_id: event_id,
+                name,
+                args,
+            } => {
                 let id = ToolCallId::new(uuid::Uuid::new_v4().to_string());
-                tool_call_id = Some(id.clone());
+                tool_call_ids.insert(event_id, id.clone());
                 let args_str = args.to_string();
                 let tool_call = ToolCall::new(id.clone(), name.to_string())
                     .raw_input(serde_json::from_str(&args_str).ok());
@@ -385,10 +394,16 @@ async fn run_prompt(
                 }
             }
             AgentEvent::SubagentToolCall { name, args } => {
+                // Announce-only: subagent calls carry no correlating id, so
+                // they never receive a ToolCallUpdate. (Previously they
+                // hijacked the single pending slot, so the enclosing `task`
+                // call's result got attached to the subagent's entry.)
+                // Announced as already Completed, since nothing will ever
+                // update it out of the default Pending status.
                 let id = ToolCallId::new(uuid::Uuid::new_v4().to_string());
-                tool_call_id = Some(id.clone());
                 let args_str = args.to_string();
                 let tool_call = ToolCall::new(id.clone(), format!("[subagent] {}", name))
+                    .status(ToolCallStatus::Completed)
                     .raw_input(serde_json::from_str(&args_str).ok());
                 let notif = SessionNotification::new(
                     session_id.clone(),
@@ -398,10 +413,22 @@ async fn run_prompt(
                     tracing::warn!("ACP failed to send subagent tool call notification: {}", e);
                 }
             }
-            AgentEvent::ToolResult { output, .. } => {
-                let id = tool_call_id
-                    .take()
-                    .unwrap_or_else(|| ToolCallId::new(uuid::Uuid::new_v4().to_string()));
+            AgentEvent::ToolResult {
+                call_id: event_id,
+                output,
+                ..
+            } => {
+                // No announced ToolCall to update: an update carrying a
+                // ToolCallId the client was never told about is worse than
+                // silence, so drop it.
+                let Some(id) = tool_call_ids.remove(&event_id) else {
+                    tracing::warn!(
+                        "ACP tool result with no announced tool call (id={}); \
+                         skipping update",
+                        event_id.escape_debug(),
+                    );
+                    continue;
+                };
                 let fields = ToolCallUpdateFields::new()
                     .status(ToolCallStatus::Completed)
                     .content(vec![ToolCallContent::from(ContentBlock::Text(
