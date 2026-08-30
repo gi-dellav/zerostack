@@ -259,18 +259,21 @@ message, and after the response restores the previous prompt and
 | Shortcut | Action |
 | -------- | ------ |
 | `Enter` | Send message. |
-| `Shift+Enter` | Insert newline. |
-| `Ctrl+C` | Cancel current agent response or quit. |
-| `Ctrl+D` | Send message (alternative). |
+| `Alt+Enter` / `Shift+Enter` | Insert newline. |
+| `Ctrl+C` / `Ctrl+D` | Cancel current agent response or quit. |
 | `Ctrl+W` | Delete word backwards. |
-| `Ctrl+U` | Delete to beginning of line. |
-| `Ctrl+L` | Clear terminal. |
+| `Ctrl+U` / `Ctrl+K` | Delete to start / end of line. |
+| `Ctrl+Y` | Yank (paste) the most recently deleted text. |
+| `Ctrl+A` / `Ctrl+E` | Jump to start / end of line. |
+| `Ctrl+B` / `Ctrl+F` | Move one character left / right. |
+| `Ctrl+P` / `Ctrl+N` | Previous / next line (history on the first / last line). |
+| `Alt+B` / `Alt+F` | Move one word left / right. |
+| `Alt+D` / `Alt+Y` | Delete next word / cycle the kill ring. |
 | `Ctrl+G` | Open the current input in the system editor (`$EDITOR`). |
 | `Ctrl+H` | Launch `lazygit` (git TUI) in the project directory. |
-| `Ctrl+S` | Save session. |
-| `Tab` | Activate file picker / auto-complete paths. |
+| `Tab` | Insert two spaces. |
+| `@` at word start | Open the file picker. |
 | `Up / Down` | Navigate command history. |
 | `PageUp / PageDown` | Scroll viewport. |
-| `Home / End` | Jump to start/end of input. |
-| `Alt+Enter` | Retry last prompt. |
+| `Home / End` | Scroll to top / bottom. |
 | `Escape` | Close active picker / cancel. |
