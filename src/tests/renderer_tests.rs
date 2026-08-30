@@ -326,3 +326,78 @@ mod dirty {
         );
     }
 }
+
+/// Drive `draw_bottom` through a `FakeBackend` and read back the emitted
+/// caret (row, col). Content-agnostic: works for any input string.
+mod cursor_positioning {
+    use crate::ui::renderer::{FakeBackend, Renderer};
+    use regex::Regex;
+
+    const COLS: u16 = 80;
+    const PROMPT_WIDTH: usize = 2;
+    const VISIBLE_WIDTH: usize = COLS as usize - PROMPT_WIDTH;
+
+    fn emitted_cursor(input: &str, cursor: usize) -> (u16, u16) {
+        let mut r = Renderer::with_backend(Box::new(FakeBackend::new(COLS, 24)));
+        r.set_statusline_height(1);
+        r.draw_bottom(input, cursor, &[], false).unwrap();
+        let out = r.captured_output();
+        // ANSI Cursor Position: ESC[row;colH (1-based), as emitted by crossterm's MoveTo.
+        let re = Regex::new(r"\x1b\[(\d+);(\d+)H").unwrap();
+        re.captures_iter(&out)
+            .last()
+            .map(|c| {
+                (
+                    c[1].parse::<u16>().unwrap() - 1,
+                    c[2].parse::<u16>().unwrap() - 1,
+                )
+            })
+            .expect("renderer must emit a cursor MoveTo")
+    }
+
+    #[test]
+    fn empty_buffer_cursor_after_prompt() {
+        assert_eq!(emitted_cursor("", 0).1, 2);
+    }
+
+    #[test]
+    fn cursor_after_one_ascii_char() {
+        assert_eq!(emitted_cursor("a", 1).1, 3);
+    }
+
+    #[test]
+    fn cursor_after_three_ascii_chars() {
+        assert_eq!(emitted_cursor("abc", 3).1, 5);
+    }
+
+    #[test]
+    fn cursor_mid_line() {
+        assert_eq!(emitted_cursor("abc", 1).1, 3);
+    }
+
+    fn repeat_ascii(n: usize) -> String {
+        "a".repeat(n)
+    }
+
+    #[test]
+    fn cursor_at_end_of_short_line() {
+        // Line fits: caret is one past the last char.
+        let line = repeat_ascii(5);
+        assert_eq!(emitted_cursor(&line, 5).1, (PROMPT_WIDTH + 5) as u16);
+    }
+
+    #[test]
+    fn cursor_at_end_of_full_width_line() {
+        // Line exactly fills the row; it scrolls one column left so the caret
+        // stays on-screen ONE PAST the last visible char — at the final column
+        // (COLS-1), not on it (COLS-2) and not off-screen (COLS).
+        let line = repeat_ascii(VISIBLE_WIDTH);
+        assert_eq!(emitted_cursor(&line, VISIBLE_WIDTH).1, COLS - 1);
+    }
+
+    #[test]
+    fn cursor_at_end_of_overflowing_line() {
+        let line = repeat_ascii(VISIBLE_WIDTH + 12);
+        assert_eq!(emitted_cursor(&line, VISIBLE_WIDTH + 12).1, COLS - 1);
+    }
+}
