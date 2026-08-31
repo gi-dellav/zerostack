@@ -293,8 +293,8 @@
       "id": "gpt-5.6",
       "name": "GPT-5.6",
       "context": 1050000,
-      "input_price": 5,
-      "output_price": 30
+      "input_price": 4,
+      "output_price": 20
     },
     {
       "id": "gpt-5.6-luna",
@@ -307,8 +307,8 @@
       "id": "gpt-5.6-sol",
       "name": "GPT-5.6 Sol",
       "context": 1050000,
-      "input_price": 5,
-      "output_price": 30
+      "input_price": 4,
+      "output_price": 20
     },
     {
       "id": "gpt-5.6-terra",
@@ -841,17 +841,12 @@
     {
       "id": "google/gemma-3-27b-it",
       "name": "Gemma 3 27B",
-      "context": 262144
+      "context": 131072
     },
     {
       "id": "google/gemma-3-4b-it",
       "name": "Gemma 3 4B",
       "context": 131072
-    },
-    {
-      "id": "google/gemma-3n-e4b-it",
-      "name": "Gemma 3n 4B",
-      "context": 32768
     },
     {
       "id": "google/gemma-4-26b-a4b-it",
@@ -921,12 +916,17 @@
     {
       "id": "meta-llama/llama-guard-4-12b",
       "name": "Llama Guard 4 12B",
-      "context": 1048576
+      "context": 163840
     },
     {
       "id": "mistralai/codestral-2508",
       "name": "Codestral 2508",
       "context": 256000
+    },
+    {
+      "id": "mistralai/devstral-2512",
+      "name": "Devstral 2",
+      "context": 262144
     },
     {
       "id": "mistralai/ministral-14b-2512",
@@ -937,11 +937,6 @@
       "id": "mistralai/ministral-3b-2512",
       "name": "Ministral 3 3B 2512",
       "context": 131072
-    },
-    {
-      "id": "mistralai/ministral-8b",
-      "name": "Ministral 8B",
-      "context": 128000
     },
     {
       "id": "mistralai/ministral-8b-2512",
@@ -1016,7 +1011,7 @@
     {
       "id": "mistralai/voxtral-small-24b-2507",
       "name": "Voxtral Small 24B 2507",
-      "context": 32000
+      "context": 32768
     },
     {
       "id": "moonshotai/kimi-k2",
@@ -1359,11 +1354,6 @@
       "context": 1000000
     },
     {
-      "id": "qwen/qwen-plus-2025-07-28:thinking",
-      "name": "Qwen Plus 0728 (thinking)",
-      "context": 1000000
-    },
-    {
       "id": "qwen/qwen2.5-vl-72b-instruct",
       "name": "Qwen2.5 VL 72B Instruct",
       "context": 128000
@@ -1386,7 +1376,7 @@
     {
       "id": "qwen/qwen3-235b-a22b-thinking-2507",
       "name": "Qwen3 235B A22B Thinking 2507",
-      "context": 262144
+      "context": 131072
     },
     {
       "id": "qwen/qwen3-30b-a3b",
@@ -1584,6 +1574,11 @@
       "context": 1000000
     },
     {
+      "id": "qwen/qwen3.8-flash",
+      "name": "Qwen3.8 Flash",
+      "context": 1000000
+    },
+    {
       "id": "qwen/qwen3.8-max",
       "name": "Qwen3.8 Max",
       "context": 1000000
@@ -1681,7 +1676,12 @@
     {
       "id": "z-ai/glm-5.3",
       "name": "GLM-5.3",
-      "context": 1048576
+      "context": 1310720
+    },
+    {
+      "id": "z-ai/glm-5.3-flash",
+      "name": "GLM-5.3-Flash",
+      "context": 1310720
     },
     {
       "id": "z-ai/glm-5v-turbo",
