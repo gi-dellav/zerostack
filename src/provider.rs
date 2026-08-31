@@ -56,7 +56,7 @@ pub fn resolve_provider_config(
     }
     let kind = ProviderKind::from_name(name).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: '{}'. Supported: openrouter, openai, anthropic, gemini, ollama. Run `zerostack --setup` to configure providers.",
+            "Unknown provider: '{}'. Supported: openrouter, orcarouter, openai, anthropic, gemini, ollama. Run `zerostack --setup` to configure providers.",
             name
         )
     })?;
@@ -108,6 +108,7 @@ pub(crate) fn default_model_for_provider(
         "openai" => "gpt-5.1",
         "gemini" | "google" => "gemini-2.5-pro",
         "openrouter" => "openrouter/auto", // OpenRouter's always-valid auto-router
+        "orcarouter" => "orcarouter/auto", // OrcaRouter's always-valid auto-router
         "ollama" => "llama3.1",
         _ => return None,
     };
@@ -157,6 +158,7 @@ pub enum OpenAiAgent {
 #[derive(Clone)]
 pub enum AnyClient {
     OpenRouter(openrouter::Client),
+    OrcaRouter(openrouter::Client),
     OpenAI(OpenAiClient),
     Anthropic(anthropic::Client),
     Gemini(gemini::Client),
@@ -210,6 +212,7 @@ impl AnyClient {
     pub fn provider_name(&self) -> &'static str {
         match self {
             AnyClient::OpenRouter(_) => "openrouter",
+            AnyClient::OrcaRouter(_) => "orcarouter",
             AnyClient::OpenAI(_) => "openai",
             AnyClient::Anthropic(_) => "anthropic",
             AnyClient::Gemini(_) => "gemini",
@@ -223,6 +226,12 @@ impl AnyClient {
             AnyClient::OpenRouter(c) => {
                 let extra = openrouter_anthropic_routing(&name);
                 AnyModel::OpenRouter(c.completion_model(name).with_prompt_caching(), extra)
+            }
+            AnyClient::OrcaRouter(c) => {
+                // OrcaRouter is an OpenRouter-compatible gateway, so the same
+                // Anthropic direct-route pinning applies for `anthropic/*` ids.
+                let extra = openrouter_anthropic_routing(&name);
+                AnyModel::OrcaRouter(c.completion_model(name).with_prompt_caching(), extra)
             }
             AnyClient::OpenAI(c) => AnyModel::OpenAI(c.completion_model(name)),
             AnyClient::Anthropic(c) => {
@@ -330,6 +339,7 @@ impl AnyClient {
             AnyClient::OpenAI(OpenAiClient::Responses(c)) => c.list_models().await?,
             AnyClient::Anthropic(c) => c.list_models().await?,
             AnyClient::OpenRouter(c) => c.list_models().await?,
+            AnyClient::OrcaRouter(c) => c.list_models().await?,
             AnyClient::Gemini(c) => c.list_models().await?,
             AnyClient::Ollama(c) => c.list_models().await?,
             // If any arm above does NOT impl ModelListingClient it won't compile —
@@ -438,10 +448,13 @@ pub async fn fetch_live_model_info(
         .resolve()
         .ok();
     let custom = custom_providers.get(provider_name);
-    let base = config
-        .base_url
-        .clone()
-        .unwrap_or_else(|| "https://openrouter.ai/api/v1".to_string());
+    let base = config.base_url.clone().unwrap_or_else(|| {
+        if provider_name == "orcarouter" {
+            "https://api.orcarouter.ai/v1".to_string()
+        } else {
+            "https://openrouter.ai/api/v1".to_string()
+        }
+    });
     let http = build_http_client(
         provider_name,
         config.danger_accept_invalid_certs,
@@ -520,6 +533,7 @@ pub(crate) fn parse_model_infos(
 async fn summarize_with_model(model: AnyModel, prompt: String) -> anyhow::Result<String> {
     match model {
         AnyModel::OpenRouter(m, _) => run_summarizer(m, prompt).await,
+        AnyModel::OrcaRouter(m, _) => run_summarizer(m, prompt).await,
         AnyModel::OpenAI(m) => match m {
             OpenAiModel::Responses(m) => run_summarizer(m, prompt).await,
             OpenAiModel::Completions(m) => run_summarizer(m, prompt).await,
@@ -607,6 +621,12 @@ pub enum AnyModel {
         openrouter::completion::CompletionModel,
         Option<serde_json::Value>,
     ),
+    /// OrcaRouter is an OpenRouter-compatible gateway, so the same
+    /// `provider.order` routing applies for `anthropic/*` model ids.
+    OrcaRouter(
+        openrouter::completion::CompletionModel,
+        Option<serde_json::Value>,
+    ),
     OpenAI(OpenAiModel),
     Anthropic(anthropic::completion::CompletionModel),
     Gemini(gemini::completion::CompletionModel),
@@ -616,6 +636,7 @@ pub enum AnyModel {
 #[derive(Clone)]
 pub enum AnyAgent {
     OpenRouter(Agent<openrouter::completion::CompletionModel>),
+    OrcaRouter(Agent<openrouter::completion::CompletionModel>),
     OpenAI(OpenAiAgent),
     Anthropic(Agent<anthropic::completion::CompletionModel>),
     Gemini(Agent<gemini::completion::CompletionModel>),
@@ -658,6 +679,18 @@ impl AnyAgent {
     ) -> anyhow::Result<runner::PrintOutcome> {
         match self {
             AnyAgent::OpenRouter(a) => {
+                runner::run_print(
+                    a,
+                    prompt,
+                    pure_stdout,
+                    retry_config,
+                    history,
+                    #[cfg(feature = "hooks")]
+                    loop_info,
+                )
+                .await
+            }
+            AnyAgent::OrcaRouter(a) => {
                 runner::run_print(
                     a,
                     prompt,
@@ -759,6 +792,9 @@ impl AnyAgent {
             AnyAgent::OpenRouter(a) => {
                 runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
             }
+            AnyAgent::OrcaRouter(a) => {
+                runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
+            }
             AnyAgent::OpenAI(a) => match a {
                 OpenAiAgent::Responses(a) => {
                     runner::run_subagent(a, prompt, max_turns, event_tx, retry_config).await
@@ -805,6 +841,14 @@ impl AnyAgent {
         };
         match self {
             AnyAgent::OpenRouter(a) => runner::spawn_agent(
+                a,
+                prompt,
+                history,
+                retry_config,
+                #[cfg(feature = "hooks")]
+                loop_info,
+            ),
+            AnyAgent::OrcaRouter(a) => runner::spawn_agent(
                 a,
                 prompt,
                 history,
@@ -876,6 +920,9 @@ impl AnyAgent {
     ) -> crate::agent::runner::BtwRunner {
         match self {
             AnyAgent::OpenRouter(a) => {
+                runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
+            }
+            AnyAgent::OrcaRouter(a) => {
                 runner::spawn_btw(a, prompt, history, event_tx, id, retry_config)
             }
             AnyAgent::OpenAI(a) => match a {
@@ -1071,6 +1118,7 @@ pub fn create_client(
         ProviderKind::Gemini => build_gemini_client(&key, base_url.as_deref()),
         ProviderKind::Ollama => build_ollama_client(&key, base_url.as_deref()),
         ProviderKind::OpenRouter => build_openrouter_client(&key, base_url.as_deref()),
+        ProviderKind::OrcaRouter => build_orcarouter_client(&key, base_url.as_deref()),
     }
 }
 
@@ -1115,6 +1163,17 @@ fn build_openrouter_client(key: &str, base_url: Option<&str>) -> anyhow::Result<
         .with_app_identity("zerostack", "https://github.com/gi-dellav/zerostack")
         .with_app_categories(&["cli-agent", "coding"]);
     Ok(AnyClient::OpenRouter(builder.build()?))
+}
+
+fn build_orcarouter_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {
+    // OrcaRouter exposes an OpenRouter-compatible API at
+    // `https://api.orcarouter.ai/v1`, so we reuse rig's OpenRouter client type
+    // pointed at OrcaRouter's base URL (with the same `provider.order` body
+    // params and OpenRouter-style `/models` listing). We skip the
+    // OpenRouter-only app-identity headers, which OrcaRouter does not read.
+    let base = base_url.unwrap_or("https://api.orcarouter.ai/v1");
+    let builder = openrouter::Client::builder().api_key(key).base_url(base);
+    Ok(AnyClient::OrcaRouter(builder.build()?))
 }
 
 /// Builds an OpenAiModel (Responses / Completions) into the matching OpenAiAgent.
@@ -1186,6 +1245,23 @@ pub async fn build_agent(
 ) -> AnyAgent {
     match model {
         AnyModel::OpenRouter(m, routing) => AnyAgent::OpenRouter(
+            builder::build_agent_inner(
+                m,
+                cli,
+                cfg,
+                context,
+                permission,
+                ask_tx,
+                sandbox.clone(),
+                reasoning_enabled,
+                temperature,
+                merge_extra_body(routing, extra_body),
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+            )
+            .await,
+        ),
+        AnyModel::OrcaRouter(m, routing) => AnyAgent::OrcaRouter(
             builder::build_agent_inner(
                 m,
                 cli,
@@ -1288,6 +1364,17 @@ pub fn build_btw_agent(
 ) -> AnyAgent {
     match model {
         AnyModel::OpenRouter(m, routing) => AnyAgent::OpenRouter(builder::build_btw_agent_inner(
+            m,
+            cli,
+            cfg,
+            context,
+            permission,
+            ask_tx,
+            reasoning_enabled,
+            temperature,
+            merge_extra_body(routing, extra_body),
+        )),
+        AnyModel::OrcaRouter(m, routing) => AnyAgent::OrcaRouter(builder::build_btw_agent_inner(
             m,
             cli,
             cfg,

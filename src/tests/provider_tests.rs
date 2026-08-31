@@ -216,6 +216,12 @@ fn resolve_builtin_openrouter() {
 }
 
 #[test]
+fn resolve_builtin_orcarouter() {
+    let cfg = resolve_provider_config("orcarouter", &HashMap::new()).unwrap();
+    assert_eq!(cfg.kind, ProviderKind::OrcaRouter);
+}
+
+#[test]
 fn resolve_unknown_provider_errors() {
     let result = resolve_provider_config("nonexistent_provider_xyz", &HashMap::new());
     assert!(result.is_err());

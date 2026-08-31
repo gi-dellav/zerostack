@@ -105,6 +105,18 @@ pub(crate) async fn build_explore_agent(
             #[cfg(feature = "archmd")]
             arch_ref,
         )),
+        AnyModel::OrcaRouter(m, extra) => AnyAgent::OrcaRouter(build_explore_agent_inner(
+            m,
+            max_turns,
+            max_text_file_size,
+            max_read_lines,
+            max_grep_results,
+            max_find_results,
+            max_list_dir_entries,
+            extra,
+            #[cfg(feature = "archmd")]
+            arch_ref,
+        )),
         AnyModel::OpenAI(m) => AnyAgent::OpenAI(match m {
             OpenAiModel::Responses(m) => OpenAiAgent::Responses(build_explore_agent_inner(
                 m,

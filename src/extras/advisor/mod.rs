@@ -220,6 +220,7 @@ async fn run_advisor_completion(
 
     match model {
         AnyModel::OpenRouter(m, _) => advisor_call(m, prompt).await,
+        AnyModel::OrcaRouter(m, _) => advisor_call(m, prompt).await,
         AnyModel::OpenAI(m) => match m {
             OpenAiModel::Responses(m) => advisor_call(m, prompt).await,
             OpenAiModel::Completions(m) => advisor_call(m, prompt).await,

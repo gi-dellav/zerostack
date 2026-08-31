@@ -30,6 +30,16 @@ fn auth_resolver_returns_env_var_when_no_cli_key() {
 }
 
 #[test]
+fn auth_resolver_orcarouter_uses_own_env_var() {
+    let env = mock_env(vec![("ORCAROUTER_API_KEY", "orc-key-123")]);
+    let resolver = AuthResolver::new(ProviderKind::OrcaRouter)
+        .with_cli_key(None)
+        .with_config_keys(None);
+    let result = resolver.resolve_with_env(env).unwrap();
+    assert_eq!(result, "orc-key-123");
+}
+
+#[test]
 fn auth_resolver_returns_config_key_when_no_env() {
     let mut keys = HashMap::new();
     keys.insert("openai".to_string(), "config-key-789".to_string());
@@ -115,6 +125,10 @@ fn provider_kind_from_name_recognizes_all() {
     assert_eq!(
         ProviderKind::from_name("openrouter"),
         Some(ProviderKind::OpenRouter)
+    );
+    assert_eq!(
+        ProviderKind::from_name("orcarouter"),
+        Some(ProviderKind::OrcaRouter)
     );
     assert_eq!(
         ProviderKind::from_name("openai"),

@@ -382,6 +382,7 @@ impl Startup {
         // built-in openrouter and to any custom provider exposing an
         // OpenRouter-style `GET {base_url}/models` (e.g. laroute).
         let live_info_provider = self.provider == "openrouter"
+            || self.provider == "orcarouter"
             || self
                 .cfg
                 .custom_providers_map()

@@ -74,7 +74,7 @@ pub(crate) async fn fetch_models_cached(
     };
     models.retain(crate::provider::is_agent_model);
 
-    if provider == "openrouter" || is_custom {
+    if provider == "openrouter" || provider == "orcarouter" || is_custom {
         match crate::provider::fetch_live_model_info(
             provider,
             cli.api_key.as_deref(),
@@ -189,6 +189,7 @@ async fn apply_model(ctx: &mut SlashCtx<'_>, model_id: &str) {
         ctx.session.input_token_cost = input;
         ctx.session.output_token_cost = output;
     } else if (ctx.session.provider == "openrouter"
+        || ctx.session.provider == "orcarouter"
         || ctx
             .cfg
             .custom_providers_map()
@@ -289,6 +290,7 @@ async fn handle_model(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<
         ctx.session.input_token_cost = input;
         ctx.session.output_token_cost = output;
     } else if (ctx.session.provider == "openrouter"
+        || ctx.session.provider == "orcarouter"
         || ctx
             .cfg
             .custom_providers_map()

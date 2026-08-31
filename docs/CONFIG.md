@@ -165,7 +165,7 @@ Accepted top-level keys:
 
 | Key                       | Type    | Description                                                                                                                                                                 |
 | ------------------------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider`                | string  | Provider name. Built-ins are `openrouter`, `openai`, `anthropic`, `gemini`/`google`, and `ollama`; custom provider aliases are also accepted. Default: `openrouter`.        |
+| `provider`                | string  | Provider name. Built-ins are `openrouter`, `orcarouter`, `openai`, `anthropic`, `gemini`/`google`, and `ollama`; custom provider aliases are also accepted. Default: `openrouter`.        |
 | `model`                   | string  | Model name. Default: `deepseek/deepseek-v4-flash`.                                                                                                                          |
 | `max_tokens`              | integer | Maximum response tokens. Default: `16384`.                                                                                                                                  |
 | `max_agent_turns`         | integer | Maximum agent turns per response. Default: `200`.                                                                                                                           |
@@ -579,9 +579,9 @@ a routing strategy:
 
 `extra_body` injects arbitrary JSON into the completion request body. It is
 shallow-merged (top-level keys win on collision) and works for **every**
-provider — OpenAI, Anthropic, Gemini, Ollama, OpenRouter, and any custom
-provider — not just OpenRouter. The same value is applied to the main agent and
-the isolated `/btw` agent so they behave identically.
+provider — OpenAI, Anthropic, Gemini, Ollama, OpenRouter, OrcaRouter, and any
+custom provider — not just OpenRouter. The same value is applied to the main
+agent and the isolated `/btw` agent so they behave identically.
 
 It can be set at two levels, resolved most-specific first:
 

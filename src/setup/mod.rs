@@ -156,12 +156,20 @@ struct Ctx {
 }
 
 fn builtin_provider_names() -> &'static [&'static str] {
-    &["openrouter", "openai", "anthropic", "gemini", "ollama"]
+    &[
+        "openrouter",
+        "orcarouter",
+        "openai",
+        "anthropic",
+        "gemini",
+        "ollama",
+    ]
 }
 
 fn provider_env_var(name: &str) -> &'static str {
     match name {
         "openrouter" => "OPENROUTER_API_KEY",
+        "orcarouter" => "ORCAROUTER_API_KEY",
         "openai" => "OPENAI_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
         "gemini" => "GEMINI_API_KEY",
@@ -1675,6 +1683,7 @@ fn apply_autoconfigure(cfg: &mut Config) {
         ("anthropic", "ANTHROPIC_API_KEY"),
         ("gemini", "GEMINI_API_KEY"),
         ("openrouter", "OPENROUTER_API_KEY"),
+        ("orcarouter", "ORCAROUTER_API_KEY"),
     ];
 
     for (provider, env_var) in providers_to_check {

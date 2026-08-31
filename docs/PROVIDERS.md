@@ -12,6 +12,7 @@ definitions for OpenAI-compatible endpoints.
 | Provider   | Config name         | Default env var for API key |
 | ---------- | ------------------- | --------------------------- |
 | OpenRouter | `openrouter`        | `OPENROUTER_API_KEY`        |
+| OrcaRouter | `orcarouter`        | `ORCAROUTER_API_KEY`        |
 | OpenAI     | `openai`            | `OPENAI_API_KEY`            |
 | Anthropic  | `anthropic`         | `ANTHROPIC_API_KEY`         |
 | Gemini     | `gemini` / `google` | `GEMINI_API_KEY`            |
@@ -60,7 +61,7 @@ the `custom_providers` key in the config file:
 
 | Field                         | Type    | Description                                                                                                                                                                   |
 | ----------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider_type`               | string  | Must be one of the built-in provider types (`openrouter`, `openai`, `anthropic`, `gemini`, `ollama`).                                                                         |
+| `provider_type`               | string  | Must be one of the built-in provider types (`openrouter`, `orcarouter`, `openai`, `anthropic`, `gemini`, `ollama`).                                                                         |
 | `base_url`                    | string  | The API base URL.                                                                                                                                                             |
 | `api_key_env`                 | string  | Optional. Name of an environment variable holding the API key. Falls back to the provider-kind default if not set.                                                            |
 | `api_style`                   | string  | Optional. For OpenAI-based providers: `"responses"` (Responses API, default when no `base_url` is set) or `"completions"` (Chat Completions, default when `base_url` is set). |
