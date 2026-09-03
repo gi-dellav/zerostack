@@ -603,6 +603,7 @@ impl<'a> App<'a> {
         )
     }
 
+    #[allow(dead_code)]
     fn refresh_git_state(&mut self) {
         self.ui.session.refresh_git_branch();
         if crate::ui::statusline::needs_git_status() {
@@ -1499,7 +1500,6 @@ impl<'a> App<'a> {
                     }
                     #[cfg(feature = "mcp")]
                     crate::ui::slash::SlashOutcome::DeferMcpLogin { server } => {
-                        let server = server;
                         let resolved = self
                             .ui
                             .cfg

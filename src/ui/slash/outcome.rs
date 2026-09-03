@@ -5,6 +5,7 @@ use std::path::PathBuf;
 /// Typed deferred actions previously encoded as `DEFER_*:` error strings.
 /// Using `anyhow::Error::new(SlashOutcome)` + `downcast_ref` avoids stringly-typed control flow.
 #[derive(Debug, Clone)]
+#[allow(clippy::enum_variant_names)]
 pub enum SlashOutcome {
     DeferCompress {
         instructions: Option<String>,

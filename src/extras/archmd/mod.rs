@@ -53,6 +53,7 @@ pub(crate) fn should_ask_with_path(dir: &Path, asked_path: &Path) -> bool {
     !arch_path.exists() && !has_been_asked_with_path(dir, asked_path)
 }
 
+#[allow(dead_code)]
 pub fn ask_and_create(dir: &Path) -> anyhow::Result<bool> {
     if !should_ask(dir) {
         return Ok(false);

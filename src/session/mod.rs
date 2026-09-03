@@ -337,6 +337,7 @@ impl Session {
     /// Refresh [`git_status`](Self::git_status) by running `git status` in
     /// `working_dir`. Only call this when the statusline actually shows a git
     /// change/status item: it spawns a subprocess (throttled by the caller).
+    #[allow(dead_code)]
     pub fn refresh_git_status(&mut self) {
         self.git_status = Self::detect_git_status(&self.working_dir);
     }

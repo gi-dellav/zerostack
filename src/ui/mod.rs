@@ -335,7 +335,6 @@ pub(crate) fn spawn_event_thread(
                 }
                 Ok(event::Event::FocusLost) => {}
                 Err(_) => break,
-                _ => {}
             }
         }
     })
