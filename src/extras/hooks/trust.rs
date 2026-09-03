@@ -97,11 +97,11 @@ pub(crate) fn confirm_untrusted_hook(description: &str) -> bool {
 
 /// Async variant that runs `stdin.read_line` on the blocking pool so it does
 /// not stall the tokio async worker.
-pub(crate) async fn confirm_untrusted_hook_async(description: String) -> bool {
+/*pub(crate) async fn confirm_untrusted_hook_async(description: String) -> bool {
     tokio::task::spawn_blocking(move || confirm_untrusted_hook(&description))
         .await
         .unwrap_or(false)
-}
+}*/
 
 struct SourceConfig {
     hooks: HooksConfig,
