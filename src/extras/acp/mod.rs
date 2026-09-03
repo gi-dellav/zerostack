@@ -6,7 +6,7 @@ use std::sync::Arc;
 use agent_client_protocol::on_receive_request;
 use agent_client_protocol::schema::v1::*;
 use agent_client_protocol::{
-    Agent, ByteStreams, Client, ConnectTo, ConnectionTo, Dispatch, Responder, Role, Stdio,
+    Agent, ByteStreams, Client, ConnectTo, ConnectionTo, Responder, Role, Stdio,
 };
 use compact_str::CompactString;
 use tokio::sync::Mutex;
@@ -141,18 +141,6 @@ pub async fn serve(cli: Cli, cfg: Config, context: ContextFiles) -> anyhow::Resu
                 }
             },
             on_receive_request!(),
-        )
-        .on_receive_dispatch(
-            |dispatch: Dispatch<AgentRequest, AgentNotification>, cx: ConnectionTo<Client>| {
-                async move {
-                    tracing::warn!("ACP unhandled dispatch message");
-                    dispatch.respond_with_error(
-                        agent_client_protocol::util::internal_error("Unhandled ACP message"),
-                        cx,
-                    )
-                }
-            },
-            agent_client_protocol::on_receive_dispatch!(),
         );
 
     // Choose transport: TCP if host is set, otherwise stdio
