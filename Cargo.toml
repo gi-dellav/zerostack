@@ -88,7 +88,7 @@ mimalloc = { version = "0.1", default-features = false }
 # different feature sets and rig is recompiled between them. That is the
 # accepted cost of a test-only feature; folding `test-utils` into the release
 # dep to skip the rebuild would instead ship dead test code in the binary.
-rig = { version = "0.42", features = ["test-utils"] }
+rig = { version = "0.40", features = ["test-utils"] }
 
 [profile.dev]
 opt-level = 1

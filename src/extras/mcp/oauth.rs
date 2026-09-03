@@ -12,8 +12,8 @@ use std::pin::Pin;
 use std::time::Duration;
 
 use rmcp::transport::auth::{
-    AuthClient, AuthError, AuthorizationManager, AuthorizationSession, CredentialStore,
-    StoredCredentials,
+    AuthClient, AuthError, AuthorizationManager, AuthorizationRequest, AuthorizationSession,
+    CredentialStore, StoredCredentials,
 };
 
 use super::config::OAuthSettings;
@@ -196,19 +196,24 @@ pub async fn begin_login(
         .map_err(|e| anyhow::anyhow!("OAuth init failed: {e}"))?;
     manager.set_credential_store(FileCredentialStore::new(server_name));
 
-    let metadata = manager
-        .discover_metadata()
+    let resolution = manager
+        .resolve_metadata()
         .await
         .map_err(|e| anyhow::anyhow!("OAuth metadata discovery failed: {e}"))?;
-    manager.set_metadata(metadata);
+    manager.set_metadata(resolution.metadata);
 
     let redirect_uri = settings.redirect_uri();
-    let scope_refs: Vec<&str> = settings.scopes.iter().map(|s| s.as_str()).collect();
+    let mut request = AuthorizationRequest::new(redirect_uri).with_client_name(CLIENT_NAME);
+    if !settings.scopes.is_empty() {
+        request = request.with_scopes(settings.scopes.clone());
+    }
+    if let Some(client_id) = &settings.client_id {
+        request = request.with_preregistered_client(client_id.clone());
+    }
 
-    let session =
-        AuthorizationSession::new(manager, &scope_refs, &redirect_uri, Some(CLIENT_NAME), None)
-            .await
-            .map_err(|e| anyhow::anyhow!("OAuth authorization setup failed: {e}"))?;
+    let session = AuthorizationSession::new(manager, request)
+        .await
+        .map_err(|(_, e)| anyhow::anyhow!("OAuth authorization setup failed: {e}"))?;
 
     Ok(LoginSession {
         auth_url: session.get_authorization_url().to_string(),

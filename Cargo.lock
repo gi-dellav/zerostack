@@ -15,19 +15,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
 dependencies = [
  "cfg-if",
- "cipher 0.4.4",
+ "cipher",
  "cpufeatures 0.2.17",
-]
-
-[[package]]
-name = "aes"
-version = "0.9.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35f0f96ce78e38c3dc6d8948aa8163d06385be74000f3c7a95bf1eef35d3ea32"
-dependencies = [
- "cipher 0.5.2",
- "cpubits",
- "cpufeatures 0.3.1",
 ]
 
 [[package]]
@@ -1229,15 +1218,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "block-padding"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "710f1dd022ef4e93f8a438b4ba958de7f64308434fa6a87104481645cc30068b"
-dependencies = [
- "hybrid-array",
-]
-
-[[package]]
 name = "blocking"
 version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1374,16 +1354,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26b52a9543ae338f279b96b0b9fed9c8093744685043739079ce85cd58f289a6"
 dependencies = [
- "cipher 0.4.4",
-]
-
-[[package]]
-name = "cbc"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce2dc9ee5f88d11e0beb842c88b33c8a5cf0d1329c4b19494af42b07dbfe8896"
-dependencies = [
- "cipher 0.5.2",
+ "cipher",
 ]
 
 [[package]]
@@ -1461,17 +1432,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
 dependencies = [
  "crypto-common 0.1.7",
- "inout 0.1.4",
-]
-
-[[package]]
-name = "cipher"
-version = "0.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8cf2a2c93cd704877c0858356ed03480ff301ee950b43f1cbe4573b088bfa6c"
-dependencies = [
- "crypto-common 0.2.2",
- "inout 0.2.2",
+ "inout",
 ]
 
 [[package]]
@@ -1704,12 +1665,6 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
-
-[[package]]
-name = "cpubits"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15b85f9c39137c3a891689859392b1bd49812121d0d61c9caf00d46ed5ce06ae"
 
 [[package]]
 name = "cpufeatures"
@@ -2294,7 +2249,7 @@ dependencies = [
  "hex",
  "itertools 0.14.0",
  "log",
- "md-5 0.10.6",
+ "md-5",
  "memchr",
  "num-traits",
  "rand 0.9.5",
@@ -2788,16 +2743,7 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a8bfa975b1aec2145850fcaa1c6fe269a16578c44705a532ae3edc92b8881c7"
 dependencies = [
- "cipher 0.4.4",
-]
-
-[[package]]
-name = "ecb"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26f2a8b3e564eba0877223dc343703ad0385794e882e6d13f3a4dd5c6b1f41ac"
-dependencies = [
- "cipher 0.5.2",
+ "cipher",
 ]
 
 [[package]]
@@ -3274,7 +3220,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee8cfcc411d9adbbaba82fb72661cc1bcca13e8bba98b364e62b2dba8f960159"
 dependencies = [
  "color_quant",
- "weezl 0.1.12",
+ "weezl",
 ]
 
 [[package]]
@@ -3896,18 +3842,8 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
- "block-padding 0.3.3",
+ "block-padding",
  "generic-array",
-]
-
-[[package]]
-name = "inout"
-version = "0.2.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4250ce6452e92010fdf7268ccc5d14faa80bb12fc741938534c58f16804e03c7"
-dependencies = [
- "block-padding 0.4.2",
- "hybrid-array",
 ]
 
 [[package]]
@@ -4936,11 +4872,11 @@ version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67513274c50a2b51e5f75d9e682fcf4ab064a8a9c9ae2c3c59309084882bb24d"
 dependencies = [
- "aes 0.8.4",
+ "aes",
  "bitflags 2.13.1",
- "cbc 0.1.2",
+ "cbc",
  "chrono",
- "ecb 0.1.2",
+ "ecb",
  "encoding_rs",
  "flate2",
  "getrandom 0.4.3",
@@ -4948,7 +4884,7 @@ dependencies = [
  "itoa",
  "jiff",
  "log",
- "md-5 0.10.6",
+ "md-5",
  "nom 8.0.0",
  "rand 0.10.2",
  "rangemap",
@@ -4958,34 +4894,7 @@ dependencies = [
  "thiserror 2.0.20",
  "time",
  "ttf-parser",
- "weezl 0.1.12",
-]
-
-[[package]]
-name = "lopdf"
-version = "0.44.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e2ec995d822e05cabc3f06d196ee43650af3fe4fe38012cacb35e0c3d113b68"
-dependencies = [
- "aes 0.9.3",
- "bitflags 2.13.1",
- "cbc 0.2.1",
- "ecb 0.2.1",
- "encoding_rs",
- "flate2",
- "getrandom 0.4.3",
- "indexmap 2.14.1",
- "itoa",
- "log",
- "md-5 0.11.0",
- "nom 8.0.0",
- "rand 0.10.2",
- "rangemap",
- "rayon",
- "sha2 0.11.0",
- "stringprep",
- "thiserror 2.0.20",
- "weezl 0.2.1",
+ "weezl",
 ]
 
 [[package]]
@@ -5091,16 +5000,6 @@ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
-]
-
-[[package]]
-name = "md-5"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
-dependencies = [
- "cfg-if",
- "digest 0.11.3",
 ]
 
 [[package]]
@@ -6499,48 +6398,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9aac59326725633a25c21ef2c24d33c4d00dc38a1f0cc097205a7a9bde70b482"
 dependencies = [
  "rig-bedrock",
- "rig-core 0.40.0",
- "rig-fastembed 0.40.0",
- "rig-helixdb 0.40.0",
- "rig-lancedb 0.40.0",
- "rig-milvus 0.40.0",
-]
-
-[[package]]
-name = "rig"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b989f4060e5f3c1ea4b8b6999f6759949d820704286cc6976b7a688cc0133029"
-dependencies = [
- "rig-agent",
- "rig-core 0.42.0",
- "rig-derive 0.42.0",
- "rig-fastembed 0.42.0",
- "rig-helixdb 0.42.0",
- "rig-lancedb 0.42.0",
- "rig-milvus 0.42.0",
-]
-
-[[package]]
-name = "rig-agent"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b66477c0d0a786358d078e7e3541a73089dd9009100d6e2b3fe3b0d730e8550f"
-dependencies = [
- "async-stream",
- "fastrand",
- "futures",
- "http 1.5.0",
- "indexmap 2.14.1",
- "rig-core 0.42.0",
- "rig-derive 0.42.0",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "tracing-futures",
+ "rig-core",
+ "rig-fastembed",
+ "rig-helixdb",
+ "rig-lancedb",
+ "rig-milvus",
 ]
 
 [[package]]
@@ -6554,8 +6416,8 @@ dependencies = [
  "aws-sdk-bedrockruntime",
  "aws-smithy-types",
  "base64 0.22.1",
- "rig-core 0.40.0",
- "rig-derive 0.40.0",
+ "rig-core",
+ "rig-derive",
  "schemars 1.2.2",
  "serde",
  "serde_json",
@@ -6581,56 +6443,20 @@ dependencies = [
  "glob",
  "http 1.5.0",
  "indexmap 2.14.1",
- "lopdf 0.41.0",
+ "lopdf",
  "mime",
  "mime_guess",
  "ordered-float",
  "pin-project-lite",
  "reqwest 0.13.4",
- "rig-derive 0.40.0",
+ "rig-derive",
  "rmcp 1.8.0",
  "schemars 1.2.2",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
- "tokio-tungstenite 0.28.0",
- "tracing",
- "tracing-futures",
- "url",
-]
-
-[[package]]
-name = "rig-core"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "432d83e0facf16749f91fe729cbffca84437e8062d2f4e92f4f12e903693922d"
-dependencies = [
- "as-any",
- "async-stream",
- "base64 0.22.1",
- "bytes",
- "eventsource-stream",
- "fastrand",
- "futures",
- "futures-timer",
- "glob",
- "http 1.5.0",
- "indexmap 2.14.1",
- "lopdf 0.44.0",
- "mime",
- "mime_guess",
- "ordered-float",
- "pin-project-lite",
- "reqwest 0.13.4",
- "rig-derive 0.42.0",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "thiserror 2.0.20",
- "tokio",
- "tokio-tungstenite 0.29.0",
+ "tokio-tungstenite",
  "tracing",
  "tracing-futures",
  "url",
@@ -6652,40 +6478,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "rig-derive"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de0a33f1bac45f16e50146c248bcbbfaa44518c7252d274e972c7f4ad71aaba7"
-dependencies = [
- "convert_case 0.11.0",
- "proc-macro-crate",
- "proc-macro2",
- "quote",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "rig-fastembed"
 version = "0.40.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "327cf6cce379c683131b9ecba31658809b894537de92f1f2210e1684c9e7b658"
 dependencies = [
  "fastembed",
- "rig-core 0.40.0",
- "schemars 1.2.2",
- "serde",
- "serde_json",
- "tracing",
-]
-
-[[package]]
-name = "rig-fastembed"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1dff99f9bea13108bb14df5431b6fc0738beb87f1fe5ebfcf26ae9fe54a188d"
-dependencies = [
- "fastembed",
- "rig-core 0.42.0",
+ "rig-core",
  "schemars 1.2.2",
  "serde",
  "serde_json",
@@ -6699,20 +6498,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab62293183e16a1c4a3b0cd9c9b1374b4a4dce093e4b6f3a0e6620d325fae7a6"
 dependencies = [
  "reqwest 0.13.4",
- "rig-core 0.40.0",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "rig-helixdb"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5fa2b188a1e9e65d29c34738c97465f0822c57540d6d45fd4f04dad906c966a"
-dependencies = [
- "reqwest 0.13.4",
- "rig-core 0.42.0",
+ "rig-core",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -6728,21 +6514,7 @@ dependencies = [
  "deranged",
  "futures",
  "lancedb",
- "rig-core 0.40.0",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "rig-lancedb"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5fe3555202c5bd4e30948414c2e234fddd9260d4520046733fcf0d58718f3a1"
-dependencies = [
- "arrow-array",
- "futures",
- "lancedb",
- "rig-core 0.42.0",
+ "rig-core",
  "serde",
  "serde_json",
 ]
@@ -6754,20 +6526,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "342b88c0bb0293f1a77ef7ecc7e5a20af222fee251b26412b38d42ddb98afed9"
 dependencies = [
  "reqwest 0.13.4",
- "rig-core 0.40.0",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "rig-milvus"
-version = "0.42.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af9c7b7ff7ed9c16da983a21f1e81f425c9805355427a92f4d2d97ba1fe2aa12"
-dependencies = [
- "reqwest 0.13.4",
- "rig-core 0.42.0",
+ "rig-core",
  "serde",
  "serde_json",
  "uuid",
@@ -7813,7 +7572,7 @@ dependencies = [
  "flate2",
  "half",
  "quick-error",
- "weezl 0.1.12",
+ "weezl",
  "zune-jpeg",
 ]
 
@@ -7986,23 +7745,7 @@ dependencies = [
  "rustls-pki-types",
  "tokio",
  "tokio-rustls 0.26.4",
- "tungstenite 0.28.0",
- "webpki-roots 0.26.11",
-]
-
-[[package]]
-name = "tokio-tungstenite"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f72a05e828585856dacd553fba484c242c46e391fb0e58917c942ee9202915c"
-dependencies = [
- "futures-util",
- "log",
- "rustls 0.23.43",
- "rustls-pki-types",
- "tokio",
- "tokio-rustls 0.26.4",
- "tungstenite 0.29.0",
+ "tungstenite",
  "webpki-roots 0.26.11",
 ]
 
@@ -8223,24 +7966,6 @@ dependencies = [
  "sha1",
  "thiserror 2.0.20",
  "utf-8",
-]
-
-[[package]]
-name = "tungstenite"
-version = "0.29.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6c01152af293afb9c7c2a57e4b559c5620b421f6d133261c60dd2d0cdb38e6b8"
-dependencies = [
- "bytes",
- "data-encoding",
- "http 1.5.0",
- "httparse",
- "log",
- "rand 0.9.5",
- "rustls 0.23.43",
- "rustls-pki-types",
- "sha1",
- "thiserror 2.0.20",
 ]
 
 [[package]]
@@ -8612,12 +8337,6 @@ name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
-
-[[package]]
-name = "weezl"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4ca08e5ef825b65b056d9efbd95c8750683f0a6d0466d02e96dc2e4e360f3d2"
 
 [[package]]
 name = "winapi"
@@ -9075,8 +8794,7 @@ dependencies = [
  "pulldown-cmark",
  "regex",
  "reqwest 0.13.4",
- "rig 0.40.0",
- "rig 0.42.0",
+ "rig",
  "rmcp 3.2.0",
  "serde",
  "serde_json",
