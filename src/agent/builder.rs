@@ -70,11 +70,10 @@ pub fn build_preamble(context: &ContextFiles, reasoning_enabled: bool) -> String
     // Add extra files content to preamble budget. Cap each file to prevent a
     // huge file from blowing up the system prompt past the context window.
     const MAX_EXTRA_FILE_BYTES: usize = 524_288;
-    let extra_files_content: Vec<String> = context
-        .extra_files
-        .iter()
-        .filter_map(|p| {
-            let content = std::fs::read_to_string(p).ok()?;
+    let mut extra_files_direct: Vec<(String, String)> = Vec::new();
+    let mut extra_files_len: usize = 0;
+    for p in &context.extra_files {
+        if let Ok(content) = std::fs::read_to_string(p) {
             let truncated = if content.len() > MAX_EXTRA_FILE_BYTES {
                 tracing::warn!(
                     "extra file {} exceeds {} bytes, truncated for preamble",
@@ -91,10 +90,11 @@ pub fn build_preamble(context: &ContextFiles, reasoning_enabled: bool) -> String
             } else {
                 content
             };
-            Some(format!("Content of {}:\n{}", p.display(), truncated))
-        })
-        .collect();
-    let extra_files_len: usize = extra_files_content.iter().map(|s| s.len() + 2).sum();
+            let header = format!("Content of {}:\n", p.display());
+            extra_files_len += header.len() + truncated.len() + 4; // "\n\n---\n\n"
+            extra_files_direct.push((header, truncated));
+        }
+    }
     let total_len = total_len + extra_files_len;
 
     let mut preamble = String::with_capacity(total_len);
@@ -119,9 +119,10 @@ pub fn build_preamble(context: &ContextFiles, reasoning_enabled: bool) -> String
         preamble.push_str("\n\nCurrent working directory: ");
         preamble.push_str(&cwd);
     }
-    for content in &extra_files_content {
+    for (header, truncated) in &extra_files_direct {
         preamble.push_str("\n\n---\n\n");
-        preamble.push_str(content);
+        preamble.push_str(header);
+        preamble.push_str(truncated);
     }
     #[cfg(feature = "memory")]
     {

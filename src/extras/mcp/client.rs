@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::process::Stdio;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use compact_str::CompactString;
@@ -9,6 +10,13 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
 use super::config::McpServerConfig;
+
+static SHARED_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+});
 
 pub struct McpClientHandle {
     pub server_name: CompactString,
@@ -147,9 +155,7 @@ impl McpClientHandle {
                 } else {
                     type HttpClient =
                         rmcp::transport::StreamableHttpClientTransport<reqwest::Client>;
-                    let client = reqwest::Client::builder()
-                        .connect_timeout(connect_timeout)
-                        .build()?;
+                    let client = SHARED_HTTP_CLIENT.clone();
                     let transport = HttpClient::with_client(client, cfg);
                     tokio::time::timeout(connect_timeout, serve_client((), transport))
                         .await

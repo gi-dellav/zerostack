@@ -14,7 +14,7 @@ pub(crate) mod settings;
 
 pub use outcome::SlashOutcome;
 
-pub(crate) use providers::warm_model_cache;
+pub(crate) use providers::{cached_model_ids, warm_model_cache};
 
 use smallvec::SmallVec;
 

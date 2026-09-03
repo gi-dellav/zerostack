@@ -14,7 +14,7 @@ pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer, mouse_capture:
 }
 
 fn run_tutor(mouse_capture: bool) -> anyhow::Result<()> {
-    crate::ui::terminal::suspend_tui(mouse_capture, || crate::docs::show_get_started())
+    crate::ui::terminal::suspend_tui(mouse_capture, crate::docs::show_get_started)
 }
 
 pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {

@@ -86,32 +86,47 @@ impl McpClientManager {
         ask_tx: Option<AskSender>,
     ) -> Vec<McpTool> {
         tracing::debug!("MCP collecting tools from {} handles", self.handles.len());
-        let mut all_tools = Vec::new();
-        for shared in &self.handles {
-            let handle = shared.read().await;
-            let server_name = handle.server_name.clone();
-            match handle.list_tools().await {
-                Ok(tools) => {
-                    tracing::debug!("MCP server '{}': {} tools listed", server_name, tools.len(),);
-                    for definition in tools {
-                        all_tools.push(McpTool {
-                            server_name: server_name.clone(),
-                            definition,
-                            handle: shared.clone(),
-                            permission: permission.clone(),
-                            ask_tx: ask_tx.clone(),
-                        });
+        // Parallelize list_tools across servers so a slow server doesn't stall others.
+        let futures = self.handles.iter().map(|shared| {
+            let shared = shared.clone();
+            let permission = permission.clone();
+            let ask_tx = ask_tx.clone();
+            async move {
+                let handle = shared.read().await;
+                let server_name = handle.server_name.clone();
+                match handle.list_tools().await {
+                    Ok(tools) => {
+                        tracing::debug!(
+                            "MCP server '{}': {} tools listed",
+                            server_name,
+                            tools.len(),
+                        );
+                        tools
+                            .into_iter()
+                            .map(|definition| McpTool {
+                                server_name: server_name.clone(),
+                                definition,
+                                handle: shared.clone(),
+                                permission: permission.clone(),
+                                ask_tx: ask_tx.clone(),
+                            })
+                            .collect::<Vec<_>>()
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to list tools from MCP server '{}': {e}",
+                            server_name
+                        );
+                        Vec::new()
                     }
                 }
-                Err(e) => {
-                    tracing::warn!(
-                        "Failed to list tools from MCP server '{}': {e}",
-                        server_name
-                    );
-                }
             }
-        }
-        all_tools
+        });
+        futures::future::join_all(futures)
+            .await
+            .into_iter()
+            .flatten()
+            .collect()
     }
 
     /// (Re)connect a single server, replacing any existing handle for it.

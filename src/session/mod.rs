@@ -324,11 +324,31 @@ impl Session {
         self.git_branch = Self::detect_git_branch(&self.working_dir);
     }
 
+    /// Async variant that runs the blocking `git status` on the blocking pool.
+    pub async fn refresh_git_branch_async(&mut self) {
+        let dir = self.working_dir.to_string();
+        let branch = tokio::task::spawn_blocking(move || Self::detect_git_branch(&dir))
+            .await
+            .ok()
+            .flatten();
+        self.git_branch = branch;
+    }
+
     /// Refresh [`git_status`](Self::git_status) by running `git status` in
     /// `working_dir`. Only call this when the statusline actually shows a git
     /// change/status item: it spawns a subprocess (throttled by the caller).
     pub fn refresh_git_status(&mut self) {
         self.git_status = Self::detect_git_status(&self.working_dir);
+    }
+
+    /// Async variant that runs the blocking `git status` on the blocking pool.
+    pub async fn refresh_git_status_async(&mut self) {
+        let dir = self.working_dir.to_string();
+        let status = tokio::task::spawn_blocking(move || Self::detect_git_status(&dir))
+            .await
+            .ok()
+            .flatten();
+        self.git_status = status;
     }
 
     fn detect_git_status(dir: &str) -> Option<GitStatus> {
@@ -741,9 +761,21 @@ fn format_truncated_tool_result(
     output_chars: usize,
     path: &Path,
 ) -> String {
-    let head: String = output.chars().take(TOOL_RESULT_HEAD_CHARS).collect();
-    let tail_start = output_chars.saturating_sub(TOOL_RESULT_TAIL_CHARS);
-    let tail: String = output.chars().skip(tail_start).collect();
+    // Avoid double O(n) char iteration + temporary String allocs for head/tail
+    // by slicing via byte indices found with char_indices.
+    let head_end = output
+        .char_indices()
+        .nth(TOOL_RESULT_HEAD_CHARS)
+        .map(|(i, _)| i)
+        .unwrap_or(output.len());
+    let head = &output[..head_end];
+    let tail_start_char = output_chars.saturating_sub(TOOL_RESULT_TAIL_CHARS);
+    let tail_start = output
+        .char_indices()
+        .nth(tail_start_char)
+        .map(|(i, _)| i)
+        .unwrap_or(output.len());
+    let tail = &output[tail_start..];
     let omitted = output_chars.saturating_sub(TOOL_RESULT_HEAD_CHARS + TOOL_RESULT_TAIL_CHARS);
 
     format!(

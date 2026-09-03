@@ -70,6 +70,7 @@ pub(crate) struct App<'a> {
     event_handle: Option<std::thread::JoinHandle<()>>,
     prebuild_rx: Option<mpsc::Receiver<PrebuildPayload>>,
     _terminal_guard: Option<TerminalGuard>,
+    last_git_refresh: Option<std::time::Instant>,
 }
 
 impl<'a> App<'a> {
@@ -135,7 +136,7 @@ impl<'a> App<'a> {
 
         ui.session.refresh_git_branch();
         if crate::ui::statusline::needs_git_status() {
-            ui.session.refresh_git_status();
+            ui.session.refresh_git_status_async().await;
         }
 
         let mut renderer = match headless_backend {
@@ -232,12 +233,16 @@ impl<'a> App<'a> {
         {
             let provider = ui.session.provider.to_string();
             let is_custom = ui.cfg.custom_providers_map().contains_key(&provider);
-            let warm_start = std::time::Instant::now();
             // Headless tests skip the cache warm: it can reach the network for
             // non-catalog providers and the model list is never exercised.
+            // For baked catalog providers (anthropic/openai/gemini/openrouter) the
+            // fetch is instant (no network). For custom/ollama where a network
+            // GET is required, run it in the background so startup remains
+            // interactive — the picker will populate from cache on next open.
             let ids = if headless {
                 Vec::new()
-            } else {
+            } else if !is_custom && crate::models_catalog::catalog_entries(&provider).is_some() {
+                let warm_start = std::time::Instant::now();
                 let ids = crate::ui::slash::warm_model_cache(
                     &provider, is_custom, &ui.client, ui.cli, ui.cfg,
                 )
@@ -249,6 +254,19 @@ impl<'a> App<'a> {
                     ids.len()
                 );
                 ids
+            } else {
+                // Network path: warm in background, return any cached ids for now.
+                let p = provider.clone();
+                let cli_c = ui.cli.clone();
+                let cfg_c = ui.cfg.clone();
+                let client_c = ui.client.clone();
+                tokio::spawn(async move {
+                    let _ = crate::ui::slash::warm_model_cache(
+                        &p, is_custom, &client_c, &cli_c, &cfg_c,
+                    )
+                    .await;
+                });
+                crate::ui::slash::cached_model_ids(&provider)
             };
             input.set_live_model_names(ids);
         }
@@ -428,6 +446,7 @@ impl<'a> App<'a> {
             event_handle,
             prebuild_rx,
             _terminal_guard,
+            last_git_refresh: Some(std::time::Instant::now()),
         })
     }
 
@@ -591,10 +610,25 @@ impl<'a> App<'a> {
         }
     }
 
+    async fn refresh_git_state_async(&mut self) {
+        // Debounce: don't refresh more than once per 2 seconds (FocusGained can fire rapidly)
+        let now = std::time::Instant::now();
+        if let Some(last) = self.last_git_refresh
+            && now.duration_since(last) < Duration::from_secs(2)
+        {
+            return;
+        }
+        self.last_git_refresh = Some(now);
+        self.ui.session.refresh_git_branch_async().await;
+        if crate::ui::statusline::needs_git_status() {
+            self.ui.session.refresh_git_status_async().await;
+        }
+    }
+
     async fn handle_user_event(&mut self, ev: UserEvent) -> anyhow::Result<ControlFlow<(), ()>> {
         match ev {
             UserEvent::FocusGained => {
-                self.refresh_git_state();
+                self.refresh_git_state_async().await;
             }
             UserEvent::Resize => {
                 self.renderer.resize();
@@ -1031,13 +1065,13 @@ impl<'a> App<'a> {
             &mut self.renderer,
             &mut self.run,
             &mut self.ui,
-            &mut self.slash,
+            &self.slash,
             &mut self.chain,
         )
         .await?;
 
         if is_bash_result {
-            self.refresh_git_state();
+            self.refresh_git_state_async().await;
         }
 
         self.finalize_turn(turn_errored).await?;
@@ -1809,7 +1843,7 @@ impl<'a> App<'a> {
                 },
             );
         }
-        self.refresh_git_state();
+        self.refresh_git_state_async().await;
         Ok(())
     }
 

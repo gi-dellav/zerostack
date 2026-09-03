@@ -88,10 +88,9 @@ async fn run() -> anyhow::Result<()> {
     // model call.
     #[cfg(feature = "hooks")]
     {
-        crate::extras::hooks::init_dispatcher(crate::extras::hooks::trust::load_dispatcher(
-            cli.no_hooks,
-            !is_interactive,
-        ));
+        crate::extras::hooks::init_dispatcher(
+            crate::extras::hooks::trust::load_dispatcher_async(cli.no_hooks, !is_interactive).await,
+        );
 
         if let Some(tool_name) = &cli.hooks_test {
             let tool_input: serde_json::Value = cli

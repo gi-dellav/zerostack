@@ -280,12 +280,20 @@ async fn handle_undo(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
 
     write_ok(ctx.renderer, "  git stash working changes? [y/N] ");
 
-    let mut buf = [0u8; 1];
-    let do_stash =
-        std::io::stdin().read_exact(&mut buf).is_ok() && (buf[0] == b'y' || buf[0] == b'Y');
+    let do_stash = tokio::task::spawn_blocking(|| {
+        let mut buf = [0u8; 1];
+        std::io::stdin().read_exact(&mut buf).is_ok() && (buf[0] == b'y' || buf[0] == b'Y')
+    })
+    .await
+    .unwrap_or(false);
 
     if do_stash {
-        match std::process::Command::new("git").args(["stash"]).output() {
+        let out_res = tokio::task::spawn_blocking(|| {
+            std::process::Command::new("git").args(["stash"]).output()
+        })
+        .await
+        .unwrap_or_else(|e| Err(std::io::Error::other(e.to_string())));
+        match out_res {
             Ok(out) if out.status.success() => {
                 write_ok(ctx.renderer, "git stash done");
             }

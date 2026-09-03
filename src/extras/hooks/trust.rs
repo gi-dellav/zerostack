@@ -95,6 +95,14 @@ pub(crate) fn confirm_untrusted_hook(description: &str) -> bool {
     matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
+/// Async variant that runs `stdin.read_line` on the blocking pool so it does
+/// not stall the tokio async worker.
+pub(crate) async fn confirm_untrusted_hook_async(description: String) -> bool {
+    tokio::task::spawn_blocking(move || confirm_untrusted_hook(&description))
+        .await
+        .unwrap_or(false)
+}
+
 struct SourceConfig {
     hooks: HooksConfig,
     disable_all_hooks: bool,
@@ -251,4 +259,15 @@ pub(crate) fn load_dispatcher(no_hooks_flag: bool, headless: bool) -> HookDispat
         &default_trust_store_path(),
         &confirm_untrusted_hook,
     )
+}
+
+/// Async entry point that runs the blocking file I/O and stdin prompts on the
+/// blocking pool, so callers inside `#[tokio::main]` do not stall the async worker.
+pub(crate) async fn load_dispatcher_async(no_hooks_flag: bool, headless: bool) -> HookDispatcher {
+    // Run the entire sync load on the blocking pool. The stdin prompts inside
+    // `filter_trusted_project_hooks` will block the blocking thread, not the async worker.
+    let no_hooks = no_hooks_flag;
+    tokio::task::spawn_blocking(move || load_dispatcher(no_hooks, headless))
+        .await
+        .unwrap_or_else(|_| HookDispatcher::from_config(&HashMap::new()).expect("empty"))
 }

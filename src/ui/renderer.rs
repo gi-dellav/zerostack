@@ -114,6 +114,17 @@ fn wrap_urls_osc8(text: &str) -> String {
     result
 }
 
+fn wrap_urls_osc8_cow(text: &str) -> std::borrow::Cow<'_, str> {
+    // Fast path: no URL scheme present, avoid regex entirely.
+    if !text.contains("http://") && !text.contains("https://") {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    if URL_RE.find(text).is_none() {
+        return std::borrow::Cow::Borrowed(text);
+    }
+    std::borrow::Cow::Owned(wrap_urls_osc8(text))
+}
+
 #[derive(Clone, Debug)]
 pub struct LineEntry {
     pub text: CompactString,
@@ -351,7 +362,7 @@ impl Renderer {
     }
 
     fn chat_lines(&self, width: usize) -> Vec<LineEntry> {
-        let mut lines = self.feed.lines(width);
+        let mut lines = self.feed.lines_shared(width).to_vec();
         if !self.partial.is_empty() {
             let color = self.partial_style.color();
             for chunk in word_wrap(&self.partial, width) {
@@ -361,8 +372,15 @@ impl Renderer {
         lines
     }
 
+    /// Length without allocating the combined `Vec` — uses the shared feed lines.
     pub fn buffer_len(&self) -> usize {
-        self.chat_lines(self.max_line_width()).len()
+        let base_len = self.feed.lines_shared(self.max_line_width()).len();
+        if self.partial.is_empty() {
+            base_len
+        } else {
+            let w = self.max_line_width();
+            base_len + word_wrap(&self.partial, w).len()
+        }
     }
 
     /// Access the underlying feed for callers that want to push semantic blocks
@@ -713,8 +731,18 @@ impl Renderer {
         let (cols, _rows) = self.terminal_size();
         let max_width = cols.saturating_sub(1 + self.chat_margin) as usize;
         let visible = self.visible_lines();
-        let buffer = self.chat_lines(max_width);
-        let total = buffer.len();
+        // Use shared feed lines + partial without allocating a combined Vec.
+        let base = self.feed.lines_shared(max_width);
+        let partial_entries: SmallVec<[LineEntry; 4]> = if self.partial.is_empty() {
+            SmallVec::new()
+        } else {
+            let color = self.partial_style.color();
+            word_wrap(&self.partial, max_width)
+                .into_iter()
+                .map(|text| LineEntry { text, color })
+                .collect()
+        };
+        let total = base.len() + partial_entries.len();
         write!(self.backend, "{}", Hide)?;
 
         let auto_scroll = self.scroll_offset == 0;
@@ -745,8 +773,13 @@ impl Renderer {
         }
 
         while (visual_row as usize) < visible && buf_idx < total {
-            let entry = &buffer[buf_idx];
-            let chunk = &entry.text;
+            let (chunk, color) = if buf_idx < base.len() {
+                let e = &base[buf_idx];
+                (&e.text, e.color)
+            } else {
+                let e = &partial_entries[buf_idx - base.len()];
+                (&e.text, e.color)
+            };
 
             if (visual_row as usize) >= visible {
                 break;
@@ -771,9 +804,9 @@ impl Renderer {
             if is_selected {
                 write!(self.backend, "{}", SetAttribute(Attribute::Reverse))?;
             }
-            let fg = self.color(entry.color);
+            let fg = self.color(color);
             write!(self.backend, "{}", SetForegroundColor(fg))?;
-            write!(self.backend, "{}", wrap_urls_osc8(chunk))?;
+            write!(self.backend, "{}", wrap_urls_osc8_cow(chunk))?;
             if is_selected {
                 write!(self.backend, "{}", SetAttribute(Attribute::NoReverse))?;
             }
@@ -1096,14 +1129,28 @@ impl Renderer {
         if prev == next {
             return BottomRedrawPlan::Skip;
         }
-        let mut status_only = next.clone();
-        status_only.statusline = prev.statusline.clone();
-        status_only.scroll_indicator = prev.scroll_indicator;
-        if status_only == *prev {
-            BottomRedrawPlan::StatuslineOnly
-        } else {
-            BottomRedrawPlan::Full
+        // Compare without cloning: if every field except `statusline` and
+        // `scroll_indicator` is equal, only the statusline changed.
+        if prev.cols == next.cols
+            && prev.rows == next.rows
+            && prev.statusline_height == next.statusline_height
+            && prev.input == next.input
+            && prev.cursor_pos == next.cursor_pos
+            && prev.is_running == next.is_running
+            && prev.spinner_frame == next.spinner_frame
+            && prev.input_vscroll_offset == next.input_vscroll_offset
+            && prev.prompt == next.prompt
+            && prev.monochrome == next.monochrome
+            && prev.input_bg == next.input_bg
+            && prev.status_bg == next.status_bg
+        {
+            // Only statusline/scroll_indicator differ => statusline-only repaint.
+            if prev.statusline != next.statusline || prev.scroll_indicator != next.scroll_indicator
+            {
+                return BottomRedrawPlan::StatuslineOnly;
+            }
         }
+        BottomRedrawPlan::Full
     }
 
     /// Record the bottom region as freshly drawn.

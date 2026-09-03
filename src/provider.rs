@@ -91,7 +91,7 @@ pub(crate) fn default_model_for_provider(
     }
     // Deterministic: prefer the alphabetically-first quick model for this provider
     // (HashMap iteration order would otherwise be unstable).
-    let qm = crate::config::quick_models_map(cfg);
+    let qm = crate::config::quick_models_map_ref(cfg);
     let mut names: Vec<&String> = qm.keys().collect();
     names.sort();
     for name in names {
@@ -953,7 +953,15 @@ pub(crate) fn build_http_client(
         }
         if let Some(secs) = cfg.timeout_secs {
             builder = builder.timeout(Duration::from_secs(secs));
+        } else {
+            // Custom provider without explicit timeout: apply a sane default so
+            // startup network stalls don't hang indefinitely.
+            builder = builder.timeout(Duration::from_secs(8));
         }
+    } else {
+        // Built-in providers (e.g. openrouter) had no timeout at all — a
+        // stalled DNS/TLS could block startup for 30s+. Cap it.
+        builder = builder.timeout(Duration::from_secs(8));
     }
 
     if danger_accept_invalid_certs {

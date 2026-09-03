@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 
@@ -13,7 +13,7 @@ pub(crate) struct SubagentConfig {
     pub client: AnyClient,
     pub model_name: String,
     pub max_turns: usize,
-    pub config: crate::config::Config,
+    pub config: Arc<crate::config::Config>,
     pub tools_allowlist: Vec<String>,
     #[cfg(feature = "archmd")]
     pub architecture: Option<String>,
@@ -56,7 +56,7 @@ pub fn init(
     client: AnyClient,
     model_name: String,
     max_turns: usize,
-    config: crate::config::Config,
+    config: Arc<crate::config::Config>,
     tools_allowlist: Vec<String>,
     #[cfg(feature = "archmd")] architecture: Option<String>,
 ) {

@@ -115,7 +115,7 @@ pub struct Feed {
 struct LayoutCache {
     width: usize,
     generation: u64,
-    lines: Vec<LineEntry>,
+    lines: std::sync::Arc<[LineEntry]>,
 }
 
 // Several helpers exist primarily for unit testing layout/scroll math without
@@ -228,24 +228,32 @@ impl Feed {
     /// `visible_range`, `line_at_visual_row`, `selected_text`) operate on the
     /// cached visual rows instead of re-laying out the feed on every call.
     pub fn lines(&self, width: usize) -> Vec<LineEntry> {
+        self.lines_shared(width).to_vec()
+    }
+
+    /// Shared (Arc) version of `lines()` — clone is a cheap `Arc` refcount bump,
+    /// not a deep copy of every `LineEntry`. Hot `Renderer` paths use this to
+    /// avoid per-frame `Vec<LineEntry>` allocations.
+    pub fn lines_shared(&self, width: usize) -> std::sync::Arc<[LineEntry]> {
         {
             let cache = self.layout_cache.borrow();
             if let Some(c) = cache.as_ref()
                 && c.width == width
                 && c.generation == self.generation
             {
-                return c.lines.clone();
+                return std::sync::Arc::clone(&c.lines);
             }
         }
         let lines = self.compute_lines(width);
         #[cfg(test)]
         self.layout_computes.set(self.layout_computes.get() + 1);
+        let shared: std::sync::Arc<[LineEntry]> = std::sync::Arc::from(lines.into_boxed_slice());
         *self.layout_cache.borrow_mut() = Some(LayoutCache {
             width,
             generation: self.generation,
-            lines: lines.clone(),
+            lines: std::sync::Arc::clone(&shared),
         });
-        lines
+        shared
     }
 
     /// Number of full layout passes so far (test-only).
