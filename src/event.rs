@@ -77,6 +77,7 @@ pub enum UserEvent {
     ScrollDown,
     Resize,
     Paste(String),
+    FocusGained,
     #[allow(dead_code)]
     MouseDown {
         row: u16,

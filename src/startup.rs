@@ -372,6 +372,7 @@ impl Startup {
                 sub_model.to_string(),
                 task_max_turns,
                 self.cfg.clone(),
+                self.cli.resolve_tools(&self.cfg),
                 #[cfg(feature = "archmd")]
                 self.context.architecture.clone(),
             );

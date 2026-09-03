@@ -209,7 +209,9 @@ fn handle_editor(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
         ctx.renderer,
         format!("opening {} in editor...", path.display()),
     );
-    Err(anyhow::anyhow!("DEFER_EDITOR:{}", path.display()))
+    Err(anyhow::Error::new(
+        crate::ui::slash::SlashOutcome::DeferEditor { path },
+    ))
 }
 
 #[cfg(feature = "memory")]

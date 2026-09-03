@@ -41,6 +41,8 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub no_tools: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub no_context_files: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window: Option<u64>,

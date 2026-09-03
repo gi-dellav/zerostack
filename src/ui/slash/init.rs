@@ -1,7 +1,5 @@
 use std::io::Write;
 
-use crossterm::ExecutableCommand;
-
 use crate::ui::slash::{SlashCtx, write_error, write_ok};
 
 pub(crate) const AGENTS_CREATION_PROMPT: &str = "\
@@ -25,26 +23,10 @@ fn ask_yn(question: &str) -> bool {
     matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
-fn exit_tui_for_io(mouse_capture: bool) {
-    let _ = crossterm::terminal::disable_raw_mode();
-    let mut stdout = std::io::stdout();
-    if mouse_capture {
-        let _ = stdout.execute(crossterm::event::DisableMouseCapture);
-    }
-    let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
-    let _ = stdout.flush();
-}
+#[allow(dead_code)]
+fn exit_tui_for_io(_mouse_capture: bool) {}
 
 fn restore_tui_and_render(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
-    let mut stdout = std::io::stdout();
-    let _ = stdout.execute(crossterm::terminal::EnterAlternateScreen);
-    let _ = stdout.execute(crossterm::terminal::Clear(
-        crossterm::terminal::ClearType::All,
-    ));
-    if ctx.cfg.resolve_mouse_capture() {
-        let _ = stdout.execute(crossterm::event::EnableMouseCapture);
-    }
-    let _ = crossterm::terminal::enable_raw_mode();
     crate::ui::events::render_session(ctx.renderer, ctx.session, ctx.cli, ctx.cfg, ctx.context)
 }
 
@@ -80,20 +62,21 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
         (true, true)
     } else {
         let mouse_capture = ctx.cfg.resolve_mouse_capture();
-        exit_tui_for_io(mouse_capture);
-
-        let create_a = ask_yn(&build_question(
-            "AGENTS.md",
-            AGENTS_DESC,
-            agents_exists,
-            &cwd,
-        ));
-        let create_b = ask_yn(&build_question(
-            "ARCHITECTURE.md",
-            ARCHITECTURE_DESC,
-            arch_exists,
-            &cwd,
-        ));
+        let (create_a, create_b) = crate::ui::terminal::suspend_tui(mouse_capture, || {
+            let a = ask_yn(&build_question(
+                "AGENTS.md",
+                AGENTS_DESC,
+                agents_exists,
+                &cwd,
+            ));
+            let b = ask_yn(&build_question(
+                "ARCHITECTURE.md",
+                ARCHITECTURE_DESC,
+                arch_exists,
+                &cwd,
+            ));
+            (a, b)
+        });
 
         restore_tui_and_render(ctx)?;
 
@@ -138,7 +121,9 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
             return Ok(());
         }
         write_ok(ctx.renderer, "delegating AGENTS.md creation to agent...");
-        return Err(anyhow::anyhow!("DEFER_INIT:{}", AGENTS_CREATION_PROMPT));
+        return Err(anyhow::Error::new(
+            crate::ui::slash::SlashOutcome::DeferInit,
+        ));
     }
 
     Ok(())

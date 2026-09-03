@@ -58,11 +58,27 @@ fn build_explore_agent_inner<M: CompletionModel + 'static>(
         Box::new(tools::ListDirTool::new(None, None, max_list_dir_entries)),
     ];
     #[cfg(feature = "memory")]
-    let tools = {
+    let mut tools = {
         let mut tools = tools;
         tools.extend(subagent_memory_tools());
         tools
     };
+    #[cfg(not(feature = "memory"))]
+    let mut tools = tools;
+
+    // Respect --tools allowlist (intersection, no warnings for valid-but-not-applicable tools)
+    {
+        let allowlist = crate::extras::subagents::tools_allowlist_or_default();
+        let cleaned: Vec<String> = allowlist
+            .iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !cleaned.is_empty() {
+            let allowed: std::collections::HashSet<String> = cleaned.into_iter().collect();
+            tools.retain(|t| allowed.contains(&t.name()));
+        }
+    }
 
     #[cfg(feature = "hooks")]
     let tools = crate::extras::hooks::wrap_from_global(tools, None);

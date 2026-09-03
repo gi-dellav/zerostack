@@ -1,7 +1,3 @@
-use std::io::Write;
-
-use crossterm::ExecutableCommand;
-
 use crate::ui::slash::{SlashCtx, write_ok, write_result};
 
 pub fn handle_welcome(renderer: &mut crate::ui::renderer::Renderer) {
@@ -18,26 +14,7 @@ pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer, mouse_capture:
 }
 
 fn run_tutor(mouse_capture: bool) -> anyhow::Result<()> {
-    let _ = crossterm::terminal::disable_raw_mode();
-    let mut stdout = std::io::stdout();
-    if mouse_capture {
-        let _ = stdout.execute(crossterm::event::DisableMouseCapture);
-    }
-    let _ = stdout.execute(crossterm::terminal::LeaveAlternateScreen);
-    let _ = stdout.flush();
-
-    let result = crate::docs::show_get_started();
-
-    let _ = stdout.execute(crossterm::terminal::EnterAlternateScreen);
-    let _ = stdout.execute(crossterm::terminal::Clear(
-        crossterm::terminal::ClearType::All,
-    ));
-    if mouse_capture {
-        let _ = stdout.execute(crossterm::event::EnableMouseCapture);
-    }
-    let _ = crossterm::terminal::enable_raw_mode();
-
-    result
+    crate::ui::terminal::suspend_tui(mouse_capture, || crate::docs::show_get_started())
 }
 
 pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {

@@ -14,6 +14,7 @@ pub(crate) struct SubagentConfig {
     pub model_name: String,
     pub max_turns: usize,
     pub config: crate::config::Config,
+    pub tools_allowlist: Vec<String>,
     #[cfg(feature = "archmd")]
     pub architecture: Option<String>,
 }
@@ -43,11 +44,20 @@ where
     f(cfg)
 }
 
+pub(crate) fn tools_allowlist_or_default() -> Vec<String> {
+    let guard = CONFIG.lock().unwrap_or_else(|e| e.into_inner());
+    guard
+        .as_ref()
+        .map(|c| c.tools_allowlist.clone())
+        .unwrap_or_default()
+}
+
 pub fn init(
     client: AnyClient,
     model_name: String,
     max_turns: usize,
     config: crate::config::Config,
+    tools_allowlist: Vec<String>,
     #[cfg(feature = "archmd")] architecture: Option<String>,
 ) {
     let mut guard = CONFIG.lock().unwrap_or_else(|e| e.into_inner());
@@ -56,6 +66,7 @@ pub fn init(
         model_name,
         max_turns,
         config,
+        tools_allowlist,
         #[cfg(feature = "archmd")]
         architecture,
     });

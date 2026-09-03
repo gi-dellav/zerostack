@@ -9,7 +9,6 @@ pub use pickers::Picker;
 
 use compact_str::CompactString;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use std::io::Write;
 
 use crate::ui::pickers::file::FilePicker;
 use crate::ui::pickers::list::ListPicker;
@@ -240,42 +239,13 @@ impl InputEditor {
 
         let _ = std::fs::write(&tmp, self.buffer.as_bytes());
 
-        let _ = crossterm::terminal::disable_raw_mode();
-        let mut stdout = std::io::stdout();
-        if self.mouse_capture {
-            let _ = crossterm::ExecutableCommand::execute(
-                &mut stdout,
-                crossterm::event::DisableMouseCapture,
-            );
-        }
-        let _ = crossterm::ExecutableCommand::execute(
-            &mut stdout,
-            crossterm::terminal::LeaveAlternateScreen,
-        );
-        let _ = stdout.flush();
-
-        let _ = std::process::Command::new("sh")
-            .arg("-c")
-            .arg(format!("{} \"$1\"", editor))
-            .arg("sh")
-            .arg(&tmp)
-            .status();
-
-        let _ = crossterm::ExecutableCommand::execute(
-            &mut stdout,
-            crossterm::terminal::EnterAlternateScreen,
-        );
-        let _ = crossterm::ExecutableCommand::execute(
-            &mut stdout,
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
-        );
-        if self.mouse_capture {
-            let _ = crossterm::ExecutableCommand::execute(
-                &mut stdout,
-                crossterm::event::EnableMouseCapture,
-            );
-        }
-        let _ = crossterm::terminal::enable_raw_mode();
+        crate::ui::terminal::suspend_tui(self.mouse_capture, || {
+            let (prog, args) = crate::ui::terminal::parse_editor_command(&editor);
+            let _ = std::process::Command::new(prog)
+                .args(args)
+                .arg(&tmp)
+                .status();
+        });
 
         if let Ok(content) = std::fs::read_to_string(&tmp) {
             self.buffer = CompactString::new(content.trim_end());

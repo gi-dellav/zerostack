@@ -6,10 +6,13 @@ mod help;
 mod hooks;
 pub(crate) mod init;
 mod memory;
+mod outcome;
 mod providers;
 pub(crate) mod review;
 mod session;
 pub(crate) mod settings;
+
+pub use outcome::SlashOutcome;
 
 pub(crate) use providers::warm_model_cache;
 

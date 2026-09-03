@@ -744,7 +744,7 @@ Available items:
 | `separator`           | Literal text from `text` (default a space). Trimmed around hidden items. |
 | `flex_separator`      | Expands to fill the remaining width; several split the space evenly. |
 
-The `git_changes` and `git_status` items run `git status` once a second (only
+The `git_changes` and `git_status` items run `git status` on focus and after bash tool calls (only
 when one of them is used). All other items are read from the session.
 
 ## Status signals

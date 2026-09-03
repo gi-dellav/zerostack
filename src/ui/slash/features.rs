@@ -19,12 +19,19 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
 
 fn handle_compress(_parts: &[&str], _ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let instructions = if _parts.len() > 1 {
-        Some(_parts[1..].join(" "))
+        let s = _parts[1..].join(" ");
+        let trimmed = s.trim();
+        if trimmed.is_empty() || trimmed == "(none)" {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
     } else {
         None
     };
-    let instr_str = instructions.unwrap_or_default();
-    Err(anyhow::anyhow!("DEFER_COMPRESS:{}", instr_str))
+    Err(anyhow::Error::new(
+        crate::ui::slash::SlashOutcome::DeferCompress { instructions },
+    ))
 }
 
 #[cfg(feature = "loop")]

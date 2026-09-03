@@ -330,6 +330,10 @@ pub(crate) fn spawn_event_thread(
                 Ok(event::Event::Paste(data)) => {
                     let _ = user_tx.blocking_send(UserEvent::Paste(data));
                 }
+                Ok(event::Event::FocusGained) => {
+                    let _ = user_tx.blocking_send(UserEvent::FocusGained);
+                }
+                Ok(event::Event::FocusLost) => {}
                 Err(_) => break,
                 _ => {}
             }

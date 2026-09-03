@@ -71,11 +71,18 @@ pub struct Cli {
         short = 't',
         long = "tools",
         value_delimiter = ',',
-        help = "Allowlist specific tools"
+        value_name = "TOOL",
+        conflicts_with = "no_tools",
+        help = "Allowlist specific tools (comma-separated; repeatable). Available: read, write, edit, bash, grep, find_files, list_dir, todo_write, task, memory_write, memory_edit, memory_read, memory_search, advisor, lsp_diagnostics, mcp__*",
+        long_help = "Allowlist specific tools. Empty means all tools. Core: read, write, edit, bash, grep, find_files, list_dir, todo_write. Feature-gated: task (subagents), memory_write/edit/read/search, advisor, lsp_diagnostics, mcp__<server>__<tool>. Example: --tools read,write,bash --tools grep. Unknown names are reported and ignored. Use --no-tools to disable all tools."
     )]
     pub tools: Vec<String>,
 
-    #[arg(long = "no-tools", help = "Disable all tools")]
+    #[arg(
+        long = "no-tools",
+        conflicts_with = "tools",
+        help = "Disable all tools (overrides --tools)"
+    )]
     pub no_tools: bool,
 
     #[arg(long = "no-color", help = "Disable colored TUI output")]
@@ -381,6 +388,14 @@ impl Cli {
 
     pub fn resolve_no_tools(&self, cfg: &config::Config) -> bool {
         self.no_tools || cfg.no_tools.unwrap_or(false)
+    }
+
+    pub fn resolve_tools(&self, cfg: &config::Config) -> Vec<String> {
+        if !self.tools.is_empty() {
+            self.tools.clone()
+        } else {
+            cfg.tools.clone().unwrap_or_default()
+        }
     }
 
     pub fn resolve_sandbox(&self, cfg: &config::Config) -> bool {
