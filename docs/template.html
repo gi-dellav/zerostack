@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#141512">
 <title>$pagetitle$</title>
 $if(description)$
 <meta name="description" content="$description$">
@@ -20,53 +22,187 @@ $endif$
 <link rel="icon" href="https://raw.githubusercontent.com/gi-dellav/zerostack/main/assets/logo_rounded.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#0d0d0d;--surface:#141414;--border:#1e1e1e;--text:#c0c0c0;--text-dim:#666;--accent:#5f9;--accent-dim:#3a7;--heading:#e0e0e0}
-html{font-size:15px;scroll-behavior:smooth}
-body{font-family:'JetBrains Mono','Cascadia Code','Fira Code','Consolas',monospace;background:var(--bg);color:var(--text);line-height:1.7;-webkit-font-smoothing:antialiased}
-a{color:var(--accent);text-decoration:none;transition:color .15s}
-a:hover{color:var(--accent-dim)}
-::selection{background:var(--accent);color:var(--bg)}
-.container{max-width:820px;margin:0 auto;padding:0 24px}
-nav{padding:20px 0;border-bottom:1px solid var(--border);margin-bottom:40px}
-nav a{font-size:.82rem}
-article{padding-bottom:48px}
-article h1{font-size:1.8rem;font-weight:700;color:var(--heading);margin-bottom:32px;letter-spacing:-.02em}
-article h1::before{content:'# ';color:var(--accent)}
-article h2{font-size:1.15rem;font-weight:700;color:var(--heading);margin:32px 0 12px}
-article h2::before{content:'## ';color:var(--accent)}
-article h3{font-size:.95rem;font-weight:500;color:var(--heading);margin:24px 0 8px}
-article h3::before{content:'### ';color:var(--accent)}
-article p{margin-bottom:16px}
-article ul,article ol{margin-bottom:16px;padding-left:24px}
+:root{
+  --paper:#141512;
+  --surface:#1c1e1a;
+  --ink:#edeade;
+  --body:#c9c5b8;
+  --muted:#a3a097;
+  --faint:#7b786f;
+  --line:#2c2e27;
+  --line-soft:#23251f;
+  --accent:#9fb2ff;
+  --accent-ink:#c6d2ff;
+  --code-bg:#26281f;
+  --code-ink:#d8c690;
+  --pre-bg:#1e201b;
+  --pre-ink:#e8e2d4;
+  --radius:8px;
+}
+html{font-size:16px;scroll-behavior:smooth}
+body{
+  font-family:'Inter',-apple-system,'Segoe UI',sans-serif;
+  background:var(--paper);color:var(--body);
+  line-height:1.75;-webkit-font-smoothing:antialiased;
+}
+::selection{background:var(--accent);color:#141512}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent-ink);text-decoration:underline}
+.container{max-width:760px;margin:0 auto;padding:0 28px}
+
+/* ambient blurred glows */
+.glow{position:fixed;border-radius:50%;pointer-events:none;z-index:0;filter:blur(150px);opacity:.7}
+.glow-a{width:560px;height:560px;top:-220px;left:50%;margin-left:-460px;background:radial-gradient(circle,rgba(159,178,255,.20),transparent 65%)}
+.glow-b{width:520px;height:520px;bottom:-200px;left:-180px;background:radial-gradient(circle,rgba(159,178,255,.10),transparent 65%)}
+.progress{position:fixed;top:0;left:0;height:2px;width:100%;z-index:60;transform-origin:0 50%;transform:scaleX(0);background:linear-gradient(90deg,var(--accent),var(--accent-ink));box-shadow:0 0 12px rgba(159,178,255,.7)}
+.topbar,article,footer{position:relative;z-index:1}
+
+/* top navigation — frosted glass */
+.topbar{position:sticky;top:0;z-index:50;border-bottom:1px solid var(--line);background:rgba(20,21,18,.55);backdrop-filter:blur(28px) saturate(1.6);-webkit-backdrop-filter:blur(28px) saturate(1.6);transition:background .3s,box-shadow .3s}
+.topbar.scrolled{background:rgba(20,21,18,.88);box-shadow:0 8px 32px rgba(0,0,0,.35)}
+.topbar-inner{display:flex;align-items:center;gap:14px;padding:14px 0;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto;text-decoration:none}
+.brand:hover{text-decoration:none}
+.brand img{width:28px;height:28px;border-radius:6px}
+.brand span{font-family:'Source Serif 4',Georgia,serif;font-weight:700;font-size:1.05rem;color:var(--ink)}
+.topbar nav{display:flex;gap:18px;flex-wrap:wrap}
+.topbar nav a{
+  font-size:.72rem;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted);
+}
+.topbar nav a:hover{color:var(--accent);text-decoration:none}
+
+/* article header */
+.doc-head{text-align:center;padding:64px 0 12px}
+.doc-head .eyebrow{
+  font-size:.72rem;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--faint);margin-bottom:14px;
+}
+article{padding-bottom:56px}
+article h1{
+  font-family:'Source Serif 4',Georgia,serif;font-weight:700;color:var(--ink);
+  font-size:2.4rem;letter-spacing:-.02em;line-height:1.2;
+  text-align:center;margin-bottom:32px;
+}
+article h2{
+  font-family:'Source Serif 4',Georgia,serif;font-weight:700;color:var(--ink);
+  font-size:1.5rem;margin:44px 0 12px;letter-spacing:-.01em;
+  padding-top:20px;border-top:1px solid var(--line);
+}
+article h3{
+  font-family:'Source Serif 4',Georgia,serif;font-weight:600;color:var(--ink);
+  font-size:1.1rem;margin:28px 0 8px;
+}
+article p{margin-bottom:14px;font-size:.95rem;color:var(--body)}
+article p strong,article li strong{color:var(--ink)}
+article ul,article ol{margin-bottom:16px;padding-left:24px;font-size:.92rem;color:var(--body)}
 article li{margin-bottom:4px}
-article code{background:var(--surface);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:.82rem;color:var(--accent)}
-article pre{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:14px 16px;overflow-x:auto;margin-bottom:16px;line-height:1.6}
-article pre code{background:none;border:none;padding:0;color:var(--text)}
-article table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:.85rem}
-article th,article td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--border)}
-article th{color:var(--accent);font-weight:500}
-article blockquote{border-left:3px solid var(--accent);padding:8px 16px;margin-bottom:16px;background:var(--surface);border-radius:0 6px 6px 0;color:var(--text-dim)}
-article hr{border:none;border-top:1px solid var(--border);margin:32px 0}
-article img{max-width:100%;height:auto}
-footer{padding:32px 0;text-align:center;font-size:.78rem;color:var(--text-dim);border-top:1px solid var(--border)}
-@media(max-width:600px){.container{padding:0 16px}article h1{font-size:1.4rem}}
+article code{
+  font-family:'JetBrains Mono',monospace;font-size:.82em;
+  background:var(--code-bg);border-radius:4px;padding:1px 6px;color:var(--code-ink);
+}
+article pre{
+  background:var(--pre-bg);color:var(--pre-ink);border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:18px 20px;overflow-x:auto;margin:16px 0;line-height:1.65;
+}
+article pre code{background:none;border:0;padding:0;color:inherit;font-size:.8rem}
+article table{width:100%;border-collapse:collapse;margin:18px 0;font-size:.87rem;border-top:2px solid var(--ink);border-bottom:1px solid var(--ink)}
+article th{
+  font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--ink);
+}
+article td{padding:9px 12px;border-bottom:1px solid var(--line-soft);color:var(--body)}
+article td strong,article td code{color:var(--ink)}
+article td code{color:var(--code-ink)}
+article tr:last-child td{border-bottom:0}
+article blockquote{
+  font-size:.9rem;color:var(--muted);background:var(--surface);
+  border:1px solid var(--line);border-left:3px solid var(--accent);
+  border-radius:0 var(--radius) var(--radius) 0;
+  padding:12px 16px;margin:18px 0;
+}
+article hr{border:none;border-top:1px solid var(--line);margin:32px 0}
+article img{max-width:100%;height:auto;border-radius:var(--radius);border:1px solid var(--line)}
+
+/* scroll reveal */
+.reveal{opacity:0;transform:translateY(20px);filter:blur(10px);transition:opacity .45s cubic-bezier(.22,1,.36,1),transform .45s cubic-bezier(.22,1,.36,1),filter .45s cubic-bezier(.22,1,.36,1)}
+.reveal.visible{opacity:1;transform:none;filter:blur(0)}
+
+footer{padding:40px 0 48px;text-align:center;font-size:.8rem;color:var(--faint)}
+footer .rule{max-width:760px;margin:0 auto 24px;border-top:1px solid var(--line)}
+footer p{margin-bottom:6px;font-size:.8rem;color:var(--faint)}
+@media(max-width:640px){
+  .glow{opacity:.35}
+  article h1{font-size:1.8rem}
+  .doc-head{padding:44px 0 8px}
+}
+/* reduced motion */
+@media(prefers-reduced-motion:reduce){
+  .reveal{opacity:1;transform:none;filter:none;transition:none}
+  html{scroll-behavior:auto}
+}
 </style>
 </head>
 <body>
-<div class="container">
-<nav><a href="./">← zerostack</a></nav>
-<article>
-$if(title)$
-<h1>$title$</h1>
-$endif$
-$body$
-</article>
-<footer>
-<p>zerostack &mdash; <a href="https://github.com/gi-dellav/zerostack" target="_blank" rel="noopener">GitHub</a></p>
-</footer>
+<div class="glow glow-a" aria-hidden="true"></div>
+<div class="glow glow-b" aria-hidden="true"></div>
+<div class="progress" id="progress" aria-hidden="true"></div>
+<div class="topbar" id="topbar">
+  <div class="container topbar-inner">
+    <a class="brand" href="./">
+      <img src="https://raw.githubusercontent.com/gi-dellav/zerostack/main/assets/logo.png" alt="zerostack logo" width="28" height="28">
+      <span>zerostack</span>
+    </a>
+    <nav>
+      <a href="./#overview">Overview</a>
+      <a href="./#docs">Docs</a>
+      <a href="./#quickstart">Quick Start</a>
+      <a href="./#install">Install</a>
+      <a href="https://github.com/gi-dellav/zerostack" target="_blank" rel="noopener">GitHub</a>
+    </nav>
+  </div>
 </div>
+<div class="container">
+  <div class="doc-head"><div class="eyebrow">zerostack &middot; documentation</div></div>
+  <article>
+    $body$
+  </article>
+  <footer>
+    <div class="rule"></div>
+    <p>zerostack &mdash; <a href="https://github.com/gi-dellav/zerostack" target="_blank" rel="noopener">GitHub</a></p>
+  </footer>
+</div>
+<script>
+(function(){
+  var topbar = document.getElementById('topbar');
+  var progress = document.getElementById('progress');
+  function onScroll(){
+    var y = window.scrollY || document.documentElement.scrollTop;
+    topbar.classList.toggle('scrolled', y > 8);
+    var h = document.documentElement.scrollHeight - window.innerHeight;
+    progress.style.transform = 'scaleX(' + (h > 0 ? Math.min(y / h, 1) : 0) + ')';
+  }
+  window.addEventListener('scroll', onScroll, {passive:true});
+  onScroll();
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var blocks = document.querySelectorAll('article h2, article h3, article pre, article table, article blockquote, article ul, article ol');
+  blocks.forEach(function(el){ el.classList.add('reveal'); });
+  var targets = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    targets.forEach(function(el){ el.classList.add('visible'); });
+  } else {
+    var io = new IntersectionObserver(function(entries){
+      entries.forEach(function(e){
+        if (e.isIntersecting) { e.target.classList.add('visible'); io.unobserve(e.target); }
+      });
+    }, {threshold:.1, rootMargin:'0px 0px -8% 0px'});
+    targets.forEach(function(el){ io.observe(el); });
+  }
+})();
+</script>
 </body>
 </html>
