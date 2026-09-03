@@ -412,6 +412,47 @@ fn config_candidate_priority_toml_yaml_yml_legacy_json() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn save_config_round_trips_and_leaves_no_tmp() {
+    // `save_config` must persist atomically (tmp+rename) so a crash
+    // mid-write can't truncate the user's config. This pins the regression
+    // where the setup wizard only updated in-memory state.
+    let dir = std::env::temp_dir().join(format!("zs_savecfg_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    // SAFETY: tests run multi-threaded; guard env mutation with a mutex-ish
+    // approach by using a unique dir per process. `ZS_CONFIG_DIR` is only
+    // read by `save_config`/`resolve_config_path`.
+    let guard = ZS_CONFIG_DIR_GUARD.lock().unwrap();
+    unsafe { std::env::set_var("ZS_CONFIG_DIR", &dir) };
+
+    let mut keys = HashMap::new();
+    keys.insert("openai".to_string(), "sk-test".to_string());
+    let cfg = Config {
+        provider: Some(CompactString::new("openai")),
+        api_keys: Some(keys),
+        ..Config::default()
+    };
+    crate::config::save_config(&cfg).unwrap();
+
+    let path = dir.join("config.toml");
+    assert!(path.exists(), "save_config should write config.toml");
+    assert!(
+        !dir.join("config.tmp").exists(),
+        "atomic write must not leave .tmp behind"
+    );
+    let content = std::fs::read_to_string(&path).unwrap();
+    let back: Config = toml::from_str(&content).unwrap();
+    assert_eq!(back.provider, cfg.provider);
+    assert_eq!(back.api_keys, cfg.api_keys);
+
+    unsafe { std::env::remove_var("ZS_CONFIG_DIR") };
+    drop(guard);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+static ZS_CONFIG_DIR_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 use crate::config::merge_config_override;
 use crate::config::unknown_keys;
 

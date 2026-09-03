@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use compact_str::CompactString;
 use crossterm::ExecutableCommand;
 use crossterm::cursor::{Hide, MoveTo, Show};
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::style::{Color, Print, ResetColor, SetForegroundColor};
 use crossterm::terminal::{self, Clear, ClearType};
 
@@ -208,10 +208,13 @@ fn masked_key(key: &str) -> String {
     if key.is_empty() {
         return "(not set)".to_string();
     }
-    if key.len() <= 4 {
+    if key.chars().count() <= 4 {
         return "****".to_string();
     }
-    format!("{}****", &key[..4.min(key.len())])
+    // Use char-boundary-safe prefix: byte slicing `&key[..4]` panics on
+    // multi-byte UTF-8 (e.g. emoji keys).
+    let prefix: String = key.chars().take(4).collect();
+    format!("{prefix}****")
 }
 
 fn provider_type_display(name: &str, cfg: &Config) -> String {
@@ -718,16 +721,10 @@ fn make_provider_detail_state(
         .cloned()
         .unwrap_or_default();
 
-    let env_key_value = if !api_key_env.is_empty() {
-        let env_val = std::env::var(&api_key_env).unwrap_or_default();
-        if !env_val.is_empty() {
-            env_val
-        } else {
-            api_key_value.clone()
-        }
-    } else {
-        api_key_value.clone()
-    };
+    // NOTE: intentionally show the stored config value, not the env var.
+    // Previously the env value shadowed the file value, so pressing Save
+    // without editing would copy the env secret into config.toml.
+    let env_key_value = api_key_value.clone();
 
     let mut fields: Vec<FieldDef> = Vec::new();
 
@@ -811,6 +808,15 @@ fn run_inner(cfg: &mut Config) -> anyhow::Result<SetupOutcome> {
         let event = crossterm::event::read()?;
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
+                // Ctrl-C / Ctrl-D must exit without saving or launching.
+                // Previously Ctrl-C was swallowed by the `_` fall-through,
+                // trapping users with no way out except killing the terminal
+                // (and breaking callers that send SIGINT/EOF to abort).
+                if key.modifiers.contains(KeyModifiers::CONTROL)
+                    && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('d'))
+                {
+                    return Ok(SetupOutcome::Quit);
+                }
                 let outcome = handle_key(&ctx, key)?;
                 match outcome {
                     KeyResult::Screen(new_screen) => {
@@ -818,9 +824,13 @@ fn run_inner(cfg: &mut Config) -> anyhow::Result<SetupOutcome> {
                         ctx.message = None;
                     }
                     KeyResult::ApplyConfig(new_screen, new_cfg) => {
+                        // Persist immediately: previously this only updated
+                        // in-memory state, so edits were lost on crash,
+                        // kill, or terminal close before Quit/Launch.
+                        crate::config::save_config(&new_cfg)?;
                         ctx.screen = new_screen;
                         ctx.cfg = new_cfg;
-                        ctx.message = None;
+                        ctx.message = Some("Saved".to_string());
                     }
                     KeyResult::Outcome(outcome, new_cfg) => {
                         *cfg = new_cfg;
@@ -1203,7 +1213,23 @@ fn handle_provider_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyRes
                         Some("Name is required".to_string()),
                     )));
                 }
-                if is_new && new_provider_type.is_empty() {
+                // Don't silently overwrite an existing provider or shadow a
+                // built-in name with a custom entry that would be ignored.
+                if is_new
+                    && (builtin_provider_names().contains(&new_name.as_str())
+                        || new_cfg
+                            .custom_providers
+                            .as_ref()
+                            .is_some_and(|m| m.contains_key(&new_name)))
+                {
+                    return Ok(KeyResult::Screen(make_screen(
+                        fields,
+                        selected_field,
+                        None,
+                        Some(format!("Provider '{new_name}' already exists")),
+                    )));
+                }
+                if new_provider_type.is_empty() {
                     return Ok(KeyResult::Screen(make_screen(
                         fields,
                         selected_field,
@@ -1211,12 +1237,30 @@ fn handle_provider_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyRes
                         Some("Provider Type is required".to_string()),
                     )));
                 }
-                if is_new && new_base_url.is_empty() {
+                if crate::auth::ProviderKind::from_name(&new_provider_type).is_none() {
+                    return Ok(KeyResult::Screen(make_screen(
+                        fields,
+                        selected_field,
+                        None,
+                        Some(format!(
+                            "Unknown provider type '{new_provider_type}' (valid: openrouter, openai, anthropic, gemini, ollama, custom)"
+                        )),
+                    )));
+                }
+                if new_base_url.is_empty() {
                     return Ok(KeyResult::Screen(make_screen(
                         fields,
                         selected_field,
                         None,
                         Some("Base URL is required for custom providers".to_string()),
+                    )));
+                }
+                if !(new_base_url.starts_with("http://") || new_base_url.starts_with("https://")) {
+                    return Ok(KeyResult::Screen(make_screen(
+                        fields,
+                        selected_field,
+                        None,
+                        Some("Base URL must start with http:// or https://".to_string()),
                     )));
                 }
 
@@ -1227,6 +1271,9 @@ fn handle_provider_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyRes
                 };
 
                 let custom = new_cfg.custom_providers.get_or_insert_with(HashMap::new);
+                // Preserve fields the wizard doesn't edit (headers, timeout,
+                // model, certs, api_style) so saving doesn't wipe them.
+                let existing = custom.get(&final_name).cloned();
                 custom.insert(
                     final_name.clone(),
                     CustomProviderConfig {
@@ -1237,17 +1284,24 @@ fn handle_provider_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyRes
                         } else {
                             Some(CompactString::new(&new_api_key_env))
                         },
-                        danger_accept_invalid_certs: None,
-                        api_style: None,
-                        headers: HashMap::new(),
-                        timeout_secs: None,
-                        model: None,
+                        danger_accept_invalid_certs: existing
+                            .as_ref()
+                            .and_then(|c| c.danger_accept_invalid_certs),
+                        api_style: existing.as_ref().and_then(|c| c.api_style),
+                        headers: existing
+                            .as_ref()
+                            .map(|c| c.headers.clone())
+                            .unwrap_or_default(),
+                        timeout_secs: existing.as_ref().and_then(|c| c.timeout_secs),
+                        model: existing.as_ref().and_then(|c| c.model.clone()),
                     },
                 );
 
                 if !new_api_key_value.is_empty() {
                     let keys = new_cfg.api_keys.get_or_insert_with(HashMap::new);
                     keys.insert(final_name.clone(), new_api_key_value);
+                } else if let Some(ref mut keys) = new_cfg.api_keys {
+                    keys.remove(&final_name);
                 }
 
                 Ok(KeyResult::ApplyConfig(Screen::MainMenu, new_cfg))
@@ -1589,26 +1643,59 @@ fn handle_model_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyResult
                 let new_input_cost = fields
                     .iter()
                     .find(|f| f.label == "Input Cost ($/M)")
-                    .and_then(|f| f.value.parse::<f64>().ok())
-                    .unwrap_or(0.0);
+                    .map(|f| f.value.trim().to_string())
+                    .unwrap_or_default();
 
                 let new_output_cost = fields
                     .iter()
                     .find(|f| f.label == "Output Cost ($/M)")
-                    .and_then(|f| f.value.parse::<f64>().ok())
-                    .unwrap_or(0.0);
+                    .map(|f| f.value.trim().to_string())
+                    .unwrap_or_default();
 
-                let new_context_window = fields
+                let new_context_window_raw = fields
                     .iter()
                     .find(|f| f.label == "Context Window")
-                    .and_then(|f| {
-                        let v = f.value.trim();
-                        if v.is_empty() {
-                            None
-                        } else {
-                            v.parse::<u64>().ok()
+                    .map(|f| f.value.trim().to_string())
+                    .unwrap_or_default();
+
+                let parse_cost = |label: &str, raw: &str| -> Result<f64, KeyResult> {
+                    if raw.is_empty() {
+                        return Ok(0.0);
+                    }
+                    match raw.parse::<f64>() {
+                        Ok(v) if v.is_finite() && v >= 0.0 => Ok(v),
+                        _ => Err(KeyResult::Screen(make_screen(
+                            fields.clone(),
+                            selected_field,
+                            None,
+                            Some(format!("{label} must be a non-negative number")),
+                        ))),
+                    }
+                };
+                let new_input_cost = match parse_cost("Input Cost ($/M)", &new_input_cost) {
+                    Ok(v) => v,
+                    Err(r) => return Ok(r),
+                };
+                let new_output_cost = match parse_cost("Output Cost ($/M)", &new_output_cost) {
+                    Ok(v) => v,
+                    Err(r) => return Ok(r),
+                };
+
+                let new_context_window = if new_context_window_raw.is_empty() {
+                    None
+                } else {
+                    match new_context_window_raw.parse::<u64>() {
+                        Ok(v) => Some(v),
+                        Err(_) => {
+                            return Ok(KeyResult::Screen(make_screen(
+                                fields,
+                                selected_field,
+                                None,
+                                Some("Context Window must be a positive integer".to_string()),
+                            )));
                         }
-                    });
+                    }
+                };
 
                 if new_name.is_empty() {
                     return Ok(KeyResult::Screen(make_screen(
@@ -1634,9 +1721,47 @@ fn handle_model_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyResult
                         Some("Model ID is required".to_string()),
                     )));
                 }
+                // For edits, validate the provider rather than silently
+                // saving a model that can never resolve at launch.
+                // Note: a custom provider added earlier in this session is
+                // already in ctx.cfg (ApplyConfig persists + updates ctx).
+                if !collect_provider_names(&ctx.cfg).contains(&new_provider) {
+                    return Ok(KeyResult::Screen(make_screen(
+                        fields,
+                        selected_field,
+                        None,
+                        Some(format!("Unknown provider '{new_provider}'")),
+                    )));
+                }
+                // Don't silently overwrite a different model on rename.
+                if new_name != name
+                    && ctx
+                        .cfg
+                        .quick_models
+                        .as_ref()
+                        .is_some_and(|m| m.contains_key(&new_name))
+                {
+                    return Ok(KeyResult::Screen(make_screen(
+                        fields,
+                        selected_field,
+                        None,
+                        Some(format!("Model '{new_name}' already exists")),
+                    )));
+                }
 
                 let mut new_cfg = ctx.cfg.clone();
+                // Renaming a model leaves the old entry behind as a ghost;
+                // remove it so the rename is a move, not a copy.
+                if new_name != name
+                    && let Some(m) = new_cfg.quick_models.as_mut()
+                {
+                    m.remove(&name);
+                }
                 let qm = new_cfg.quick_models.get_or_insert_with(HashMap::new);
+                // Preserve fields the wizard doesn't edit so saving
+                // doesn't wipe per-model overrides. Look up by the original
+                // name so renames carry the overrides over.
+                let existing = qm.get(&name).cloned();
                 qm.insert(
                     new_name.clone(),
                     QuickModelConfig {
@@ -1644,9 +1769,9 @@ fn handle_model_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyResult
                         model: CompactString::new(&new_model_id),
                         input_token_cost: new_input_cost,
                         output_token_cost: new_output_cost,
-                        reserve_tokens: None,
-                        temperature: None,
-                        extra_body: None,
+                        reserve_tokens: existing.as_ref().and_then(|q| q.reserve_tokens),
+                        temperature: existing.as_ref().and_then(|q| q.temperature),
+                        extra_body: existing.and_then(|q| q.extra_body),
                         context_window: new_context_window,
                     },
                 );
@@ -1686,5 +1811,20 @@ fn apply_autoconfigure(cfg: &mut Config) {
                 keys.insert(provider.to_string(), val.clone());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::masked_key;
+
+    #[test]
+    fn masked_key_is_char_boundary_safe() {
+        // Regression: byte slicing `&key[..4]` panicked on multi-byte UTF-8.
+        assert_eq!(masked_key(""), "(not set)");
+        assert_eq!(masked_key("ab"), "****");
+        assert_eq!(masked_key("abcd"), "****");
+        assert_eq!(masked_key("abcdef"), "abcd****");
+        assert_eq!(masked_key("🔑🔑🔑🔑🔑secret"), "🔑🔑🔑🔑****");
     }
 }

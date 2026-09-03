@@ -591,12 +591,12 @@ pub fn save_config(cfg: &Config) -> io::Result<()> {
     match path.extension().and_then(|e| e.to_str()) {
         Some("toml") => {
             let content = toml::to_string(&cfg).map_err(io::Error::other)?;
-            std::fs::write(&path, content)?;
+            atomic_config_write(&path, &content)?;
         }
-        _ => std::fs::write(
-            &path,
-            serde_yaml_ng::to_string(&cfg).map_err(io::Error::other)?,
-        )?,
+        _ => {
+            let content = serde_yaml_ng::to_string(&cfg).map_err(io::Error::other)?;
+            atomic_config_write(&path, &content)?;
+        }
     }
     tracing::debug!("config saved to {}", path.display());
     Ok(())
