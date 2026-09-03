@@ -23,13 +23,81 @@ impl Default for RetryConfig {
 }
 
 pub fn simple_jitter(range_ms: u64) -> Duration {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::SystemTime;
-    let nanos = SystemTime::now()
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let mut hasher = DefaultHasher::new();
+    std::thread::current().id().hash(&mut hasher);
+    SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as u64)
-        .unwrap_or(0);
-    let jitter = nanos % range_ms.max(1);
-    Duration::from_millis(jitter)
+        .unwrap_or_default()
+        .subsec_nanos()
+        .hash(&mut hasher);
+    COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher);
+    // Mix in a cheap xorshift for extra diffusion without external rand crate.
+    let mut x = hasher.finish();
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    Duration::from_millis(x % range_ms.max(1))
+}
+
+/// Extract a `Retry-After` delay from an error chain if present.
+/// Looks for `retry-after:` header value or `429` with seconds hint inside the
+/// error's Display. Handles both `Retry-After: 12` (seconds) and
+/// `Retry-After: 5s` / `retry after 5` variants. Returns `None` if not found
+/// or unparsable, letting caller fall back to exponential backoff.
+pub fn retry_after(error: &(dyn std::error::Error + 'static)) -> Option<Duration> {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(error);
+    while let Some(e) = current {
+        let msg = e.to_string();
+        let lower = msg.to_lowercase();
+        // Search for `retry-after` token and try to parse a number after it.
+        if let Some(idx) = lower.find("retry-after") {
+            let rest = &lower[idx + "retry-after".len()..];
+            // Skip separators like `:` , ` `, `=`
+            let mut num_str = String::new();
+            let mut in_num = false;
+            for ch in rest.chars() {
+                if ch.is_ascii_digit() {
+                    num_str.push(ch);
+                    in_num = true;
+                } else if in_num {
+                    break;
+                }
+            }
+            if let Ok(secs) = num_str.parse::<u64>()
+                && secs > 0
+                && secs < 3600
+            {
+                return Some(Duration::from_secs(secs));
+            }
+        }
+        // Also handle `retry after 12` phrasing without hyphen
+        if let Some(idx) = lower.find("retry after") {
+            let rest = &lower[idx + "retry after".len()..];
+            let mut num_str = String::new();
+            let mut in_num = false;
+            for ch in rest.chars() {
+                if ch.is_ascii_digit() {
+                    num_str.push(ch);
+                    in_num = true;
+                } else if in_num {
+                    break;
+                }
+            }
+            if let Ok(secs) = num_str.parse::<u64>()
+                && secs > 0
+                && secs < 3600
+            {
+                return Some(Duration::from_secs(secs));
+            }
+        }
+        current = e.source();
+    }
+    None
 }
 
 pub fn is_retryable(error: &(dyn std::error::Error + 'static)) -> bool {
@@ -90,8 +158,11 @@ where
                 if attempt >= config.max_attempts || !is_retryable(&e) {
                     return Err(e);
                 }
-                let jitter = simple_jitter(backoff.as_millis() as u64);
-                let delay = backoff + jitter;
+                let base = retry_after(&e).unwrap_or(backoff);
+                // Cap Retry-After to avoid unbounded waits (e.g., server says 300s).
+                let base = base.min(max_backoff * 2);
+                let jitter = simple_jitter(base.as_millis() as u64 / 4 + 1);
+                let delay = base + jitter;
                 tracing::warn!(
                     "retryable error (attempt {attempt}/{}): {e}. Retrying in {}ms...",
                     config.max_attempts,
@@ -132,11 +203,15 @@ where
                 if attempt >= config.max_attempts || !is_retryable(&e) {
                     return Err(e);
                 }
-                let jitter = simple_jitter(backoff.as_millis() as u64);
-                let delay = backoff + jitter;
+                let base = retry_after(&e).unwrap_or(backoff);
+                let base = base.min(max_backoff * 2);
+                let jitter = simple_jitter(base.as_millis() as u64 / 4 + 1);
+                let delay = base + jitter;
                 tracing::warn!(
-                    "retryable error on first stream item (attempt {attempt}/{}): {e}",
-                    config.max_attempts
+                    "retryable error on first stream item (attempt {attempt}/{}): {e}. Retrying in {}ms (base {:?})",
+                    config.max_attempts,
+                    delay.as_millis(),
+                    base
                 );
                 tokio::time::sleep(delay).await;
                 backoff = (backoff * 2).min(max_backoff);

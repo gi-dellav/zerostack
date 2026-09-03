@@ -357,12 +357,27 @@ struct ManualModelsItem {
 }
 
 /// Custom / OpenAI-compatible gateway: best-effort GET {base}/models.
+#[allow(dead_code)]
 pub async fn list_models_manual(
     provider_name: &str,
     cli_key: Option<&str>,
     custom_providers: &std::collections::HashMap<String, CustomProviderConfig>,
     config_api_keys: Option<&std::collections::HashMap<String, String>>,
 ) -> anyhow::Result<Vec<ModelEntry>> {
+    let (models, _) =
+        fetch_custom_models_raw(provider_name, cli_key, custom_providers, config_api_keys).await?;
+    Ok(models)
+}
+
+/// Single GET for custom gateways that returns both model list and pricing.
+/// Avoids the duplicate `GET /models` that `fetch_models_cached` previously
+/// did (one for listing, one for `fetch_live_model_info`).
+pub(crate) async fn fetch_custom_models_raw(
+    provider_name: &str,
+    cli_key: Option<&str>,
+    custom_providers: &std::collections::HashMap<String, CustomProviderConfig>,
+    config_api_keys: Option<&std::collections::HashMap<String, String>>,
+) -> anyhow::Result<(Vec<ModelEntry>, HashMap<String, OpenRouterModelInfo>)> {
     let config = resolve_provider_config(provider_name, custom_providers)?;
     let base = config
         .base_url
@@ -384,12 +399,16 @@ pub async fn list_models_manual(
     )?;
     let url = format!("{}/models", base.trim_end_matches('/'));
     tracing::debug!("list_models_manual: GET {}", url);
-    let mut req = http.get(url);
-    if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
-        req = req.bearer_auth(k);
-    }
-    let body = req.send().await?.error_for_status()?.bytes().await?;
-    parse_manual_models(&body)
+    let bearer = key
+        .as_deref()
+        .filter(|k| !k.is_empty())
+        .map(|k| k.to_string());
+    let body = get_bytes_with_retry(http, url, bearer).await?;
+    let models = parse_manual_models(&body)?;
+    // Best-effort pricing from same payload — ignore parse errors for pricing,
+    // keep models even if pricing shape mismatches.
+    let pricing = parse_model_infos(&body).unwrap_or_default();
+    Ok((models, pricing))
 }
 
 /// Parse a `GET {base}/models` payload from a custom / OpenAI-compatible
@@ -449,11 +468,11 @@ pub async fn fetch_live_model_info(
         Some(&base),
     )?;
     let url = format!("{}/models", base.trim_end_matches('/'));
-    let mut req = http.get(url);
-    if let Some(k) = key.as_deref().filter(|k| !k.is_empty()) {
-        req = req.bearer_auth(k);
-    }
-    let body = req.send().await?.error_for_status()?.bytes().await?;
+    let bearer = key
+        .as_deref()
+        .filter(|k| !k.is_empty())
+        .map(|k| k.to_string());
+    let body = get_bytes_with_retry(http, url, bearer).await?;
     parse_model_infos(&body)
 }
 
@@ -923,13 +942,41 @@ pub(crate) fn expand_env(value: &str) -> anyhow::Result<String> {
 /// When the provider is not custom (`custom == None`) and TLS is not disabled,
 /// the resulting client is equivalent to `reqwest::Client::default()`, so the
 /// behavior of existing providers is unchanged.
+static BUILTIN_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+    reqwest::Client::builder()
+        .user_agent(format!(
+            "zerostack/{} (https://github.com/gi-dellav/zerostack)",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .tcp_keepalive(Duration::from_secs(30))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .pool_max_idle_per_host(8)
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+});
+
 pub(crate) fn build_http_client(
     provider_name: &str,
     danger_accept_invalid_certs: bool,
     custom: Option<&CustomProviderConfig>,
     base_url: Option<&str>,
 ) -> anyhow::Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder();
+    // Fast path: built-in providers with default settings reuse a single
+    // pooled client — avoids creating a new connection pool per request.
+    if custom.is_none() && !danger_accept_invalid_certs && !is_localhost(base_url) {
+        return Ok(BUILTIN_HTTP_CLIENT.clone());
+    }
+    let mut builder = reqwest::Client::builder()
+        .user_agent(format!(
+            "zerostack/{} (https://github.com/gi-dellav/zerostack)",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .tcp_keepalive(Duration::from_secs(30))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .pool_max_idle_per_host(8)
+        .connect_timeout(Duration::from_secs(5));
     if is_localhost(base_url) {
         // Disable connection pooling for local LLM servers (notably
         // llama.cpp's cpp-httplib) which close idle keep-alive
@@ -982,6 +1029,71 @@ fn is_localhost(url: Option<&str>) -> bool {
             || u.starts_with("http://127.")
             || u.starts_with("http://[::1]")
     })
+}
+
+/// GET with retry, handling 429/5xx + `Retry-After` and pooling reuse.
+/// Clones the request for each attempt (GET has no body, so clone is cheap).
+async fn get_bytes_with_retry(
+    client: reqwest::Client,
+    url: String,
+    bearer: Option<String>,
+) -> anyhow::Result<Vec<u8>> {
+    let cfg = RetryConfig {
+        max_attempts: 3,
+        initial_backoff_ms: 500,
+        max_backoff_ms: 5_000,
+    };
+    let bytes = retry::with_retry(&cfg, || {
+        let client = client.clone();
+        let url = url.clone();
+        let bearer = bearer.clone();
+        async move {
+            let mut req = client.get(&url);
+            if let Some(k) = bearer.as_deref().filter(|k| !k.is_empty()) {
+                req = req.bearer_auth(k);
+            }
+            let resp = req
+                .send()
+                .await
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            let status = resp.status();
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
+                let retry_after = resp
+                    .headers()
+                    .get(reqwest::header::RETRY_AFTER)
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("")
+                    .to_string();
+                let msg = if retry_after.is_empty() {
+                    format!(
+                        "HTTP {} {}",
+                        status.as_u16(),
+                        status.canonical_reason().unwrap_or("")
+                    )
+                } else {
+                    format!("HTTP {} retry-after: {}", status.as_u16(), retry_after)
+                };
+                return Err(std::io::Error::other(msg));
+            }
+            if !status.is_success() {
+                let text = resp.text().await.unwrap_or_default();
+                // 4xx except 429 is not retryable — use NotFound kind so
+                // `is_retryable` returns false.
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!("HTTP {}: {}", status, text.trim()),
+                ));
+            }
+            let b = resp
+                .bytes()
+                .await
+                .map_err(|e| std::io::Error::other(e.to_string()))?;
+            Ok(b.to_vec())
+        }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+    Ok(bytes)
 }
 
 /// Determines which API style the OpenAI family should use:

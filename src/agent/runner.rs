@@ -385,8 +385,11 @@ where
                                 max: retry_config.max_attempts,
                             })
                             .await;
-                        let jitter = retry::simple_jitter(backoff.as_millis() as u64);
-                        tokio::time::sleep(backoff + jitter).await;
+                        let base = retry::retry_after(&e)
+                            .unwrap_or(backoff)
+                            .min(max_backoff * 2);
+                        let jitter = retry::simple_jitter(base.as_millis() as u64 / 4 + 1);
+                        tokio::time::sleep(base + jitter).await;
                         backoff = (backoff * 2).min(max_backoff);
                     }
                     Some(Err(e)) => {

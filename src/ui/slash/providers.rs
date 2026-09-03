@@ -3,7 +3,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 
 use crate::cli::Cli;
 use crate::config::{self, Config};
-use crate::provider::{AnyClient, ModelEntry, list_models_manual};
+use crate::provider::{AnyClient, ModelEntry};
 use crate::ui::slash::{SlashCtx, write_error, write_ok, write_result};
 
 pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
@@ -62,19 +62,37 @@ pub(crate) async fn fetch_models_cached(
         refresh
     );
     let mut models = if is_custom {
-        list_models_manual(
+        // Single GET that yields both listing and pricing — avoids duplicate
+        // `GET /models` for custom gateways.
+        let (m, pricing) = crate::provider::fetch_custom_models_raw(
             provider,
             cli.api_key.as_deref(),
             &cfg.custom_providers_map(),
             cfg.api_keys.as_ref(),
         )
-        .await?
+        .await?;
+        let mut m = m;
+        m.retain(crate::provider::is_agent_model);
+        for entry in &mut m {
+            if let Some(info) = pricing.get(&entry.id) {
+                entry.input_price = Some(info.input_cost);
+                entry.output_price = Some(info.output_cost);
+            }
+        }
+        // Return early with enriched models, skip the second fetch below.
+        let arc: Arc<[ModelEntry]> = Arc::from(m.into_boxed_slice());
+        MODEL_CACHE
+            .lock()
+            .unwrap()
+            .insert(provider.to_string(), Arc::clone(&arc));
+        return Ok(arc);
     } else {
-        client.list_models().await?
+        let mut m = client.list_models().await?;
+        m.retain(crate::provider::is_agent_model);
+        m
     };
-    models.retain(crate::provider::is_agent_model);
 
-    if provider == "openrouter" || is_custom {
+    if provider == "openrouter" {
         match crate::provider::fetch_live_model_info(
             provider,
             cli.api_key.as_deref(),
