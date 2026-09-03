@@ -261,7 +261,10 @@ pub(crate) fn spawn_event_thread(
         let mut paste_burst = PasteBurst::default();
         while running.load(Ordering::Relaxed) {
             let Ok(ready) = event::poll(paste_burst.wait_timeout()) else {
-                continue;
+                // Stdin is gone (e.g. the parent terminal quit) — poll()
+                // fails instantly and forever, so retrying here would busy
+                // spin at 100% CPU with no backoff.
+                break;
             };
             if !ready {
                 paste_burst.on_timeout();
@@ -337,6 +340,9 @@ pub(crate) fn spawn_event_thread(
                 Err(_) => break,
             }
         }
+        // Let the app loop know this thread is gone so it can shut down
+        // instead of idling forever with no input source.
+        running.store(false, Ordering::Relaxed);
     })
 }
 

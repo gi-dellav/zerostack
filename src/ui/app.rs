@@ -501,6 +501,15 @@ impl<'a> App<'a> {
                 _ = tokio::time::sleep(Duration::from_millis(100)), if self.run.is_running => {
                     self.refresh()?;
                 }
+                _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                    // The event thread sets this to false when it exits
+                    // (e.g. stdin closed because the parent terminal quit).
+                    // Without this check the app would otherwise idle
+                    // forever with no way to receive input.
+                    if !self.running.load(Ordering::Relaxed) {
+                        return Ok(ControlFlow::Break(()));
+                    }
+                }
                 else => {
                     if let Some(rx) = self.prebuild_rx.as_mut()
                         && self.run.agent.is_none()
