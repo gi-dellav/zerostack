@@ -8799,6 +8799,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml_ng",
+ "shell-words",
  "smallvec",
  "thiserror 2.0.20",
  "tokio",
