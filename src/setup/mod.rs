@@ -1658,27 +1658,25 @@ fn handle_model_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyResult
                     .map(|f| f.value.trim().to_string())
                     .unwrap_or_default();
 
-                let parse_cost = |label: &str, raw: &str| -> Result<f64, KeyResult> {
+                let parse_cost = |label: &str, raw: &str| -> Result<f64, String> {
                     if raw.is_empty() {
                         return Ok(0.0);
                     }
                     match raw.parse::<f64>() {
                         Ok(v) if v.is_finite() && v >= 0.0 => Ok(v),
-                        _ => Err(KeyResult::Screen(make_screen(
-                            fields.clone(),
-                            selected_field,
-                            None,
-                            Some(format!("{label} must be a non-negative number")),
-                        ))),
+                        _ => Err(format!("{label} must be a non-negative number")),
                     }
+                };
+                let cost_error = |msg: String| {
+                    KeyResult::Screen(make_screen(fields.clone(), selected_field, None, Some(msg)))
                 };
                 let new_input_cost = match parse_cost("Input Cost ($/M)", &new_input_cost) {
                     Ok(v) => v,
-                    Err(r) => return Ok(r),
+                    Err(msg) => return Ok(cost_error(msg)),
                 };
                 let new_output_cost = match parse_cost("Output Cost ($/M)", &new_output_cost) {
                     Ok(v) => v,
-                    Err(r) => return Ok(r),
+                    Err(msg) => return Ok(cost_error(msg)),
                 };
 
                 let new_context_window = if new_context_window_raw.is_empty() {
