@@ -1,5 +1,6 @@
 use crate::permission::checker::{CheckResult, PermissionChecker};
 use crate::permission::{Action, PermissionConfig, PermissionConfigs, SecurityMode, ToolPerm};
+use crate::ui::utils::suggest_pattern;
 
 fn default_modes() -> Option<Vec<String>> {
     Some(vec![
@@ -363,6 +364,14 @@ fn session_allowlist_cannot_bypass_deny_rules() {
         "deny rule must not be bypassed by session allowlist, got {:?}",
         result,
     );
+}
+
+#[test]
+fn session_allowlist_covers_a_bash_command_with_a_path_argument() {
+    let cmd = "pytest tests/test_login.py";
+    let mut checker = make_checker(SecurityMode::Guarded);
+    checker.add_session_allowlist("bash".into(), &suggest_pattern("bash", cmd));
+    assert!(matches!(checker.check("bash", cmd), CheckResult::Allowed));
 }
 
 #[test]
