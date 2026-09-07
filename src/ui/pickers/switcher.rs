@@ -259,7 +259,7 @@ impl ModelSwitcher {
             return true;
         }
         match key.code {
-            KeyCode::Char(c) if c == '\x08' => {
+            KeyCode::Char('\x08') => {
                 self.backspace();
             }
             KeyCode::Char(c) => {
@@ -483,7 +483,7 @@ impl PromptSwitcher {
             return true;
         }
         match key.code {
-            KeyCode::Char(c) if c == '\x08' => {
+            KeyCode::Char('\x08') => {
                 self.backspace();
             }
             KeyCode::Char(c) => {

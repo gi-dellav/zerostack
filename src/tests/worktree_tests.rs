@@ -98,35 +98,34 @@ mod tests {
                 .arg(&self.root)
                 .args(["worktree", "list", "--porcelain"])
                 .output()
+                && out.status.success()
             {
-                if out.status.success() {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    let paths: Vec<String> = stdout
-                        .lines()
-                        .filter_map(|l| l.strip_prefix("worktree "))
-                        .map(|p| p.trim().to_string())
-                        .filter(|p| {
-                            std::path::Path::new(p) != self.root
-                                && std::path::Path::new(p).starts_with(
-                                    self.root.parent().unwrap_or(std::path::Path::new("/tmp")),
-                                )
-                        })
-                        .collect();
-                    for p in &paths {
-                        let _ = Command::new("git")
-                            .arg("-C")
-                            .arg(&self.root)
-                            .args(["worktree", "remove", "--force", p])
-                            .output();
-                        // The dir may survive a stale admin entry; remove it.
-                        let _ = std::fs::remove_dir_all(p);
-                    }
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let paths: Vec<String> = stdout
+                    .lines()
+                    .filter_map(|l| l.strip_prefix("worktree "))
+                    .map(|p| p.trim().to_string())
+                    .filter(|p| {
+                        std::path::Path::new(p) != self.root
+                            && std::path::Path::new(p).starts_with(
+                                self.root.parent().unwrap_or(std::path::Path::new("/tmp")),
+                            )
+                    })
+                    .collect();
+                for p in &paths {
                     let _ = Command::new("git")
                         .arg("-C")
                         .arg(&self.root)
-                        .args(["worktree", "prune"])
+                        .args(["worktree", "remove", "--force", p])
                         .output();
+                    // The dir may survive a stale admin entry; remove it.
+                    let _ = std::fs::remove_dir_all(p);
                 }
+                let _ = Command::new("git")
+                    .arg("-C")
+                    .arg(&self.root)
+                    .args(["worktree", "prune"])
+                    .output();
             }
             let _ = std::env::set_current_dir(&self.orig);
             let _ = std::fs::remove_dir_all(&self.root);
