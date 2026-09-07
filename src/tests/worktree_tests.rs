@@ -67,7 +67,15 @@ mod tests {
             });
             let root = unique_dir(tag);
             let _ = std::fs::remove_dir_all(&root);
-            std::fs::create_dir_all(&root).unwrap();
+            // create_dir, not create_dir_all: the name is predictable in a
+            // shared temp dir, and the root is canonicalised below, after
+            // which Drop's remove_dir_all would follow a planted symlink.
+            // Failing on an existing entry closes that.
+            std::fs::create_dir(&root).unwrap();
+            // Canonical so comparisons against paths the code under test
+            // returns (it canonicalises via `absolutize`) hold on macOS,
+            // where `temp_dir()` is `/var/...` but resolves to `/private/var/...`.
+            let root = root.canonicalize().unwrap();
             // `git -C` (not CWD-relative): the process may currently sit in
             // a directory owned by another in-flight test.
             run(&root, &["init", "-b", branch]);
@@ -575,10 +583,7 @@ mod tests {
         assert!(repo.root.join("new.txt").exists());
         assert!(!info.worktree_path.exists());
         assert!(!branch_exists(&repo.root, &info.branch));
-        assert_eq!(
-            std::env::current_dir().unwrap(),
-            repo.root.canonicalize().unwrap()
-        );
+        assert_eq!(std::env::current_dir().unwrap(), repo.root);
     }
 
     #[test]
