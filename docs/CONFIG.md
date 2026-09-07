@@ -192,7 +192,7 @@ Accepted top-level keys:
 | `auto-update-prompts`     | boolean | When `true`, update prompt files that changed in the new version without asking. When `false`, never update. When unset, asks interactively. Nothing happens when the installed prompts already match the embedded defaults. |
 | `auto-update-themes`      | boolean | When `true`, update theme files that changed in the new version without asking. When `false`, never update. When unset, asks interactively. Nothing happens when the installed themes already match the embedded defaults. |
 | `edit_system`             | string  | Edit system mode: `"similarity"` (SEARCH/REPLACE with fuzzy matching, default) or `"hashedit"` (CRC-32 tag-based CAS edits). See Edit System Modes below.                     |
-| `custom_providers`        | object  | Map of provider aliases to `{ "provider_type", "base_url", "api_key_env", "api_style", "headers", "danger_accept_invalid_certs", "timeout_secs" }`. `provider_type` must resolve to a built-in provider type; `api_key_env` is optional. For OpenAI providers, `api_style` selects `"responses"` or `"completions"`, `headers` sets custom HTTP headers (values support `${ENV_VAR}` expansion), and `timeout_secs` overrides the HTTP timeout. `danger_accept_invalid_certs` disables TLS verification. See the OpenAI API styles section below. |
+| `custom_providers`        | object  | Map of provider aliases to `{ "provider_type", "base_url", "api_key_env", "api_style", "headers", "danger_accept_invalid_certs", "timeout_secs" }`. `provider_type` must resolve to a built-in provider type; `api_key_env` is optional. For OpenAI providers, `api_style` selects `"responses"` or `"completions"`, `headers` sets custom HTTP headers (values support `${ENV_VAR}` expansion), and `timeout_secs` sets a whole-request deadline (leave unset to let long streamed replies run). `danger_accept_invalid_certs` disables TLS verification. See the OpenAI API styles section below. |
 | `permission`              | object  | Permission rules using glob patterns; see the permission config notes below.                                |
 | `permission-regex`        | object  | Same structure as `permission` but patterns are interpreted as regex instead of glob.                       |
 | `permission-allow`        | object  | Map of tool names to lists of glob patterns to allow. Works alongside the `permission` field. See below.    |
@@ -566,8 +566,14 @@ config file:
 }
 ```
 
-The optional `timeout_secs` field overrides the default HTTP timeout for the
-provider. TLS certificate verification can be disabled with
+The optional `timeout_secs` field is a whole-request deadline in seconds, and
+it covers the streamed reply: a completion still running when it elapses is
+cut off. Leave it unset unless a gateway needs one. By default completion
+requests have no deadline beyond a 5s connect cap and fail only after 300s
+without a byte, while the `GET /models` requests zerostack issues itself (at
+startup and from `/provider`) are capped at 8s per attempt. Like `headers`,
+this applies to `provider_type: openai`; other provider types take rig's
+default client. TLS certificate verification can be disabled with
 `"danger_accept_invalid_certs": true` (for self-signed or internal-CA
 gateways) — use with care, as it makes the connection vulnerable to MITM.
 

@@ -2,9 +2,9 @@ use crate::auth::ProviderKind;
 use crate::config::{ApiStyle, CustomProviderConfig};
 use crate::provider::ModelEntry;
 use crate::provider::{
-    AnyClient, create_client, expand_env, is_agent_model, merge_extra_body,
-    openrouter_anthropic_routing, resolve_api_style, resolve_provider_config,
-    serialize_conversation,
+    AnyClient, DEFAULT_METADATA_TIMEOUT, HttpPurpose, build_http_client, create_client, expand_env,
+    http_total_timeout, is_agent_model, merge_extra_body, openrouter_anthropic_routing,
+    resolve_api_style, resolve_provider_config, serialize_conversation,
 };
 use crate::session::{MessageRole, SessionMessage};
 use compact_str::CompactString;
@@ -242,6 +242,23 @@ fn resolve_custom_provider() {
     assert_eq!(cfg.base_url.as_deref(), Some("https://mygw.example/v1"));
 }
 
+/// Read one HTTP request head (through the blank line) off `stream`.
+/// Returns `None` on a read error or EOF before the head is complete.
+fn read_request_head(stream: &mut std::net::TcpStream) -> Option<Vec<u8>> {
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    loop {
+        let count = stream.read(&mut buffer).ok()?;
+        if count == 0 {
+            return None;
+        }
+        request.extend_from_slice(&buffer[..count]);
+        if request.windows(4).any(|window| window == b"\r\n\r\n") {
+            return Some(request);
+        }
+    }
+}
+
 #[tokio::test]
 async fn anthropic_custom_base_appends_v1_messages() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -253,18 +270,7 @@ async fn anthropic_custom_base_appends_v1_messages() {
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
 
-        let mut request = Vec::new();
-        let mut buffer = [0_u8; 4096];
-        loop {
-            let count = stream.read(&mut buffer).unwrap();
-            if count == 0 {
-                break;
-            }
-            request.extend_from_slice(&buffer[..count]);
-            if request.windows(4).any(|window| window == b"\r\n\r\n") {
-                break;
-            }
-        }
+        let request = read_request_head(&mut stream).expect("request head");
 
         let request_line = String::from_utf8_lossy(&request)
             .lines()
@@ -465,4 +471,113 @@ fn manual_models_pick_up_context_length_when_reported() {
     assert_eq!(models[0].context_length, Some(1_048_576));
     assert_eq!(models[1].id, "plain-model");
     assert_eq!(models[1].context_length, None);
+}
+
+// ── HTTP client deadlines ────────────────────────────────────────────────────
+
+#[test]
+fn completion_client_has_no_default_deadline() {
+    assert_eq!(http_total_timeout(HttpPurpose::Completion, None), None);
+    let custom = cfg(None);
+    assert_eq!(
+        http_total_timeout(HttpPurpose::Completion, Some(&custom)),
+        None
+    );
+}
+
+#[test]
+fn metadata_client_defaults_to_the_metadata_deadline() {
+    assert_eq!(
+        http_total_timeout(HttpPurpose::Metadata, None),
+        Some(DEFAULT_METADATA_TIMEOUT)
+    );
+    let custom = cfg(None);
+    assert_eq!(
+        http_total_timeout(HttpPurpose::Metadata, Some(&custom)),
+        Some(DEFAULT_METADATA_TIMEOUT)
+    );
+}
+
+#[test]
+fn explicit_timeout_secs_applies_to_both_purposes() {
+    let mut custom = cfg(None);
+    custom.timeout_secs = Some(42);
+    for purpose in [HttpPurpose::Completion, HttpPurpose::Metadata] {
+        assert_eq!(
+            http_total_timeout(purpose, Some(&custom)),
+            Some(Duration::from_secs(42))
+        );
+    }
+}
+
+/// Serve `chunks` chunked-body frames one second apart on a fresh port, for
+/// as many connections as arrive. Returns the base URL. The accept loop lives
+/// as long as the test binary; that is fine for a loopback stub.
+fn spawn_slow_stream_server(chunks: u64) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            std::thread::spawn(move || {
+                let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+                if read_request_head(&mut stream).is_none() {
+                    return;
+                }
+                if stream
+                    .write_all(
+                        b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
+                          Transfer-Encoding: chunked\r\n\r\n",
+                    )
+                    .is_err()
+                {
+                    return;
+                }
+                for index in 0..chunks {
+                    let frame = format!("data: tok{index}\n\n");
+                    let chunk = format!("{:x}\r\n{frame}\r\n", frame.len());
+                    // The metadata client hangs up at its deadline; a write
+                    // error there is the expected outcome, not a failure.
+                    if stream.write_all(chunk.as_bytes()).is_err() || stream.flush().is_err() {
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+                let _ = stream.write_all(b"0\r\n\r\n");
+            });
+        }
+    });
+    format!("http://{address}")
+}
+
+/// Regression for the whole-request deadline that used to sit on the
+/// completion client: a reply streaming longer than it died mid-stream as
+/// "error decoding response body". Both clients come from the pooled
+/// built-in path (`custom == None`, no base URL), the path the bug was on.
+/// The stream outlasts the metadata deadline by one second, so bumping the
+/// constant keeps the boundary. The sleeps overlap with the rest of the suite.
+#[tokio::test]
+async fn completion_client_survives_stream_longer_than_metadata_deadline() {
+    let base = spawn_slow_stream_server(DEFAULT_METADATA_TIMEOUT.as_secs() + 1);
+    let completion = build_http_client("slow", false, None, None, HttpPurpose::Completion).unwrap();
+    let metadata = build_http_client("slow", false, None, None, HttpPurpose::Metadata).unwrap();
+
+    let (streamed, fetched) = tokio::join!(
+        async { completion.get(&base).send().await.unwrap().text().await },
+        async { metadata.get(&base).send().await.unwrap().text().await },
+    );
+
+    let body = streamed.expect("completion client must read the whole slow stream");
+    assert_eq!(
+        body.matches("data: tok").count() as u64,
+        DEFAULT_METADATA_TIMEOUT.as_secs() + 1
+    );
+
+    // Users saw reqwest render this as "error decoding response body"; the
+    // wording is reqwest's, so only the timeout classification is asserted.
+    let err = fetched.expect_err("metadata client must give up at its deadline");
+    assert!(
+        err.is_timeout(),
+        "metadata error should be a timeout: {err}"
+    );
 }

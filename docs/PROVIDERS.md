@@ -66,7 +66,7 @@ the `custom_providers` key in the config file:
 | `api_style`                   | string  | Optional. For OpenAI-based providers: `"responses"` (Responses API, default when no `base_url` is set) or `"completions"` (Chat Completions, default when `base_url` is set). |
 | `headers`                     | object  | Optional. HTTP headers to include in every request. Values support `${ENV_VAR}` expansion.                                                                                    |
 | `danger_accept_invalid_certs` | boolean | Optional. Disables TLS certificate verification (MITM risk — use with care).                                                                                                  |
-| `timeout_secs`                | integer | Optional. Overrides the default HTTP timeout.                                                                                                                                 |
+| `timeout_secs`                | integer | Optional. Whole-request deadline in seconds; it covers the streamed reply, so leave it unset unless a gateway needs one. Unset: completions have no deadline (5s connect cap, request fails after 300s of silence) and `GET /models` requests are capped at 8s per attempt. Like `headers`, applies to `provider_type: openai` only. |
 | `model`                       | string  | Optional. Default model name for this provider. Used when no model is specified via `--model` or `ZS_MODEL`.                                                                  |
 
 ### Live context window and pricing

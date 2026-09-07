@@ -425,9 +425,9 @@ impl Startup {
         // OpenRouter-style `GET {base_url}/models` (e.g. laroute).
         // Bounded by a 5s timeout so a slow DNS/TLS does not stall startup;
         // the baked catalog (models_catalog) is the fallback and the TUI
-        // remains interactive. The HTTP client itself also has an 8s per-request
-        // timeout (provider::build_http_client), but the outer timeout caps
-        // the whole fetch tightly.
+        // remains interactive. The metadata client itself carries an 8s
+        // per-attempt deadline (provider::HttpPurpose::Metadata), but the
+        // outer timeout caps the whole fetch tightly.
         let live_info_provider = self.provider == "openrouter"
             || self
                 .cfg
