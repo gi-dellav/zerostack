@@ -407,6 +407,7 @@ mod tests {
 
     #[test]
     fn test_validate_branch_name_ok() {
+        let _lock = acquire_cwd();
         assert!(validate_branch_name("feature-x").is_ok());
         assert!(validate_branch_name("wt-123-456").is_ok());
         assert!(validate_branch_name("a").is_ok());
@@ -414,6 +415,7 @@ mod tests {
 
     #[test]
     fn test_validate_branch_name_rejects() {
+        let _lock = acquire_cwd();
         for bad in [
             "",
             "has space",
@@ -441,6 +443,7 @@ mod tests {
 
     #[test]
     fn test_validate_branch_name_whitespace_variants() {
+        let _lock = acquire_cwd();
         assert!(validate_branch_name("a\tb").is_err());
         assert!(validate_branch_name("a\nb").is_err());
         assert!(validate_branch_name(" a").is_err());
