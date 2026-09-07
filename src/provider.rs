@@ -397,6 +397,7 @@ pub(crate) async fn fetch_custom_models_raw(
         config.danger_accept_invalid_certs,
         custom,
         Some(&base),
+        HttpPurpose::Metadata,
     )?;
     let url = format!("{}/models", base.trim_end_matches('/'));
     tracing::debug!("list_models_manual: GET {}", url);
@@ -467,6 +468,7 @@ pub async fn fetch_live_model_info(
         config.danger_accept_invalid_certs,
         custom,
         Some(&base),
+        HttpPurpose::Metadata,
     )?;
     let url = format!("{}/models", base.trim_end_matches('/'));
     let bearer = key
@@ -936,14 +938,52 @@ pub(crate) fn expand_env(value: &str) -> anyhow::Result<String> {
     }
 }
 
-/// Builds a shared reqwest client, combining:
-/// - `danger_accept_invalid_certs` (from #62; the TLS toggle shared by all providers)
-/// - a custom provider's `headers` (values support `${ENV_VAR}` expansion) and `timeout_secs`
-///
-/// When the provider is not custom (`custom == None`) and TLS is not disabled,
-/// the resulting client is equivalent to `reqwest::Client::default()`, so the
-/// behavior of existing providers is unchanged.
-static BUILTIN_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
+/// What an HTTP client is for. The two kinds of traffic need opposite
+/// deadlines, so the purpose picks them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HttpPurpose {
+    /// Completion traffic handed to rig. A streamed reply legitimately runs
+    /// for minutes, so it gets no whole-request deadline; a total deadline
+    /// here cuts every reply longer than it mid-stream (reqwest reports that
+    /// as "error decoding response body"). Only silence is bounded: no bytes
+    /// for [`COMPLETION_IDLE_TIMEOUT`] fails the request as a timeout, which
+    /// the runner's retry recognises.
+    Completion,
+    /// Metadata requests zerostack issues itself (`GET /models` at startup
+    /// and from `/provider`), capped per attempt by
+    /// [`DEFAULT_METADATA_TIMEOUT`] so a stalled DNS, TLS handshake, or
+    /// server cannot hold the caller.
+    Metadata,
+}
+
+/// Connect-phase cap shared by every client.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Whole-request deadline for [`HttpPurpose::Metadata`] when the provider
+/// sets no `timeout_secs`.
+pub(crate) const DEFAULT_METADATA_TIMEOUT: Duration = Duration::from_secs(8);
+/// Idle cap for [`HttpPurpose::Completion`]: a stream that sends nothing for
+/// this long is dead. Long reasoning turns are silent for a while, so this is
+/// generous; it matches the stream idle timeout the Codex CLI uses.
+const COMPLETION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Whole-request deadline to apply, if any: an explicit `timeout_secs` wins
+/// for both purposes; otherwise metadata requests get
+/// [`DEFAULT_METADATA_TIMEOUT`] and completions get none (their connect
+/// phase is still capped by `connect_timeout`).
+pub(crate) fn http_total_timeout(
+    purpose: HttpPurpose,
+    custom: Option<&CustomProviderConfig>,
+) -> Option<Duration> {
+    match (purpose, custom.and_then(|c| c.timeout_secs)) {
+        (_, Some(secs)) => Some(Duration::from_secs(secs)),
+        (HttpPurpose::Metadata, None) => Some(DEFAULT_METADATA_TIMEOUT),
+        (HttpPurpose::Completion, None) => None,
+    }
+}
+
+/// Builder with the defaults every provider client shares: user agent,
+/// keepalive, pool sizing, and the connect cap.
+fn base_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .user_agent(format!(
             "zerostack/{} (https://github.com/gi-dellav/zerostack)",
@@ -952,32 +992,63 @@ static BUILTIN_HTTP_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::La
         .tcp_keepalive(Duration::from_secs(30))
         .pool_idle_timeout(Duration::from_secs(90))
         .pool_max_idle_per_host(8)
-        .connect_timeout(Duration::from_secs(5))
-        .timeout(Duration::from_secs(8))
-        .build()
-        .unwrap_or_else(|_| reqwest::Client::new())
-});
+        .connect_timeout(CONNECT_TIMEOUT)
+}
 
+/// Apply the settings that differ by purpose: the whole-request deadline
+/// from [`http_total_timeout`], and the idle cap on completion streams.
+fn apply_purpose(
+    builder: reqwest::ClientBuilder,
+    purpose: HttpPurpose,
+    custom: Option<&CustomProviderConfig>,
+) -> reqwest::ClientBuilder {
+    let builder = match http_total_timeout(purpose, custom) {
+        Some(deadline) => builder.timeout(deadline),
+        None => builder,
+    };
+    match purpose {
+        HttpPurpose::Completion => builder.read_timeout(COMPLETION_IDLE_TIMEOUT),
+        HttpPurpose::Metadata => builder,
+    }
+}
+
+/// Shared pooled clients for built-in providers with default settings, one
+/// per purpose so the metadata deadline never reaches completion streams.
+static BUILTIN_COMPLETION_CLIENT: std::sync::LazyLock<reqwest::Client> =
+    std::sync::LazyLock::new(|| {
+        apply_purpose(base_client_builder(), HttpPurpose::Completion, None)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    });
+
+static BUILTIN_METADATA_CLIENT: std::sync::LazyLock<reqwest::Client> =
+    std::sync::LazyLock::new(|| {
+        apply_purpose(base_client_builder(), HttpPurpose::Metadata, None)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    });
+
+/// Builds a reqwest client for `purpose`, combining:
+/// - `danger_accept_invalid_certs` (from #62; the TLS toggle shared by all providers)
+/// - a custom provider's `headers` (values support `${ENV_VAR}` expansion) and `timeout_secs`
+/// - the per-purpose deadline from [`http_total_timeout`]
+///
+/// Built-in providers with default settings share one pooled client per
+/// purpose instead of opening a new connection pool per request.
 pub(crate) fn build_http_client(
     provider_name: &str,
     danger_accept_invalid_certs: bool,
     custom: Option<&CustomProviderConfig>,
     base_url: Option<&str>,
+    purpose: HttpPurpose,
 ) -> anyhow::Result<reqwest::Client> {
-    // Fast path: built-in providers with default settings reuse a single
-    // pooled client — avoids creating a new connection pool per request.
     if custom.is_none() && !danger_accept_invalid_certs && !is_localhost(base_url) {
-        return Ok(BUILTIN_HTTP_CLIENT.clone());
+        return Ok(match purpose {
+            HttpPurpose::Completion => BUILTIN_COMPLETION_CLIENT.clone(),
+            HttpPurpose::Metadata => BUILTIN_METADATA_CLIENT.clone(),
+        });
     }
-    let mut builder = reqwest::Client::builder()
-        .user_agent(format!(
-            "zerostack/{} (https://github.com/gi-dellav/zerostack)",
-            env!("CARGO_PKG_VERSION")
-        ))
-        .tcp_keepalive(Duration::from_secs(30))
-        .pool_idle_timeout(Duration::from_secs(90))
-        .pool_max_idle_per_host(8)
-        .connect_timeout(Duration::from_secs(5));
+    let mut builder = base_client_builder();
     if is_localhost(base_url) {
         // Disable connection pooling for local LLM servers (notably
         // llama.cpp's cpp-httplib) which close idle keep-alive
@@ -986,31 +1057,19 @@ pub(crate) fn build_http_client(
         builder = builder.pool_max_idle_per_host(0);
     }
 
-    if let Some(cfg) = custom {
-        if !cfg.headers.is_empty() {
-            let mut headers = HeaderMap::new();
-            for (name, raw_value) in &cfg.headers {
-                let value = expand_env(raw_value)?;
-                let header_name = HeaderName::from_bytes(name.as_bytes())
-                    .map_err(|e| anyhow::anyhow!("Invalid header name '{name}': {e}"))?;
-                let header_value = HeaderValue::from_str(&value)
-                    .map_err(|e| anyhow::anyhow!("Invalid value for header '{name}': {e}"))?;
-                headers.insert(header_name, header_value);
-            }
-            builder = builder.default_headers(headers);
+    if let Some(cfg) = custom.filter(|cfg| !cfg.headers.is_empty()) {
+        let mut headers = HeaderMap::new();
+        for (name, raw_value) in &cfg.headers {
+            let value = expand_env(raw_value)?;
+            let header_name = HeaderName::from_bytes(name.as_bytes())
+                .map_err(|e| anyhow::anyhow!("Invalid header name '{name}': {e}"))?;
+            let header_value = HeaderValue::from_str(&value)
+                .map_err(|e| anyhow::anyhow!("Invalid value for header '{name}': {e}"))?;
+            headers.insert(header_name, header_value);
         }
-        if let Some(secs) = cfg.timeout_secs {
-            builder = builder.timeout(Duration::from_secs(secs));
-        } else {
-            // Custom provider without explicit timeout: apply a sane default so
-            // startup network stalls don't hang indefinitely.
-            builder = builder.timeout(Duration::from_secs(8));
-        }
-    } else {
-        // Built-in providers (e.g. openrouter) had no timeout at all — a
-        // stalled DNS/TLS could block startup for 30s+. Cap it.
-        builder = builder.timeout(Duration::from_secs(8));
+        builder = builder.default_headers(headers);
     }
+    builder = apply_purpose(builder, purpose, custom);
 
     if danger_accept_invalid_certs {
         tracing::warn!(
@@ -1180,6 +1239,7 @@ pub fn create_client(
                 config.danger_accept_invalid_certs,
                 custom,
                 base_url.as_deref(),
+                HttpPurpose::Completion,
             )?;
             Ok(AnyClient::OpenAI(build_openai_client(
                 &key,
