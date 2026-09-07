@@ -40,7 +40,10 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@166cdcfd11aee3cb47222f9ddb555ce30ddb9659 # v1.17.0
 
       - name: Run Clippy (${{ matrix.features }})
-        run: cargo clippy --locked ${{ matrix.features }} -- -D warnings
+        # --all-targets so tests, benches and examples are linted too; this is
+        # what `just check` runs locally, and lint drift in test code used to
+        # land on main unnoticed because CI linted only the library and bin.
+        run: cargo clippy --locked --all-targets ${{ matrix.features }} -- -D warnings
 
   test:
     strategy:

@@ -25,6 +25,7 @@ fmt:
 check:
     cargo fmt --check
     cargo clippy --all-targets --all-features -- -D warnings
+    cargo clippy --all-targets --no-default-features -- -D warnings
 
 test: fmt
     cargo test
