@@ -2,6 +2,7 @@
 
 #![allow(unsafe_code)]
 
+#[cfg(feature = "mcp")]
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -25,6 +26,7 @@ fn acquire_env() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
+#[cfg(feature = "mcp")]
 fn mcp_map(
     cfg: &crate::config::Config,
 ) -> &HashMap<String, crate::extras::mcp::config::McpServerConfig> {

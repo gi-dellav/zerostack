@@ -147,6 +147,8 @@ mod worktree_tests;
 /// expectation. Declared here (rather than per-file) so every such test
 /// shares one lock.
 ///
+/// Acquiring also repairs a deleted cwd: see [`acquire_cwd`].
+///
 /// NOTE: this deliberately does NOT cover the TUI loop tests
 /// (`tui_loop_tests`, `headless_*`, `parallel_tool_call_tests`):
 /// those never chdir, so they don't need it.
@@ -155,8 +157,17 @@ static CWD_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock
 
 #[cfg(test)]
 pub(crate) fn acquire_cwd() -> std::sync::MutexGuard<'static, ()> {
-    CWD_LOCK
+    let lock = CWD_LOCK
         .get_or_init(|| std::sync::Mutex::new(()))
         .lock()
-        .unwrap_or_else(|e| e.into_inner())
+        .unwrap_or_else(|e| e.into_inner());
+    // A previous holder may have left the process in a directory it then
+    // deleted (a TempRepo dropped before its restore ran, or the binary was
+    // started from one). Park in a directory that exists so child
+    // processes such as `git` can read their cwd. Not restored: the next
+    // holder that cares chdirs to where it wants to be anyway.
+    if std::env::current_dir().is_err() {
+        let _ = std::env::set_current_dir(std::env::temp_dir());
+    }
+    lock
 }

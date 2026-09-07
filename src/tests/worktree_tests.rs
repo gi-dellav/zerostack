@@ -67,7 +67,15 @@ mod tests {
             });
             let root = unique_dir(tag);
             let _ = std::fs::remove_dir_all(&root);
-            std::fs::create_dir_all(&root).unwrap();
+            // create_dir, not create_dir_all: the name is predictable in a
+            // shared temp dir, and the root is canonicalised below, after
+            // which Drop's remove_dir_all would follow a planted symlink.
+            // Failing on an existing entry closes that.
+            std::fs::create_dir(&root).unwrap();
+            // Canonical so comparisons against paths the code under test
+            // returns (it canonicalises via `absolutize`) hold on macOS,
+            // where `temp_dir()` is `/var/...` but resolves to `/private/var/...`.
+            let root = root.canonicalize().unwrap();
             // `git -C` (not CWD-relative): the process may currently sit in
             // a directory owned by another in-flight test.
             run(&root, &["init", "-b", branch]);
@@ -98,35 +106,34 @@ mod tests {
                 .arg(&self.root)
                 .args(["worktree", "list", "--porcelain"])
                 .output()
+                && out.status.success()
             {
-                if out.status.success() {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    let paths: Vec<String> = stdout
-                        .lines()
-                        .filter_map(|l| l.strip_prefix("worktree "))
-                        .map(|p| p.trim().to_string())
-                        .filter(|p| {
-                            std::path::Path::new(p) != self.root
-                                && std::path::Path::new(p).starts_with(
-                                    self.root.parent().unwrap_or(std::path::Path::new("/tmp")),
-                                )
-                        })
-                        .collect();
-                    for p in &paths {
-                        let _ = Command::new("git")
-                            .arg("-C")
-                            .arg(&self.root)
-                            .args(["worktree", "remove", "--force", p])
-                            .output();
-                        // The dir may survive a stale admin entry; remove it.
-                        let _ = std::fs::remove_dir_all(p);
-                    }
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let paths: Vec<String> = stdout
+                    .lines()
+                    .filter_map(|l| l.strip_prefix("worktree "))
+                    .map(|p| p.trim().to_string())
+                    .filter(|p| {
+                        std::path::Path::new(p) != self.root
+                            && std::path::Path::new(p).starts_with(
+                                self.root.parent().unwrap_or(std::path::Path::new("/tmp")),
+                            )
+                    })
+                    .collect();
+                for p in &paths {
                     let _ = Command::new("git")
                         .arg("-C")
                         .arg(&self.root)
-                        .args(["worktree", "prune"])
+                        .args(["worktree", "remove", "--force", p])
                         .output();
+                    // The dir may survive a stale admin entry; remove it.
+                    let _ = std::fs::remove_dir_all(p);
                 }
+                let _ = Command::new("git")
+                    .arg("-C")
+                    .arg(&self.root)
+                    .args(["worktree", "prune"])
+                    .output();
             }
             let _ = std::env::set_current_dir(&self.orig);
             let _ = std::fs::remove_dir_all(&self.root);
@@ -400,6 +407,7 @@ mod tests {
 
     #[test]
     fn test_validate_branch_name_ok() {
+        let _lock = acquire_cwd();
         assert!(validate_branch_name("feature-x").is_ok());
         assert!(validate_branch_name("wt-123-456").is_ok());
         assert!(validate_branch_name("a").is_ok());
@@ -407,6 +415,7 @@ mod tests {
 
     #[test]
     fn test_validate_branch_name_rejects() {
+        let _lock = acquire_cwd();
         for bad in [
             "",
             "has space",
@@ -434,6 +443,7 @@ mod tests {
 
     #[test]
     fn test_validate_branch_name_whitespace_variants() {
+        let _lock = acquire_cwd();
         assert!(validate_branch_name("a\tb").is_err());
         assert!(validate_branch_name("a\nb").is_err());
         assert!(validate_branch_name(" a").is_err());
@@ -576,10 +586,7 @@ mod tests {
         assert!(repo.root.join("new.txt").exists());
         assert!(!info.worktree_path.exists());
         assert!(!branch_exists(&repo.root, &info.branch));
-        assert_eq!(
-            std::env::current_dir().unwrap(),
-            repo.root.canonicalize().unwrap()
-        );
+        assert_eq!(std::env::current_dir().unwrap(), repo.root);
     }
 
     #[test]
