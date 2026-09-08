@@ -1,18 +1,26 @@
 pub(crate) mod app;
 pub(crate) mod event_handler;
-pub(crate) mod events;
+// `pub`: the headless [`Engine`](crate::engine::Engine) sanitizes streamed
+// tokens the same way the TUI does.
+pub mod events;
 pub(crate) mod feed;
 pub(crate) mod input;
 pub(crate) mod markdown;
 mod permission_handler;
 pub(crate) mod pickers;
-pub(crate) mod renderer;
+// `pub`: `EventSink` is implemented for `Renderer` so TUI code can target
+// the trait while slash handlers migrate off `&mut Renderer`.
+pub mod renderer;
 pub(crate) mod roles;
 pub(crate) mod slash;
-pub(crate) mod state;
+// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+// reuses prompt-mode switching, `TurnUsage`, and `undo_last`.
+pub mod state;
 pub(crate) mod statusline;
 mod terminal;
-pub(crate) mod utils;
+// `pub`: the headless [`Engine`](crate::engine::Engine) formats the same
+// tool-call summaries for its turn trace.
+pub mod utils;
 
 use std::io;
 use std::sync::Arc;
@@ -47,8 +55,10 @@ use crate::ui::state::{AgentRunState, BtwStats, ChainState, SlashState, UiContex
 
 /// What [`apply_prompt_mode`] did with the prompt's `%%mode=` directive, so
 /// callers can report the change without re-parsing the prompt.
+/// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+/// reports the same outcomes.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum PromptModeOutcome {
+pub enum PromptModeOutcome {
     /// No directive, an unrecognized mode name, or no permission checker.
     None,
     /// `%%mode=last_user_mode`: the user-selected mode was restored.
@@ -60,7 +70,9 @@ pub(crate) enum PromptModeOutcome {
 /// Select prompt `name` as the current prompt and apply its `%%mode=`
 /// directive (if any) to the permission checker. The directive line is
 /// stripped from the stored prompt content. Unknown prompt names are a no-op.
-pub(crate) fn apply_prompt_mode(
+/// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+/// switches prompts the same way.
+pub fn apply_prompt_mode(
     name: &str,
     context: &mut ContextFiles,
     session: &mut Session,
@@ -106,11 +118,10 @@ fn apply_mode_directive(
 
 /// Re-apply the current prompt's `%%mode=` directive after a context reload
 /// (which restores the raw, unstripped prompt content from disk).
+/// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+/// re-applies it after worktree switches, like the TUI.
 #[cfg(feature = "git-worktree")]
-pub(crate) fn apply_current_prompt_mode(
-    context: &mut ContextFiles,
-    permission: &Option<PermCheck>,
-) {
+pub fn apply_current_prompt_mode(context: &mut ContextFiles, permission: &Option<PermCheck>) {
     let Some(content) = &context.current_prompt.clone() else {
         return;
     };

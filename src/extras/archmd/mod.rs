@@ -167,7 +167,9 @@ pub(crate) fn record_asked_dir_with_path(dir: &Path, asked_path: &Path) -> anyho
     Ok(())
 }
 
-pub(crate) fn create_architecture_template(dir: &Path) -> anyhow::Result<()> {
+/// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+/// creates the same template via `/init force`.
+pub fn create_architecture_template(dir: &Path) -> anyhow::Result<()> {
     let path = dir.join("ARCHITECTURE.md");
     if path.exists() {
         return Ok(());

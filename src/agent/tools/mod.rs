@@ -19,11 +19,14 @@ use crate::config::types::EditSystem;
 
 static EDIT_SYSTEM: Mutex<EditSystem> = Mutex::new(EditSystem::Similarity);
 
-pub(crate) fn set_edit_system(es: EditSystem) {
+/// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+/// reads/writes the edit system via `/editsys` without a TUI.
+pub fn set_edit_system(es: EditSystem) {
     *EDIT_SYSTEM.lock().unwrap_or_else(|e| e.into_inner()) = es;
 }
 
-pub(crate) fn edit_system() -> EditSystem {
+/// `pub` (not `pub(crate)`): see [`set_edit_system`].
+pub fn edit_system() -> EditSystem {
     *EDIT_SYSTEM.lock().unwrap_or_else(|e| e.into_inner())
 }
 

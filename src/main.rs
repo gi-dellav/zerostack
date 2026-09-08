@@ -6,6 +6,7 @@ mod cli;
 mod config;
 mod context;
 mod docs;
+pub mod engine;
 mod event;
 mod extras;
 mod fs;

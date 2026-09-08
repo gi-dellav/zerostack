@@ -177,13 +177,16 @@ impl Mem {
         }
     }
 
-    pub(crate) fn memory_md(&self) -> PathBuf {
+    /// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+    /// implements `/memory` without a TUI.
+    pub fn memory_md(&self) -> PathBuf {
         self.root.join("MEMORY.md") // global, shared across projects
     }
     fn project_dir(&self) -> PathBuf {
         self.root.join("projects").join(&self.project)
     }
-    pub(crate) fn scratchpad(&self) -> PathBuf {
+    /// `pub` (not `pub(crate)`): see [`Mem::memory_md`].
+    pub fn scratchpad(&self) -> PathBuf {
         self.project_dir().join("SCRATCHPAD.md")
     }
     fn daily_dir(&self) -> PathBuf {
@@ -212,7 +215,8 @@ impl Mem {
         names.sort();
         names
     }
-    pub(crate) fn daily_file(&self, date: &str) -> PathBuf {
+    /// `pub` (not `pub(crate)`): see [`Mem::memory_md`].
+    pub fn daily_file(&self, date: &str) -> PathBuf {
         self.daily_dir().join(format!("{date}.md"))
     }
 
@@ -271,7 +275,8 @@ impl Mem {
     }
 
     /// Sanitize a note name so it can never escape `notes/` (no traversal).
-    pub(crate) fn note_path(&self, name: &str) -> Option<PathBuf> {
+    /// `pub` (not `pub(crate)`): see [`Mem::memory_md`].
+    pub fn note_path(&self, name: &str) -> Option<PathBuf> {
         let stem = name.trim().trim_end_matches(".md");
         if stem.is_empty() || stem.contains(['/', '\\', '.']) {
             return None;

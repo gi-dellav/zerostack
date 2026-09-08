@@ -218,8 +218,9 @@ pub(crate) struct SlashState {
 }
 
 /// Provider-reported token usage for one finished turn.
-#[derive(Clone, Copy, Default)]
-pub(crate) struct TurnUsage {
+/// `pub` (not `pub(crate)`): surfaced in [`RunOutput`](crate::engine::RunOutput).
+#[derive(Clone, Copy, Default, Debug)]
+pub struct TurnUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub cached_input_tokens: u64,

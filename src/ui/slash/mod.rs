@@ -4,11 +4,15 @@ mod features;
 mod help;
 #[cfg(feature = "hooks")]
 mod hooks;
-pub(crate) mod init;
+// `pub`: the headless [`Engine`](crate::engine::Engine) spawns the same
+// deferred AGENTS.md-creation prompt as the TUI.
+pub mod init;
 mod memory;
 mod outcome;
 mod providers;
-pub(crate) mod review;
+// `pub`: the headless [`Engine`](crate::engine::Engine) spawns the same
+// deferred review prompt as the TUI.
+pub mod review;
 mod session;
 pub(crate) mod settings;
 
@@ -275,6 +279,8 @@ pub(crate) fn write_error(renderer: &mut Renderer, msg: impl std::fmt::Display) 
     let _ = renderer.write_line(&msg.to_string(), C_ERROR);
 }
 
+/// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+/// reuses the same undo primitive as `/undo`.
 pub fn undo_last(session: &mut Session) -> usize {
     let len = session.messages.len();
     if len == 0 {

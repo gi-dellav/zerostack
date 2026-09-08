@@ -2,7 +2,9 @@ use std::io::Write;
 
 use crate::ui::slash::{SlashCtx, write_error, write_ok};
 
-pub(crate) const AGENTS_CREATION_PROMPT: &str = "\
+/// `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
+/// spawns the same deferred prompt as `/init`.
+pub const AGENTS_CREATION_PROMPT: &str = "\
 Create an AGENTS.md file for this project. Read existing AGENTS.md or CLAUDE.md files \
 in parent directories, README.md, and any config files to understand the project first. \
 Then write a comprehensive AGENTS.md that documents: \

@@ -41,3 +41,6 @@ pub mod lsp;
 pub mod rtk;
 
 pub(crate) mod truncate;
+
+// Re-exported for the headless engine's turn-trace summaries.
+pub(crate) use truncate::truncate_cjk;
