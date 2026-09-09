@@ -78,6 +78,8 @@ mod normalize_tests;
 mod parallel_tool_call_tests;
 #[cfg(test)]
 mod paste_burst_tests;
+#[cfg(all(test, unix))]
+mod permission_signal_tests;
 #[cfg(test)]
 mod picker_tests;
 #[cfg(test)]

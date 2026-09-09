@@ -6,7 +6,7 @@ pub mod events;
 pub(crate) mod feed;
 pub(crate) mod input;
 pub(crate) mod markdown;
-mod permission_handler;
+pub(crate) mod permission_handler;
 pub(crate) mod pickers;
 // `pub`: `EventSink` is implemented for `Renderer` so TUI code can target
 // the trait while slash handlers migrate off `&mut Renderer`.
