@@ -1,3 +1,4 @@
+/// ACP server transport configuration (stdio/TCP).
 pub mod config;
 
 use std::collections::HashMap;

@@ -1,5 +1,8 @@
+/// User approval flow: ask channel, requests, and decisions.
 pub mod ask;
+/// Glob+regex permission checker with doom-loop detection.
 pub mod checker;
+/// Glob-or-regex pattern matching with lazy regex compilation.
 pub mod pattern;
 
 use serde::Deserialize;

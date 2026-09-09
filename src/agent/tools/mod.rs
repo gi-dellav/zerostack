@@ -1,14 +1,25 @@
+/// Shell command execution tool with sandboxing and timeout.
 pub(crate) mod bash;
+/// CRC32 checksums for optimistic-concurrency guards on edit/write.
 pub(crate) mod crc;
+/// Block/line-based file editing tool with similarity matching.
 pub(crate) mod edit;
+/// Filename search tool respecting .gitignore.
 pub(crate) mod find_files;
+/// Regex content search tool respecting .gitignore.
 pub(crate) mod grep;
+/// Directory listing tool with truncation limits.
 pub(crate) mod list_dir;
 #[cfg(feature = "lsp")]
+/// On-demand language-server diagnostics tool.
 pub(crate) mod lsp;
+/// Whitespace normalization and similarity helpers for edits.
 pub(crate) mod normalize;
+/// File reading tool with line ranges and size limits.
 pub(crate) mod read;
+/// Persistent todo-list tool shared across agent turns.
 pub(crate) mod todo;
+/// Atomic file creation/overwrite tool.
 pub(crate) mod write;
 
 pub(crate) use normalize::{levenshtein_similarity, normalize_whitespace};

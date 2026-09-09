@@ -5,8 +5,11 @@
 //! Everything is fail-open: a missing server binary, a hung handshake, or a
 //! crashed server only means "no diagnostics", never a failed edit.
 
+/// Single language-server process: spawn, sync, and diagnostics.
 pub(crate) mod client;
+/// Built-in server defaults and resolution against user config.
 pub(crate) mod registry;
+/// Minimal JSON-RPC framing over server stdio.
 pub mod rpc;
 
 use std::collections::HashMap;

@@ -1,4 +1,6 @@
+/// JSONL chat history for input recall across sessions.
 pub mod chat_history;
+/// Session JSON persistence, lookup, and data-dir paths.
 pub mod storage;
 
 use std::path::Path;

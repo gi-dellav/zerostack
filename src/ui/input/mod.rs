@@ -1,4 +1,6 @@
+/// Char-boundary-safe cursor movement helpers for the input buffer.
 pub(crate) mod cursor;
+/// Inline picker state machine for @-mentions and completions.
 mod pickers;
 
 pub use cursor::cursor_to_line_col;

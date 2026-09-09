@@ -1,8 +1,14 @@
+/// Background-filesystem-walk file picker with fuzzy matching.
 pub(crate) mod file;
+/// Per-picker key-event routing for file/command/model pickers.
 pub(crate) mod handlers;
+/// Generic filterable list picker with fuzzy scoring.
 pub(crate) mod list;
+/// Model/quick-model selection picker with live catalog refresh.
 pub(crate) mod models;
+/// Conversation rewind picker over session message history.
 pub(crate) mod rewind;
+/// Modal model/prompt switcher overlay with confirm/cancel outcome.
 pub(crate) mod switcher;
 
 use std::io::Write;

@@ -6,7 +6,9 @@ use smallvec::SmallVec;
 
 use crate::session::storage;
 
+/// Embedded and user-defined agent prompts with loading and regen.
 pub mod prompts;
+/// Embedded and user-defined UI themes with loading and regen.
 pub mod themes;
 
 pub(crate) fn load_embedded_files(embedded: &Dir, ext: &str) -> Vec<(String, String)> {

@@ -1,25 +1,40 @@
+/// Interactive TUI application: event loop and agent orchestration.
 pub(crate) mod app;
+/// Streaming agent-event handling: transcript, session, and tool display.
 pub(crate) mod event_handler;
 // `pub`: the headless [`Engine`](crate::engine::Engine) sanitizes streamed
 // tokens the same way the TUI does.
+/// Session rendering, welcome screen, and output sanitization.
 pub mod events;
+/// Conversation feed blocks with semantic roles and colors.
 pub(crate) mod feed;
+/// Line editor: buffer, history, kill-ring, and key handling.
 pub(crate) mod input;
+/// Markdown-to-styled-lines renderer for the viewport.
 pub(crate) mod markdown;
+/// Permission prompt UI for tool approval/rejection.
 mod permission_handler;
+/// Fuzzy pickers for files, commands, models, and rewind.
 pub(crate) mod pickers;
 // `pub`: `EventSink` is implemented for `Renderer` so TUI code can target
 // the trait while slash handlers migrate off `&mut Renderer`.
+/// Line-buffered viewport with scroll, selection, and ANSI drawing.
 pub mod renderer;
+/// Semantic role colors with theme/config overrides.
 pub(crate) mod roles;
+/// Slash command dispatch and per-command handlers.
 pub(crate) mod slash;
 // `pub` (not `pub(crate)`): the headless [`Engine`](crate::engine::Engine)
 // reuses prompt-mode switching, `TurnUsage`, and `undo_last`.
+/// Grouped TUI state bundles passed to helpers instead of flat fields.
 pub mod state;
+/// Configurable multi-line status bar with segment parsing.
 pub(crate) mod statusline;
+/// Raw-mode/alternate-screen RAII guard and TUI suspend helpers.
 mod terminal;
 // `pub`: the headless [`Engine`](crate::engine::Engine) formats the same
 // tool-call summaries for its turn trace.
+/// Tool-call summaries, colors, and display-width helpers.
 pub mod utils;
 
 use std::io;

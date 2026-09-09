@@ -1,29 +1,52 @@
 #![deny(unsafe_code)]
 
+/// Agent lifecycle: rig construction, streaming runner, prompts, and tools.
 mod agent;
+/// API key resolution across providers, env vars, and config.
 mod auth;
+/// Clap CLI argument definitions and per-flag resolvers.
 mod cli;
+/// TOML/YAML/JSON configuration loading and typed settings.
 mod config;
+/// Embedded prompts, themes, and workspace AGENTS.md loading.
 mod context;
+/// Embedded user docs and first-run global file setup.
 mod docs;
+/// Headless programmatic execution (Engine + run_string) without a TUI.
 pub mod engine;
+/// Shared AgentEvent/UserEvent channel types for agent and TUI.
 mod event;
+/// Optional feature-gated extensions (MCP, loop, subagents, hooks, ...).
 mod extras;
+/// Filesystem helpers (atomic writes, path utilities).
 mod fs;
+/// Tracing subscriber setup, log files, and panic hook.
 mod logging;
+/// Embedded static model catalog with pricing and context windows.
 mod models_catalog;
+/// Tool permission checking, ask flow, and pattern matching.
 mod permission;
+/// Token pricing and per-turn cost estimation.
 mod pricing;
+/// One-shot --print output, config dump, and session listing.
 mod print;
+/// LLM provider clients, model routing, and agent factory.
 mod provider;
+/// Retryable-error classification and backoff for model streams.
 mod retry;
+/// bwrap/zerobox sandbox wrapping for shell commands.
 mod sandbox;
+/// Conversation session state, JSON storage, and chat history.
 mod session;
+/// Interactive --setup wizard for providers and models.
 mod setup;
+/// Startup orchestration: config, session, client, and mode dispatch.
 mod startup;
+/// Interactive crossterm TUI: event loop, renderer, input, slash commands.
 mod ui;
 
 #[cfg(test)]
+/// In-crate integration and unit tests (test builds only).
 mod tests;
 
 #[global_allocator]

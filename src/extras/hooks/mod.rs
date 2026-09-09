@@ -1,10 +1,18 @@
+/// Exit-code/stdout-JSON interpretation of hook process output.
 pub(crate) mod channel;
+/// Rig tool wrapper applying Pre/PostToolUse hook decisions.
 pub(crate) mod decorator;
+/// Process-wide hook dispatcher with config matching and verdict merging.
 pub(crate) mod dispatcher;
+/// Stdin envelope construction for hook subprocess input.
 pub(crate) mod envelope;
+/// Tool-name canonicalization between zerostack and Claude Code names.
 pub(crate) mod normalize;
+/// settings.json hook config parsing and validation.
 pub(crate) mod settings;
+/// Hook subprocess spawning with timeout and output capture.
 pub(crate) mod subprocess;
+/// Hook trust-hash management for config change confirmation.
 pub(crate) mod trust;
 
 /// Outcome of a non-tool-permission hook dispatch: lifecycle events (`Stop`,

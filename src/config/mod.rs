@@ -1,4 +1,6 @@
+/// Config file discovery, parsing, and merge logic.
 pub mod load;
+/// Typed config structs, defaults, and per-model resolvers.
 pub mod types;
 
 use std::collections::HashMap;

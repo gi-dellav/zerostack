@@ -5,8 +5,11 @@ use tokio::sync::mpsc;
 use crate::event::AgentEvent;
 use crate::provider::AnyClient;
 
+/// Subagent rig construction with a restricted read-only tool set.
 pub(crate) mod builder;
+/// Explore/codegen system prompts for delegated subagent tasks.
 pub(crate) mod prompt;
+/// Task tool: parallel subagent spawning with result aggregation.
 pub(crate) mod task_tool;
 
 pub(crate) struct SubagentConfig {

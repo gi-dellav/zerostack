@@ -1,19 +1,31 @@
+/// /add, /drop: attach/detach extra context files.
 pub(crate) mod add;
+/// /prompt, /theme, /regen-*: prompt and theme management.
 mod content;
+/// /compress, /loop, /worktree: compaction and feature workflows.
 mod features;
+/// /help, /welcome, /tutorial: help text and onboarding.
 mod help;
+/// /hooks: hook dispatcher status and config summary.
 #[cfg(feature = "hooks")]
 mod hooks;
 // `pub`: the headless [`Engine`](crate::engine::Engine) spawns the same
 // deferred AGENTS.md-creation prompt as the TUI.
+/// /init: AGENTS.md creation prompt and deferred outcome.
 pub mod init;
+/// /memory: persistent memory read/write/search commands.
 mod memory;
+/// Typed deferred slash outcomes replacing stringly control flow.
 mod outcome;
+/// /provider, /model, /models: provider and model switching.
 mod providers;
 // `pub`: the headless [`Engine`](crate::engine::Engine) spawns the same
 // deferred review prompt as the TUI.
+/// /review: code-review prompt and deferred outcome.
 pub mod review;
+/// /sessions, /rename, /undo, /rewind: session lifecycle commands.
 mod session;
+/// /reasoning, /mode, /toggle, /editsys: runtime settings switches.
 pub(crate) mod settings;
 
 pub use outcome::SlashOutcome;

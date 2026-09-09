@@ -1,6 +1,10 @@
+/// MCP server connection lifecycle (stdio/HTTP, OAuth, reconnect).
 pub mod client;
+/// MCP server config parsing (stdio/HTTP, timeouts, tool filters).
 pub mod config;
+/// OAuth 2.0 browser login flow for URL-based MCP servers.
 pub mod oauth;
+/// Rig tool adapter wrapping a remote MCP tool definition.
 pub mod tool;
 
 use std::collections::HashMap;

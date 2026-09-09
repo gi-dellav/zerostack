@@ -28,6 +28,7 @@
 //! flow) reports a friendly error instead of blocking: headless runs never
 //! read stdin.
 
+/// Output sink abstraction shared by the TUI renderer and headless runs.
 pub mod sink;
 
 pub use sink::{EventSink, StringSink};

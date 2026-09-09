@@ -1,7 +1,10 @@
 use std::path::PathBuf;
 
+/// Headless --loop driver: iteration, validation, and session reuse.
 pub(crate) mod headless;
+/// LOOP_PLAN.md file read/write and status parsing.
 pub mod plan;
+/// Per-iteration transcript persistence under the data dir.
 pub mod transcript;
 
 pub const DEFAULT_PLAN_FILENAME: &str = "LOOP_PLAN.md";
