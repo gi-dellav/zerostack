@@ -29,7 +29,7 @@ Minimal coding agent written in Rust, inspired by [pi](https://pi.dev/docs/lates
 - **Subagents**: Parallel and fast, used for exploring the codebase
 - **ARCHITECTURE.md**: Our own companion file for AGENTS.md, it allows to offer a shared core knowledge for all agents working on the same codebase
 - **Prompt chaining**: offers to advance brainstorm → plan → code → review as each phase finishes, config-gated per transition
-- **Status signals**: emits start/stop/git-conflict events over a Unix socket for external status bars or tooling
+- **Status signals**: emits run-state events (start, stop, git-conflict, permission waits) over a Unix socket for external status bars or tooling ([docs/STATUS_SIGNALS.md](docs/STATUS_SIGNALS.md))
 
 **NOTE**: Windows support is not tested is any way, but feel free to try and open an issue if you encounter any bugs!
 
@@ -391,9 +391,9 @@ provider's multimodal support.
 **NOTE:** Status signals require the `status-signals` feature, which is
 included in the default build.
 
-Pass `--status-socket <path>` to have zerostack emit `start`, `stop`, and
-`git-conflict` events over a Unix domain socket, for external status bars or
-tooling to watch.
+Pass `--status-socket <path>` to have zerostack report its run state over a
+Unix domain socket, for external status bars or tooling to watch. See
+[docs/STATUS_SIGNALS.md](docs/STATUS_SIGNALS.md) for the full protocol.
 
 ## Parallel Agent
 
