@@ -1,6 +1,6 @@
 #![cfg(unix)]
 
-use crate::extras::status_signals::StatusSignals;
+use crate::extras::status_signals::{BlockedReason, RunState, StatusSignals};
 use std::io::Read;
 use std::os::unix::net::UnixListener;
 
@@ -51,6 +51,10 @@ fn nonexistent_socket_does_not_panic() {
     ss.send_start();
     ss.send_stop();
     ss.send_git_conflict();
+    ss.send_blocked(BlockedReason::Permission);
+    ss.send_state(RunState::Working);
+    let guard = ss.blocked_scope(BlockedReason::Permission);
+    drop(guard);
 }
 
 #[test]
@@ -63,5 +67,73 @@ fn send_git_conflict_writes_expected_message() {
     let mut buf = String::new();
     stream.read_to_string(&mut buf).unwrap();
     assert_eq!(buf, "git-conflict\n");
+    cleanup(&socket_path);
+}
+
+#[test]
+fn send_blocked_writes_expected_message() {
+    let (socket_path, listener) = temp_socket_path("blocked");
+    let ss = StatusSignals::new(socket_path.to_string_lossy().to_string());
+    ss.send_blocked(BlockedReason::Permission);
+
+    let (mut stream, _) = listener.accept().unwrap();
+    let mut buf = String::new();
+    stream.read_to_string(&mut buf).unwrap();
+    assert_eq!(buf, "blocked:permission\n");
+    cleanup(&socket_path);
+}
+
+#[test]
+fn send_state_writes_expected_message() {
+    let (socket_path, listener) = temp_socket_path("state");
+    let ss = StatusSignals::new(socket_path.to_string_lossy().to_string());
+    ss.send_state(RunState::Working);
+
+    let (mut stream, _) = listener.accept().unwrap();
+    let mut buf = String::new();
+    stream.read_to_string(&mut buf).unwrap();
+    assert_eq!(buf, "state:working\n");
+    cleanup(&socket_path);
+}
+
+#[test]
+fn blocked_scope_sends_pair_in_order() {
+    let (socket_path, listener) = temp_socket_path("scope_order");
+    let ss = StatusSignals::new(socket_path.to_string_lossy().to_string());
+
+    let guard = ss.blocked_scope(BlockedReason::Permission);
+    drop(guard);
+
+    let mut received = Vec::new();
+    for _ in 0..2 {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = String::new();
+        stream.read_to_string(&mut buf).unwrap();
+        received.push(buf.trim_end().to_string());
+    }
+    assert_eq!(received, vec!["blocked:permission", "state:working"]);
+    cleanup(&socket_path);
+}
+
+#[test]
+fn blocked_scope_releases_on_error_path() {
+    let (socket_path, listener) = temp_socket_path("scope_error");
+    let ss = StatusSignals::new(socket_path.to_string_lossy().to_string());
+
+    let result: Result<(), ()> = (|| {
+        let _guard = ss.blocked_scope(BlockedReason::Permission);
+        Err(())?;
+        Ok(())
+    })();
+    assert_eq!(result, Err(()));
+
+    let mut received = Vec::new();
+    for _ in 0..2 {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut buf = String::new();
+        stream.read_to_string(&mut buf).unwrap();
+        received.push(buf.trim_end().to_string());
+    }
+    assert_eq!(received, vec!["blocked:permission", "state:working"]);
     cleanup(&socket_path);
 }
