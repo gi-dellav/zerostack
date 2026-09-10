@@ -763,10 +763,9 @@ when one of them is used). All other items are read from the session.
 ## Status signals
 
 Requires the `status-signals` feature (included in the default build). Pass
-`--status-socket <path>` to have zerostack emit `start`, `stop`, and
-`git-conflict` events over a Unix domain socket at `<path>`, for external
-status bars or tooling to watch. This is separate from the in-TUI status bar
-above.
+`--status-socket <path>` to have zerostack report its run state over a Unix
+domain socket at `<path>`, for external status bars or tooling to watch. See
+[STATUS_SIGNALS.md](STATUS_SIGNALS.md) for the full protocol.
 
 ## Colors
 

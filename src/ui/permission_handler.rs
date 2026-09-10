@@ -2,6 +2,7 @@ use crossterm::style::Color;
 use tokio::sync::mpsc;
 
 use crate::event::UserEvent;
+use crate::extras::status_signals::BlockedReason;
 use crate::ui::renderer::Renderer;
 use crate::ui::state::{AgentRunState, UiContext};
 use crate::ui::utils::suggest_pattern;
@@ -37,6 +38,11 @@ pub async fn handle_permission_request(
     renderer.render_viewport()?;
     renderer.draw_bottom("", 0, &[], false)?;
 
+    let blocked_guard = ui
+        .status_signals
+        .as_ref()
+        .map(|ss| ss.blocked_scope(BlockedReason::Permission));
+
     let decision = loop {
         tokio::select! {
             Some(ev) = user_rx.recv() => {
@@ -65,6 +71,11 @@ pub async fn handle_permission_request(
         crate::permission::ask::UserDecision::AllowAlways(p) => Some(p.clone()),
         _ => None,
     };
+    // The explicit drop sends state:working before the decision reaches the
+    // waiting tool (the protocol promises that order); it must stay above
+    // ask_req.reply.send, since moving it later still compiles but breaks
+    // the documented ordering.
+    drop(blocked_guard);
     let _ = ask_req.reply.send(decision);
 
     if let Some(pattern) = allow_pattern {
