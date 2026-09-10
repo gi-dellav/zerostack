@@ -203,7 +203,7 @@ pub(crate) fn suggest_pattern(tool: &str, input: &str) -> String {
     match tool {
         "bash" => {
             let first = input.split_whitespace().next().unwrap_or("*");
-            format!("{} *", first)
+            format!("{} **", first)
         }
         "read" | "write" | "edit" | "list_dir" => {
             let expanded = crate::fs::expand_tilde(input);
