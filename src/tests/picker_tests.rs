@@ -299,6 +299,13 @@ fn test_static_commands_prepopulated() {
     assert!(picker.matches.contains(&"/model".to_string()));
 }
 
+#[test]
+fn test_static_commands_include_pal() {
+    let mut picker = ListPicker::with_static_commands();
+    picker.activate();
+    assert!(picker.matches.contains(&"/pal".to_string()));
+}
+
 // ── walk_files tests ────────────────────────────────────────────────
 
 use std::fs;

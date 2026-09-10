@@ -197,17 +197,45 @@ impl AgentRunState {
 }
 
 /// What happens when the current run finishes: chained prompts, dot-prompt
-/// restore, /loop iterations, and worktree-merge returns.
+/// restore, /loop iterations, PAL workflow steps, and worktree-merge returns.
 #[derive(Default)]
 pub(crate) struct ChainState {
     pub pending: Option<crate::extras::chain::ChainPhase>,
     pub label_msg: Option<String>,
     pub dot_prompt_restore: Option<String>,
     pub loop_label: Option<String>,
+    /// Remaining PAL workflow steps (`/pal <file>`): each is one executable
+    /// script line, drained by `finalize_turn` via `pending_inputs` so agent
+    /// messages run one full turn at a time and shell/slash lines go through
+    /// the normal dispatch on submission.
+    pub pal_queue: VecDeque<String>,
+    /// Source file of the active PAL run (for status/error messages).
+    pub pal_source: Option<String>,
+    /// Total executable PAL steps (for the `done/total` progress line).
+    pub pal_total: usize,
     #[cfg(feature = "loop")]
     pub loop_state: Option<crate::extras::r#loop::LoopState>,
     #[cfg(feature = "git-worktree")]
     pub wt_return_path: Option<crate::ui::WtReturn>,
+}
+
+impl ChainState {
+    /// Drop all PAL state (used by Ctrl-C abort).
+    pub(crate) fn clear_pal(&mut self) {
+        self.pal_queue.clear();
+        self.pal_source = None;
+        self.pal_total = 0;
+    }
+
+    /// Steps already executed in the active PAL run.
+    pub(crate) fn pal_done(&self) -> usize {
+        self.pal_total.saturating_sub(self.pal_queue.len())
+    }
+
+    /// Whether a PAL workflow is still draining.
+    pub(crate) fn pal_active(&self) -> bool {
+        self.pal_source.is_some()
+    }
 }
 
 /// User-facing feature toggles owned by slash commands.

@@ -111,6 +111,9 @@ mod multimodal_tests;
 /// Whitespace normalization tests.
 #[cfg(test)]
 mod normalize_tests;
+/// PAL workflow script tests (line classification + Engine execution).
+#[cfg(test)]
+mod pal_tests;
 /// Parallel tool-call pairing regression tests.
 #[cfg(test)]
 mod parallel_tool_call_tests;

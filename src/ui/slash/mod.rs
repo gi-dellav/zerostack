@@ -17,6 +17,8 @@ pub mod init;
 mod memory;
 /// Typed deferred slash outcomes replacing stringly control flow.
 mod outcome;
+/// /pal: PAL workflow script loading (steps drain via `pending_inputs`).
+pub(crate) mod pal;
 /// /provider, /model, /models: provider and model switching.
 mod providers;
 // `pub`: the headless [`Engine`](crate::engine::Engine) spawns the same
@@ -61,6 +63,9 @@ pub struct SlashCtx<'a> {
     pub context: &'a mut ContextFiles,
     pub show_reasoning: &'a mut bool,
     pub reasoning_enabled: &'a mut bool,
+    /// Whether the main agent run is active. `/pal` (like other run-spawning
+    /// commands) refuses to arm while a run is in flight; read via
+    /// `*ctx.is_running`, never mutated by slash handlers.
     pub is_running: &'a mut bool,
     pub input: &'a mut InputEditor,
     pub permission: &'a Option<PermCheck>,
@@ -427,6 +432,12 @@ pub async fn handle_slash(
     #[cfg(not(feature = "loop"))]
     let _ = &chain;
     let parts: SmallVec<[&str; 3]> = text.trim().splitn(3, ' ').collect();
+    // `/pal` arms the PAL queue on `chain` itself, so it runs before `ctx`
+    // borrows `chain.loop_state` (the two borrows would otherwise conflict).
+    // It takes only the pieces it needs rather than a full `SlashCtx`.
+    if parts.first().is_some_and(|p| *p == "/pal") {
+        return pal::handle(&parts, renderer, input, run.is_running, chain).await;
+    }
     let mut ctx = SlashCtx {
         agent: &mut run.agent,
         client: &mut ui.client,
@@ -475,6 +486,9 @@ pub async fn handle_slash(
             Ok(())
         }
         "/add" | "/drop" | "/drop-all" => add::handle(&parts, &mut ctx).await,
+        // `/pal` is dispatched early (before `ctx` borrows `chain`); this arm
+        // is unreachable but keeps the dispatcher total alongside the picker.
+        "/pal" => Ok(()),
         "/init" => init::handle(&parts, &mut ctx).await,
         "/review" => review::handle(&parts, &mut ctx).await,
         "/memory" => memory::handle(&parts, &mut ctx).await,

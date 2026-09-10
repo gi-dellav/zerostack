@@ -284,6 +284,7 @@ This is a list of the most important slash commands:
 - `/queue` — Manage input queued while the agent is busy
 - `/btw` — Ask a quick side question in parallel without interrupting the agent
 - `/review` — Run a one-shot code review in readonly mode, then restore the previous prompt
+- `/pal <file>` — Run a PAL workflow script (`.pal`/`.txt`): each line is a message, `/slash`, `!shell`, `#comment`, or blank; also `zerostack --pal <file>` headless
 - `/hooks` (gated) — Show whether a hook dispatcher is installed and what it's configured for
 - `/advisor` (gated) — Show or change advisor status (enabled, mode, model, max uses)
 
@@ -434,6 +435,30 @@ zerostack --loop --loop-prompt "Refactor the API" --loop-max 10 --loop-run "carg
 | `--loop-plan <path>`   | Custom plan file path (default: `LOOP_PLAN.md`) |
 | `--loop-max <N>`       | Maximum iterations (default: unlimited)         |
 | `--loop-run <cmd>`     | Validation command to run after each iteration  |
+| `--pal <file>`         | Run a PAL workflow script (`.pal`/`.txt`) and exit |
+
+## PAL workflows
+
+PAL (Programmable Agents Language) is a minimal line-based workflow language.
+Each line of a `.pal`/`.txt` file is one step:
+
+- blank lines are skipped
+- `#...` is a comment
+- `/...` is a slash command (same dispatch as typed input)
+- `!...` is a shell command (same handling as typed `!`)
+- anything else is a user message sent to the agent
+
+```
+# deploy.pal
+/model my-quick-model
+!git status
+Summarize the working tree changes.
+```
+
+Run it from the TUI with `/pal deploy.pal` (steps drain one full turn at a
+time; Ctrl-C aborts the workflow) or headless with `zerostack --pal
+deploy.pal`. Per-line errors are reported and the script continues; nested
+`/pal` inside a script is rejected.
 
 ## Git worktrees integration
 

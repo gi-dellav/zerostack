@@ -19,6 +19,10 @@
 //! - `".prompt msg"` / `".prompt"` → one-shot or sticky prompt switch,
 //!   mirroring `App::handle_dot_command`.
 //! - `"!cmd"` → shell via `bash -c`, recorded as User+Assistant like the TUI.
+//! - `"/pal <file>"` → PAL workflow script: each line is classified (empty
+//!   and `#` comments skipped; `/` slash and `!` shell commands plus plain
+//!   messages all run through `run_string`) and executed sequentially,
+//!   continuing through per-line errors.
 //! - anything else → main agent run: `convert_history` → `spawn_runner` →
 //!   drain `AgentEvent`s into the session (tool calls/results, cost,
 //!   calibration, compaction), mirroring `event_handler::handle_agent_event`
@@ -29,6 +33,7 @@
 //! read stdin.
 
 /// Output sink abstraction shared by the TUI renderer and headless runs.
+pub mod pal;
 pub mod sink;
 
 pub use sink::{EventSink, StringSink};
@@ -634,6 +639,7 @@ impl Engine {
                 Ok(SlashFlow::Done)
             }
             "/add" | "/drop" | "/drop-all" => self.slash_add(&parts, &mut sink).await,
+            "/pal" => self.slash_pal(&parts, &mut sink).await,
             "/init" => self.slash_init(&parts, &mut sink).await,
             "/review" => self.slash_review(&parts, &mut sink).await,
             "/memory" => self.slash_memory(&parts, &mut sink).await,
@@ -1830,6 +1836,7 @@ impl Engine {
             "  /reasoning             toggle reasoning",
             "  /mode <name>           switch security mode",
             "  /compress              compact the context",
+            "  /pal <file>            run a PAL workflow script (.pal/.txt)",
             "  /init [force]          create AGENTS.md via the agent",
             "  /review [msg]          review via the agent",
             "  /help                  show this message",
@@ -1962,6 +1969,21 @@ impl Engine {
                 .unwrap_or_else(|_| std::path::PathBuf::from("."))
                 .join(p)
         }
+    }
+
+    async fn slash_pal(
+        &mut self,
+        parts: &[&str],
+        sink: &mut StringSink,
+    ) -> anyhow::Result<SlashFlow> {
+        let Some(arg) = parts.get(1).map(|s| s.trim()).filter(|s| !s.is_empty()) else {
+            sink.write_ok("usage: /pal <file.pal|file.txt>");
+            return Ok(SlashFlow::Done);
+        };
+        let path = crate::engine::pal::resolve_script_path(arg);
+        let (done, total) = self.run_pal_file(&path, sink).await;
+        sink.write_ok(format!("pal: {done}/{total} steps from {}", path.display()));
+        Ok(SlashFlow::Done)
     }
 
     async fn slash_init(

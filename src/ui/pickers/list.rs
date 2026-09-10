@@ -23,6 +23,7 @@ const BASE_COMMANDS: &[&str] = &[
     "/models",
     "/models-add",
     "/new",
+    "/pal",
     "/prompt",
     "/provider",
     "/queue",

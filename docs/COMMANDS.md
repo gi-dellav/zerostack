@@ -63,6 +63,7 @@ the chat directly.
 | ------- | ----------- |
 | `/init` | Create an AGENTS.md file for the current project by delegating to the agent. |
 | `/init force` | Overwrite the existing AGENTS.md if one already exists. |
+| `/pal <file.pal\|file.txt>` | Run a PAL workflow script: each line is a user message, `/slash` command, `!shell` command, `#comment`, or blank (skipped). Lines run sequentially through the same dispatch as typed input; per-line errors are reported and the script continues. Nested `/pal` is rejected. Also available headless via `zerostack --pal <file>`. |
 
 Requires a `code` prompt to be configured (run `/regen-prompts` to restore
 built-in prompts, or create a custom `code.md` prompt).

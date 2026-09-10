@@ -107,7 +107,7 @@ async fn run() -> anyhow::Result<()> {
     }
 
     let version_changed = docs::ensure_global()?;
-    let is_interactive = !cli.print;
+    let is_interactive = !cli.print && cli.pal.is_none();
     #[cfg(feature = "acp")]
     let is_interactive = is_interactive && !cli.acp_enabled;
     #[cfg(feature = "loop")]

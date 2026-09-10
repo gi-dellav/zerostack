@@ -164,3 +164,10 @@ fn prompts_dir_empty_by_default() {
     let cli = cli_with(&[]);
     assert!(cli.resolve_prompts_dirs().is_empty());
 }
+
+#[test]
+fn pal_flag_parses_and_defaults_to_none() {
+    assert!(cli_with(&[]).pal.is_none());
+    let cli = cli_with(&["--pal", "flow.pal"]);
+    assert_eq!(cli.pal, Some(PathBuf::from("flow.pal")));
+}

@@ -875,10 +875,12 @@ impl Startup {
         Ok(())
     }
 
-    /// Phase 4: mode dispatch — print, loop, or interactive.
+    /// Phase 4: mode dispatch — print, pal script, loop, or interactive.
     pub(crate) async fn dispatch(self) -> anyhow::Result<()> {
         if self.cli.print {
             self.dispatch_print().await
+        } else if self.cli.pal.is_some() {
+            self.dispatch_pal().await
         } else {
             #[cfg(feature = "loop")]
             if self.cli.loop_mode {
@@ -1072,6 +1074,36 @@ impl Startup {
         #[cfg(feature = "hooks")]
         crate::extras::hooks::dispatch_session_end("exit").await;
         result
+    }
+
+    async fn dispatch_pal(self) -> anyhow::Result<()> {
+        use crate::engine::{Engine, StringSink};
+
+        let script = self.cli.pal.clone().expect("--pal checked in dispatch");
+        let mut engine = Engine::new(
+            self.cli.clone(),
+            self.cfg.clone(),
+            self.session,
+            self.context,
+            self.client,
+            self.permission,
+            self.sandbox.clone(),
+        );
+        let mut sink = StringSink::new();
+        let (done, total) = engine.run_pal_file(&script, &mut sink).await;
+        let transcript = sink.transcript();
+        if !transcript.is_empty() {
+            println!("{transcript}");
+        }
+        println!("pal: {done}/{total} steps from {}", script.display());
+        if !self.cli.no_session
+            && let Err(e) = crate::session::storage::save_session(engine.session())
+        {
+            eprintln!("warning: failed to save session: {e}");
+        }
+        #[cfg(feature = "hooks")]
+        crate::extras::hooks::dispatch_session_end("exit").await;
+        Ok(())
     }
 
     async fn dispatch_interactive(self) -> anyhow::Result<()> {

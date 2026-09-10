@@ -346,6 +346,13 @@ pub struct Cli {
     )]
     pub log_level: Option<String>,
 
+    #[arg(
+        long = "pal",
+        value_name = "FILE",
+        help = "Run a PAL workflow script (.pal/.txt) and exit: each line is a message, /slash command, !shell command, #comment, or blank"
+    )]
+    pub pal: Option<std::path::PathBuf>,
+
     #[arg(help = "Prompt message(s)")]
     pub message: Vec<String>,
 }

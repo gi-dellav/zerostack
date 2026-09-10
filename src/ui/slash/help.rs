@@ -151,6 +151,10 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
     );
     write_result(
         ctx.renderer,
+        "  /pal <file>            run a PAL workflow script (.pal/.txt)",
+    );
+    write_result(
+        ctx.renderer,
         "  /compress [instr]      compress with custom instructions",
     );
     write_result(

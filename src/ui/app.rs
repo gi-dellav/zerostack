@@ -1018,21 +1018,34 @@ impl<'a> App<'a> {
                 return Ok(());
             }
 
-            if text.starts_with('/') {
-                self.run_slash_command(&text).await?;
-            } else if text.starts_with('!') {
-                self.run_bang_command(&text).await?;
-            } else {
-                for line in text.lines() {
-                    let safe_line = sanitize_output(line);
-                    self.renderer
-                        .write_line(&format!("> {}", safe_line), Color::Green)?;
-                }
-                self.renderer.write_line("", Color::White)?;
-                self.start_main_run(&text).await;
-            }
+            self.submit_text(&text).await?;
         }
 
+        Ok(())
+    }
+
+    /// Dispatch one submitted input line exactly like typed input: dot-prompt,
+    /// `/` slash, `!` shell, or a plain agent message. Shared by the key
+    /// handler above and the PAL workflow drain in `finalize_turn` so `/` and
+    /// `!` PAL steps execute through the same paths as typed commands.
+    async fn submit_text(&mut self, text: &str) -> anyhow::Result<()> {
+        let mut owned: compact_str::CompactString = text.into();
+        if self.handle_dot_command(&mut owned).await? {
+            return Ok(());
+        }
+        if owned.starts_with('/') {
+            self.run_slash_command(&owned).await?;
+        } else if owned.starts_with('!') {
+            self.run_bang_command(&owned).await?;
+        } else {
+            for line in owned.lines() {
+                let safe_line = sanitize_output(line);
+                self.renderer
+                    .write_line(&format!("> {}", safe_line), Color::Green)?;
+            }
+            self.renderer.write_line("", Color::White)?;
+            self.start_main_run(&owned).await;
+        }
         Ok(())
     }
 
@@ -1192,21 +1205,70 @@ impl<'a> App<'a> {
 
         if !self.run.is_running {
             self.run.main_abort = None;
+            // PAL workflow drain: while idle, move the next PAL step into
+            // `pending_inputs` flow (front) so it runs next. `/` and `!`
+            // steps are handled through the same dispatch as typed input on
+            // the following submission cycle; plain messages spawn agent runs.
+            // Skip while a chain prompt is pending: the chain question owns
+            // the next submission, and PAL steps must not jump ahead of it.
+            if self.chain.pending.is_none() {
+                self.drain_pal_step();
+            }
             if let Some(next) = self.run.pending_inputs.pop_front() {
                 self.renderer.chain_prompt = None;
                 self.renderer.chain_but_mode = false;
                 self.chain.pending = None;
                 self.chain.label_msg = None;
-                for line in next.lines() {
-                    self.renderer
-                        .write_line(&format!("> {}", sanitize_output(line)), Color::Green)?;
+                // The next input may be a PAL `/` or `!` step rather than a
+                // plain message: route it through the normal typed-input
+                // dispatch so slash/shell steps execute correctly.
+                let t = next.trim_start();
+                if t.starts_with('/') || t.starts_with('!') || t.starts_with('.') {
+                    if let Err(e) = self.submit_text(&next).await {
+                        self.renderer
+                            .write_line(&format!("error: {e:#}"), C_ERROR)?;
+                    }
+                } else {
+                    for line in next.lines() {
+                        self.renderer
+                            .write_line(&format!("> {}", sanitize_output(line)), Color::Green)?;
+                    }
+                    self.renderer.write_line("", Color::White)?;
+                    self.start_main_run(&next).await;
                 }
-                self.renderer.write_line("", Color::White)?;
-                self.start_main_run(&next).await;
+            } else if self.chain.pal_active() {
+                // The last PAL step just finished (queue empty, no follow-up
+                // run started): report completion and clear the run state.
+                let done = self.chain.pal_total;
+                let source = self.chain.pal_source.clone().unwrap_or_default();
+                self.chain.clear_pal();
+                self.renderer
+                    .write_line(&format!("pal: {done}/{done} steps from {source}"), C_AGENT)?;
             }
         }
 
         Ok(())
+    }
+
+    /// Move one PAL workflow step to the front of `pending_inputs` while idle.
+    /// Called from `finalize_turn` before it pops the next input: steps drain
+    /// one per idle turn, `/` + `!` steps ride the same path as typed commands.
+    /// Completion (empty queue) is reported by the caller.
+    fn drain_pal_step(&mut self) {
+        if self.run.is_running || !self.chain.pal_active() {
+            return;
+        }
+        if let Some(step) = self.chain.pal_queue.pop_front() {
+            let done = self.chain.pal_done() + 1;
+            let total = self.chain.pal_total;
+            let source = self.chain.pal_source.clone().unwrap_or_default();
+            self.run.pending_inputs.push_front(step);
+            // Progress line mirrors the headless `pal: done/total` report.
+            let _ = self.renderer.write_line(
+                &format!("pal: running {done}/{total} from {source}"),
+                C_TOOL,
+            );
+        }
     }
 
     fn abort_main_run(&mut self) -> anyhow::Result<()> {
@@ -1223,6 +1285,7 @@ impl<'a> App<'a> {
         self.run.awaiting_compaction_relief = false;
         self.run.clear_pending_tool_calls();
         self.run.pending_inputs.clear();
+        self.chain.clear_pal();
         #[cfg(feature = "loop")]
         if let Some(ref mut ls) = self.chain.loop_state {
             ls.active = false;

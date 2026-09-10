@@ -52,6 +52,7 @@ CLI parse (main.rs:150) → config load → context load → session load
   ├── --print-config → print and exit
   ├── --acp → extras::acp::serve()
   ├── --print → single agent.run_print() response
+  ├── --pal → Engine::run_pal_file() script mode (each line via run_string)
   ├── --loop → run_headless_loop() iterative mode
   └── (default) → ui::run_interactive()
 ```
@@ -125,6 +126,7 @@ Optional (`mcp` feature): `rmcp 2.0` (MCP client with child-process + HTTP trans
 - **`main()`** (`src/main.rs:149`) — all modes dispatch from here
 - **`--print`** / `-p` — `agent.run_print()` → single reply, then exit (`main.rs:774`)
 - **`--loop`** — `run_headless_loop()` → iterative prompt/validate loop (branch at `main.rs:891`, definition at `:1160`)
+- **`--pal <file>`** — `Engine::run_pal_file()` → PAL workflow script: each line classified (empty/`#` skipped; `/`, `!`, message all via `run_string`), sequential, continue-through-errors; TUI counterpart is `/pal` draining via `ChainState::pal_queue` + `pending_inputs`
 - **`--acp`** — `extras::acp::serve()` → ACP server mode (`main.rs:417`)
 - **Default (no flags)** — `ui::run_interactive()` → full TUI (call at `main.rs:931`, definition at `src/ui/mod.rs:636`)
 - **`--resume`** / `--continue` / `--session <id>` — loads prior session before entering TUI/print
