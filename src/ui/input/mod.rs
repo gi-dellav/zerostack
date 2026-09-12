@@ -438,6 +438,16 @@ impl InputEditor {
                     self.yank_pos = Some(pos);
                     return None;
                 }
+                KeyCode::Left => {
+                    self.cursor = self.prev_word_start();
+                    self.yank_pos = None;
+                    return None;
+                }
+                KeyCode::Right => {
+                    self.cursor = self.next_word_end();
+                    self.yank_pos = None;
+                    return None;
+                }
                 _ => {}
             }
         }

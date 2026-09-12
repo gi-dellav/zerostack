@@ -20,7 +20,9 @@ use crate::ui::input::InputEditor;
 use crate::ui::permission_handler::handle_permission_request;
 use crate::ui::pickers::rewind::RewindOutcome;
 use crate::ui::pickers::switcher::SwitcherResult;
-use crate::ui::renderer::{self as renderer_mod, ChainPrompt, Renderer, copy_to_clipboard};
+use crate::ui::renderer::{
+    self as renderer_mod, ChainPrompt, Renderer, copy_to_clipboard, paste_from_clipboard,
+};
 use crate::ui::slash::{apply_prompt_model, handle_compress, handle_slash};
 #[cfg(feature = "git-worktree")]
 use crate::ui::state::MergeRequest;
@@ -590,6 +592,11 @@ impl<'a> App<'a> {
     }
 
     #[cfg(test)]
+    pub(crate) fn input_selection(&self) -> Option<(usize, usize)> {
+        self.renderer.input_selection
+    }
+
+    #[cfg(test)]
     pub(crate) fn backend_output(&self) -> String {
         self.renderer.captured_output()
     }
@@ -653,6 +660,19 @@ impl<'a> App<'a> {
         }
     }
 
+    /// Read the system clipboard and insert it at the input cursor. Used by
+    /// both the Ctrl+V binding and right/middle-click paste.
+    fn paste_clipboard_into_input(&mut self) -> anyhow::Result<()> {
+        match paste_from_clipboard() {
+            Ok(text) if !text.is_empty() => self.input.handle_paste(text),
+            Ok(_) => {}
+            Err(e) => self
+                .renderer
+                .write_line(&format!("paste failed: {}", e), C_ERROR)?,
+        }
+        Ok(())
+    }
+
     async fn handle_user_event(&mut self, ev: UserEvent) -> anyhow::Result<ControlFlow<(), ()>> {
         match ev {
             UserEvent::FocusGained => {
@@ -678,31 +698,59 @@ impl<'a> App<'a> {
                     self.renderer
                         .input_cursor_for_click(row, col, &self.input.buffer)
                 {
+                    self.renderer.clear_selection();
+                    self.renderer.input_selection = Some((pos, pos));
                     self.input.set_cursor(pos);
-                } else if row < self.renderer.visible_lines() as u16
-                    && let Some(idx) = self.renderer.buffer_line_at_row(row)
-                {
-                    if let Some(url) = self.renderer.link_url_at(idx, col) {
-                        if let Err(e) = renderer_mod::open_url(&url) {
-                            self.renderer
-                                .write_line(&format!("cannot open link: {}", e), C_ERROR)?;
+                } else {
+                    self.renderer.input_selection = None;
+                    if row < self.renderer.visible_lines() as u16
+                        && let Some(idx) = self.renderer.buffer_line_at_row(row)
+                    {
+                        if let Some(url) = self.renderer.link_url_at(idx, col) {
+                            if let Err(e) = renderer_mod::open_url(&url) {
+                                self.renderer
+                                    .write_line(&format!("cannot open link: {}", e), C_ERROR)?;
+                            }
+                        } else {
+                            self.renderer.selection_active = true;
+                            self.renderer.selection_start = Some(idx);
+                            self.renderer.selection_end = Some(idx);
                         }
-                    } else {
-                        self.renderer.selection_active = true;
-                        self.renderer.selection_start = Some(idx);
-                        self.renderer.selection_end = Some(idx);
                     }
                 }
             }
-            UserEvent::MouseDrag { row, col: _ } => {
-                if self.renderer.selection_active
+            UserEvent::MouseDrag { row, col } => {
+                if self.renderer.input_selection.is_some() {
+                    if let Some(pos) =
+                        self.renderer
+                            .input_cursor_for_click(row, col, &self.input.buffer)
+                    {
+                        let anchor = self.renderer.input_selection.unwrap().0;
+                        self.renderer.input_selection = Some((anchor, pos));
+                    }
+                } else if self.renderer.selection_active
                     && let Some(idx) = self.renderer.buffer_line_at_row(row)
                 {
                     self.renderer.selection_end = Some(idx);
                 }
             }
-            UserEvent::MouseUp { row, col: _ } => {
-                if self.renderer.selection_active {
+            UserEvent::MouseUp { row, col } => {
+                if self.renderer.input_selection.is_some() {
+                    if let Some(pos) =
+                        self.renderer
+                            .input_cursor_for_click(row, col, &self.input.buffer)
+                    {
+                        let anchor = self.renderer.input_selection.unwrap().0;
+                        self.renderer.input_selection = Some((anchor, pos));
+                    }
+                    if let Some(text) = self.renderer.selected_input_text(&self.input.buffer)
+                        && let Err(e) = copy_to_clipboard(&text)
+                    {
+                        self.renderer
+                            .write_line(&format!("copy to clipboard failed: {}", e), C_ERROR)?;
+                    }
+                    self.renderer.input_selection = None;
+                } else if self.renderer.selection_active {
                     if let Some(idx) = self.renderer.buffer_line_at_row(row) {
                         self.renderer.selection_end = Some(idx);
                     }
@@ -716,7 +764,12 @@ impl<'a> App<'a> {
                 }
             }
             UserEvent::Paste(data) => {
+                self.renderer.input_selection = None;
                 self.input.handle_paste(data);
+            }
+            UserEvent::PasteRequest => {
+                self.renderer.input_selection = None;
+                self.paste_clipboard_into_input()?;
             }
             #[cfg(feature = "mcp")]
             UserEvent::McpLoginDone { server, error } => {
@@ -759,6 +812,15 @@ impl<'a> App<'a> {
     }
 
     async fn handle_key_event(&mut self, key: KeyEvent) -> anyhow::Result<()> {
+        // Any key dismisses an input selection; Esc stops there so it also
+        // works as an explicit cancel.
+        if self.renderer.input_selection.is_some() {
+            if key.code == KeyCode::Esc {
+                self.renderer.input_selection = None;
+                return Ok(());
+            }
+            self.renderer.input_selection = None;
+        }
         if self.renderer.selection_active && key.code == KeyCode::Char('y') {
             if let Some(text) = self.renderer.selected_text() {
                 match copy_to_clipboard(&text) {
@@ -776,6 +838,11 @@ impl<'a> App<'a> {
         }
         if self.renderer.selection_active && key.code == KeyCode::Esc {
             self.renderer.clear_selection();
+            return Ok(());
+        }
+
+        if key.code == KeyCode::Char('v') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.paste_clipboard_into_input()?;
             return Ok(());
         }
 

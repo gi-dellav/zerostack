@@ -189,6 +189,7 @@ pub(crate) struct BottomSnapshot {
     pub(crate) monochrome: bool,
     pub(crate) input_bg: Option<Color>,
     pub(crate) status_bg: Option<Color>,
+    pub(crate) input_selection: Option<(usize, usize)>,
 }
 
 /// How much of the bottom region a `draw_bottom` call must repaint.
@@ -228,6 +229,9 @@ pub struct Renderer {
     pub selection_active: bool,
     pub selection_start: Option<usize>,
     pub selection_end: Option<usize>,
+    /// Mouse selection inside the input box: (anchor, focus) byte offsets
+    /// into the input buffer, unsorted. `None` when no input selection.
+    pub input_selection: Option<(usize, usize)>,
     prev_input_height: usize,
     /// Number of statusline rows (1-3), fixed by the statusline config at startup.
     statusline_height: usize,
@@ -280,6 +284,7 @@ impl Renderer {
             selection_active: false,
             selection_start: None,
             selection_end: None,
+            input_selection: None,
             prev_input_height: 0,
             statusline_height: 1,
             chat_margin: 0,
@@ -583,6 +588,42 @@ impl Renderer {
         } else {
             Some(result)
         }
+    }
+
+    /// Sorted (start, end) byte range of the active input selection. An
+    /// empty selection (anchor == focus) is normalized to `None`.
+    pub fn input_selection_range(&self) -> Option<(usize, usize)> {
+        let (a, b) = self.input_selection?;
+        if a == b {
+            return None;
+        }
+        Some((a.min(b), a.max(b)))
+    }
+
+    /// Write one run of an input line, reversing video while `selected`.
+    /// Toggles only the reverse bit (SGR 7/27) so theme backgrounds survive.
+    fn write_input_run(&mut self, run: &str, selected: bool) -> io::Result<()> {
+        if selected {
+            write!(self.backend, "{}", SetAttribute(Attribute::Reverse))?;
+            write!(self.backend, "{}", run)?;
+            write!(self.backend, "{}", SetAttribute(Attribute::NoReverse))?;
+        } else {
+            write!(self.backend, "{}", run)?;
+        }
+        Ok(())
+    }
+
+    /// The input text covered by the active input selection. Stale offsets
+    /// (the buffer changed since the selection was made) are clamped to the
+    /// buffer; an offset that lands inside a multi-byte char yields `None`
+    /// instead of panicking on a non-boundary slice.
+    pub fn selected_input_text(&self, input: &str) -> Option<String> {
+        let (lo, hi) = self.input_selection_range()?;
+        let hi = hi.min(input.len());
+        if !input.is_char_boundary(lo) || !input.is_char_boundary(hi) {
+            return None;
+        }
+        Some(input[lo..hi].to_string())
     }
 
     fn commit_partial(&mut self) {
@@ -1108,6 +1149,7 @@ impl Renderer {
             monochrome: self.monochrome,
             input_bg: self.input_bg,
             status_bg: self.status_bg,
+            input_selection: self.input_selection,
         }
     }
 
@@ -1143,6 +1185,7 @@ impl Renderer {
             && prev.monochrome == next.monochrome
             && prev.input_bg == next.input_bg
             && prev.status_bg == next.status_bg
+            && prev.input_selection == next.input_selection
         {
             // Only statusline/scroll_indicator differ => statusline-only repaint.
             if prev.statusline != next.statusline || prev.scroll_indicator != next.scroll_indicator
@@ -1443,12 +1486,45 @@ impl Renderer {
             } else {
                 0
             };
-            let display: String = line_chars
-                .iter()
-                .skip(skip_chars)
-                .take(visible_width)
-                .collect();
-            write!(self.backend, "{}", display)?;
+            match self.input_selection_range() {
+                None => {
+                    let display: String = line_chars
+                        .iter()
+                        .skip(skip_chars)
+                        .take(visible_width)
+                        .collect();
+                    write!(self.backend, "{}", display)?;
+                }
+                Some((sel_lo, sel_hi)) => {
+                    // Byte offset of the first visible char within the buffer:
+                    // line start plus the skipped chars' lengths.
+                    let line_start: usize = lines[..i].iter().map(|l| l.len() + 1).sum();
+                    let mut byte_off = line_start
+                        + line_chars
+                            .iter()
+                            .take(skip_chars)
+                            .map(|c| c.len_utf8())
+                            .sum::<usize>();
+                    let mut run = String::new();
+                    let mut run_selected = false;
+                    let mut have_run = false;
+                    for &ch in line_chars.iter().skip(skip_chars).take(visible_width) {
+                        let selected = byte_off >= sel_lo && byte_off < sel_hi;
+                        if have_run && selected != run_selected {
+                            self.write_input_run(&run, run_selected)?;
+                            run.clear();
+                            have_run = false;
+                        }
+                        run_selected = selected;
+                        have_run = true;
+                        run.push(ch);
+                        byte_off += ch.len_utf8();
+                    }
+                    if have_run {
+                        self.write_input_run(&run, run_selected)?;
+                    }
+                }
+            }
             write!(self.backend, "{}", Clear(ClearType::UntilNewLine))?;
             write!(self.backend, "{}", ResetColor)?;
         }
@@ -1581,6 +1657,45 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     write!(stdout, "\x1b]52;c;{encoded}\x07")?;
     stdout.flush()?;
     Ok(())
+}
+
+/// Read the system clipboard. Tries the read-side counterpart of every tool
+/// [`copy_to_clipboard`] uses (`wl-paste`, `xclip`, `pbpaste`) and finally
+/// PowerShell's `Get-Clipboard` on Windows. Errors when none is available or
+/// all fail; an empty clipboard is a successful empty string.
+pub fn paste_from_clipboard() -> anyhow::Result<String> {
+    let cmds: &[(&str, &[&str])] = &[
+        ("wl-paste", &[]),
+        ("xclip", &["-selection", "clipboard", "-o"]),
+        ("pbpaste", &[]),
+    ];
+    for &(cmd, args) in cmds {
+        let Ok(output) = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        else {
+            continue; // tool not installed
+        };
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+    if cfg!(windows) {
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-Clipboard"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            && output.status.success()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            // Get-Clipboard appends the console line terminator.
+            return Ok(text.trim_end_matches(['\r', '\n']).to_string());
+        }
+    }
+    anyhow::bail!("no clipboard tool found (tried wl-paste, xclip, pbpaste)")
 }
 
 /// Minimal base64 encoder — avoids pulling in a crate just for clipboard support.
