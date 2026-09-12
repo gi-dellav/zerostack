@@ -372,7 +372,7 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
         }
 
         #[cfg(feature = "advisor")]
-        if crate::extras::advisor::with_config(|c| c.enabled) {
+        if crate::extras::advisor::is_enabled() {
             use crate::extras::advisor::AdvisorTool;
             all_tools.push(Box::new(AdvisorTool::new()));
         }

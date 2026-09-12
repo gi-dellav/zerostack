@@ -58,7 +58,7 @@ fn engine_with_turns(turns: Vec<Vec<&str>>) -> (Engine, FakeModel) {
     isolate_data_dirs();
     let model = fake_model::text_turns(turns);
     let agent = AnyAgent::Mock(rig::agent::AgentBuilder::new(model.clone()).build());
-    let engine = Engine::with_agent(
+    let engine = Engine::new(
         test_cli(),
         Config::default(),
         test_session(),
@@ -66,8 +66,8 @@ fn engine_with_turns(turns: Vec<Vec<&str>>) -> (Engine, FakeModel) {
         test_client(),
         None,
         Sandbox::new(false, "bwrap"),
-        agent,
-    );
+    )
+    .with_agent(agent);
     (engine, model)
 }
 
@@ -128,7 +128,7 @@ async fn run_string_agent_error_rolls_back_user_message() {
         crate::tests::fake_model::MockStreamEvent::error("stream broke"),
     ]]);
     let agent = AnyAgent::Mock(rig::agent::AgentBuilder::new(model).build());
-    let mut engine = Engine::with_agent(
+    let mut engine = Engine::new(
         test_cli(),
         Config::default(),
         test_session(),
@@ -136,8 +136,8 @@ async fn run_string_agent_error_rolls_back_user_message() {
         test_client(),
         None,
         Sandbox::new(false, "bwrap"),
-        agent,
-    );
+    )
+    .with_agent(agent);
 
     let out = engine.run_string("hello").await.expect("run_string");
     assert_eq!(out.kind, RunKind::Agent);
@@ -289,7 +289,7 @@ async fn run_string_mode_switches_security_mode() {
     let perm: crate::permission::checker::PermCheck = Arc::new(Mutex::new(checker));
     let model = fake_model::text_turns(Vec::<Vec<&str>>::new());
     let agent = AnyAgent::Mock(rig::agent::AgentBuilder::new(model).build());
-    let mut engine = Engine::with_agent(
+    let mut engine = Engine::new(
         test_cli(),
         Config::default(),
         test_session(),
@@ -297,8 +297,8 @@ async fn run_string_mode_switches_security_mode() {
         test_client(),
         Some(perm.clone()),
         Sandbox::new(false, "bwrap"),
-        agent,
-    );
+    )
+    .with_agent(agent);
 
     let out = engine
         .run_string("/mode readonly")

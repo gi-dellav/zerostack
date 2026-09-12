@@ -97,7 +97,7 @@ impl RunOutput {
 }
 
 /// Owned headless execution context. Construct with [`Engine::new`] (fresh
-/// in-process state, no disk writes unless a command needs them) or
+/// in-process state, no disk writes unless a command needs them), then chain
 /// [`Engine::with_agent`] to inject a scripted agent in tests.
 pub struct Engine {
     cli: Cli,
@@ -151,20 +151,10 @@ impl Engine {
         }
     }
 
-    /// Build an engine with a pre-built agent (tests inject `AnyAgent::Mock`).
-    pub fn with_agent(
-        cli: Cli,
-        cfg: Config,
-        session: Session,
-        context: ContextFiles,
-        client: AnyClient,
-        permission: Option<PermCheck>,
-        sandbox: Sandbox,
-        agent: AnyAgent,
-    ) -> Self {
-        let mut engine = Self::new(cli, cfg, session, context, client, permission, sandbox);
-        engine.agent = Some(agent);
-        engine
+    /// Inject a pre-built agent (tests inject `AnyAgent::Mock`).
+    pub fn with_agent(mut self, agent: AnyAgent) -> Self {
+        self.agent = Some(agent);
+        self
     }
 
     /// Borrow the session (assertions, persistence).
@@ -220,7 +210,7 @@ impl Engine {
         match self.start_agent_run(text.to_string()).await {
             Ok((response, usage)) => RunOutput::agent(response, usage),
             Err(e) => {
-                sink.write_error(&e.to_string());
+                sink.write_error(e.to_string());
                 // Roll back the optimistic user message like the TUI does on
                 // a failed send (`App::finalize_turn`).
                 let len = self.session.messages.len();
@@ -431,7 +421,7 @@ impl Engine {
         if self.cfg.resolve_compact_enabled() && self.session.needs_compaction(self.reserve()) {
             let mut sink = StringSink::new();
             if let Err(e) = self.compress(None, true, &mut sink).await {
-                sink.write_error(&format!("auto-compact error: {e}"));
+                sink.write_error(format!("auto-compact error: {e}"));
             }
         }
         self.save_session_best_effort();
@@ -500,7 +490,7 @@ impl Engine {
         {
             // Headless engines never connect MCP lazily: pass `None` like
             // `dispatch_print` does. Callers needing MCP build the agent
-            // up front via `with_agent`.
+            // up front via `Engine::new(...).with_agent(...)`.
         }
         let model = self.client.completion_model(self.session.model.to_string());
         let temperature = config::resolve_temperature(&self.cli, &self.cfg, &self.session.model);
@@ -787,14 +777,13 @@ impl Engine {
         // Await the single terminal event (no session mutation: `BtwEvent`
         // never touches history, enforced by the type).
         let mut answer = String::new();
-        while let Some(ev) = event_rx.recv().await {
+        if let Some(ev) = event_rx.recv().await {
             match ev {
                 crate::event::BtwEvent::Done { response, .. } => {
                     answer = response.to_string();
-                    break;
                 }
                 crate::event::BtwEvent::Error { message, .. } => {
-                    sink.write_error(message.to_string());
+                    sink.write_error(&message);
                     return RunOutput::command(sink.transcript());
                 }
             }
@@ -864,7 +853,7 @@ impl Engine {
 
     fn sink_echo_user(&self, text: &str, sink: &mut StringSink) {
         for line in text.lines() {
-            sink.write_line(&format!("> {line}"));
+            sink.write_line(format!("> {line}"));
         }
         sink.write_line("");
     }
@@ -2070,7 +2059,7 @@ impl Engine {
         #[cfg(not(feature = "memory"))]
         {
             sink.write_error("/memory is not available in this build");
-            return Ok(SlashFlow::Done);
+            Ok(SlashFlow::Done)
         }
         #[cfg(feature = "memory")]
         {
