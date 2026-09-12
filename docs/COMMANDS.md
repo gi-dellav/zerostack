@@ -266,6 +266,7 @@ message, and after the response restores the previous prompt and
 | `Ctrl+Y` | Yank (paste) the most recently deleted text. |
 | `Ctrl+A` / `Ctrl+E` | Jump to start / end of line. |
 | `Ctrl+B` / `Ctrl+F` | Move one character left / right. |
+| `Ctrl+Left` / `Ctrl+Right` | Move one word left / right. |
 | `Ctrl+P` / `Ctrl+N` | Previous / next line (history on the first / last line). |
 | `Alt+B` / `Alt+F` | Move one word left / right. |
 | `Alt+D` / `Alt+Y` | Delete next word / cycle the kill ring. |
