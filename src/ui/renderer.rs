@@ -1583,6 +1583,45 @@ pub fn copy_to_clipboard(text: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Read the system clipboard. Tries the read-side counterpart of every tool
+/// [`copy_to_clipboard`] uses (`wl-paste`, `xclip`, `pbpaste`) and finally
+/// PowerShell's `Get-Clipboard` on Windows. Errors when none is available or
+/// all fail; an empty clipboard is a successful empty string.
+pub fn paste_from_clipboard() -> anyhow::Result<String> {
+    let cmds: &[(&str, &[&str])] = &[
+        ("wl-paste", &[]),
+        ("xclip", &["-selection", "clipboard", "-o"]),
+        ("pbpaste", &[]),
+    ];
+    for &(cmd, args) in cmds {
+        let Ok(output) = std::process::Command::new(cmd)
+            .args(args)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        else {
+            continue; // tool not installed
+        };
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+    if cfg!(windows) {
+        if let Ok(output) = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-Command", "Get-Clipboard"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            && output.status.success()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            // Get-Clipboard appends the console line terminator.
+            return Ok(text.trim_end_matches(['\r', '\n']).to_string());
+        }
+    }
+    anyhow::bail!("no clipboard tool found (tried wl-paste, xclip, pbpaste)")
+}
+
 /// Minimal base64 encoder — avoids pulling in a crate just for clipboard support.
 pub(crate) fn base64_encode(input: &[u8]) -> String {
     const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

@@ -392,6 +392,11 @@ pub(crate) fn spawn_event_thread(
                             col: m.column,
                         });
                     }
+                    // Right- and middle-click paste from the clipboard.
+                    MouseEventKind::Down(MouseButton::Right)
+                    | MouseEventKind::Down(MouseButton::Middle) => {
+                        let _ = user_tx.blocking_send(UserEvent::PasteRequest);
+                    }
                     _ => {}
                 },
                 Ok(event::Event::Resize(_cols, _rows)) => {

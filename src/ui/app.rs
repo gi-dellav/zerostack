@@ -20,7 +20,9 @@ use crate::ui::input::InputEditor;
 use crate::ui::permission_handler::handle_permission_request;
 use crate::ui::pickers::rewind::RewindOutcome;
 use crate::ui::pickers::switcher::SwitcherResult;
-use crate::ui::renderer::{self as renderer_mod, ChainPrompt, Renderer, copy_to_clipboard};
+use crate::ui::renderer::{
+    self as renderer_mod, ChainPrompt, Renderer, copy_to_clipboard, paste_from_clipboard,
+};
 use crate::ui::slash::{apply_prompt_model, handle_compress, handle_slash};
 #[cfg(feature = "git-worktree")]
 use crate::ui::state::MergeRequest;
@@ -653,6 +655,19 @@ impl<'a> App<'a> {
         }
     }
 
+    /// Read the system clipboard and insert it at the input cursor. Used by
+    /// both the Ctrl+V binding and right/middle-click paste.
+    fn paste_clipboard_into_input(&mut self) -> anyhow::Result<()> {
+        match paste_from_clipboard() {
+            Ok(text) if !text.is_empty() => self.input.handle_paste(text),
+            Ok(_) => {}
+            Err(e) => self
+                .renderer
+                .write_line(&format!("paste failed: {}", e), C_ERROR)?,
+        }
+        Ok(())
+    }
+
     async fn handle_user_event(&mut self, ev: UserEvent) -> anyhow::Result<ControlFlow<(), ()>> {
         match ev {
             UserEvent::FocusGained => {
@@ -718,6 +733,9 @@ impl<'a> App<'a> {
             UserEvent::Paste(data) => {
                 self.input.handle_paste(data);
             }
+            UserEvent::PasteRequest => {
+                self.paste_clipboard_into_input()?;
+            }
             #[cfg(feature = "mcp")]
             UserEvent::McpLoginDone { server, error } => {
                 self.handle_mcp_login_done(server, error).await?;
@@ -776,6 +794,11 @@ impl<'a> App<'a> {
         }
         if self.renderer.selection_active && key.code == KeyCode::Esc {
             self.renderer.clear_selection();
+            return Ok(());
+        }
+
+        if key.code == KeyCode::Char('v') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.paste_clipboard_into_input()?;
             return Ok(());
         }
 

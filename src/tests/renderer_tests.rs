@@ -1,4 +1,4 @@
-use crate::ui::renderer::{base64_encode, copy_to_clipboard, is_safe_url};
+use crate::ui::renderer::{base64_encode, copy_to_clipboard, is_safe_url, paste_from_clipboard};
 
 #[test]
 fn base64_encode_empty() {
@@ -41,6 +41,19 @@ fn base64_encode_long_input() {
 fn copy_to_clipboard_does_not_panic() {
     // Succeeds via an external tool or the OSC 52 fallback.
     copy_to_clipboard("test text").expect("copy should succeed");
+}
+
+#[test]
+fn paste_from_clipboard_either_works_or_errors_cleanly() {
+    // Clipboard reads depend on the environment (wl-paste/xclip/pbpaste or
+    // none of them), so only assert the shape of the outcome.
+    match paste_from_clipboard() {
+        Ok(_) => {}
+        Err(e) => assert!(
+            e.to_string().contains("no clipboard tool"),
+            "unexpected error: {e}"
+        ),
+    }
 }
 
 #[test]

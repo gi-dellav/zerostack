@@ -264,6 +264,7 @@ message, and after the response restores the previous prompt and
 | `Ctrl+W` | Delete word backwards. |
 | `Ctrl+U` / `Ctrl+K` | Delete to start / end of line. |
 | `Ctrl+Y` | Yank (paste) the most recently deleted text. |
+| `Ctrl+V` | Paste from the system clipboard into the input. |
 | `Ctrl+A` / `Ctrl+E` | Jump to start / end of line. |
 | `Ctrl+B` / `Ctrl+F` | Move one character left / right. |
 | `Ctrl+Left` / `Ctrl+Right` | Move one word left / right. |
@@ -280,3 +281,4 @@ message, and after the response restores the previous prompt and
 | `PageUp / PageDown` | Scroll viewport. |
 | `Home / End` | Scroll to top / bottom. |
 | `Escape` | Close active picker / cancel. |
+| `Right / Middle click` | Paste from the system clipboard into the input. |
