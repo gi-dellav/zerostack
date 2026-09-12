@@ -132,7 +132,19 @@ mod dirty {
             monochrome: false,
             input_bg: None,
             status_bg: None,
+            input_selection: None,
         }
+    }
+
+    #[test]
+    fn input_selection_change_forces_full_bottom_redraw() {
+        let prev = bottom_snapshot();
+        let mut next = bottom_snapshot();
+        next.input_selection = Some((0, 3));
+        assert_eq!(
+            Renderer::bottom_redraw_plan(Some(&prev), &next, false),
+            BottomRedrawPlan::Full
+        );
     }
 
     #[test]
@@ -412,5 +424,59 @@ mod cursor_positioning {
     fn cursor_at_end_of_overflowing_line() {
         let line = repeat_ascii(VISIBLE_WIDTH + 12);
         assert_eq!(emitted_cursor(&line, VISIBLE_WIDTH + 12).1, COLS - 1);
+    }
+}
+
+mod input_selection {
+    use crate::ui::renderer::Renderer;
+
+    #[test]
+    fn range_sorts_and_empty_is_none() {
+        let mut r = Renderer::new().unwrap();
+        r.input_selection = Some((5, 2));
+        assert_eq!(r.input_selection_range(), Some((2, 5)));
+        r.input_selection = Some((4, 4));
+        assert_eq!(r.input_selection_range(), None);
+        r.input_selection = None;
+        assert_eq!(r.input_selection_range(), None);
+    }
+
+    #[test]
+    fn selected_input_text_slices_between_offsets() {
+        let mut r = Renderer::new().unwrap();
+        r.input_selection = Some((0, 5));
+        assert_eq!(
+            r.selected_input_text("hello world").as_deref(),
+            Some("hello")
+        );
+        r.input_selection = Some((6, 11));
+        assert_eq!(
+            r.selected_input_text("hello world").as_deref(),
+            Some("world")
+        );
+        // A stale end offset clamps to the buffer end...
+        r.input_selection = Some((1, 99));
+        assert_eq!(r.selected_input_text("hø").as_deref(), Some("ø"));
+        // ...while an offset inside a multi-byte char (buffer changed since
+        // the selection was made) is rejected instead of panicking.
+        r.input_selection = Some((1, 2));
+        assert_eq!(r.selected_input_text("ø"), None);
+    }
+
+    #[test]
+    fn drawing_input_with_selection_reverses_the_covered_span() {
+        let mut r = Renderer::with_backend(Box::new(crate::ui::renderer::FakeBackend::new(80, 24)));
+        r.set_statusline_height(1);
+        r.input_selection = Some((0, 2));
+        r.draw_bottom("hello", 5, &[], false).unwrap();
+        let out = r.captured_output();
+        assert!(
+            out.contains("\x1b[7mhe\x1b[27m"),
+            "reverse span missing in {out:?}"
+        );
+        assert!(
+            out.contains("llo"),
+            "unselected remainder missing in {out:?}"
+        );
     }
 }

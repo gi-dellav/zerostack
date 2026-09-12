@@ -282,3 +282,5 @@ message, and after the response restores the previous prompt and
 | `Home / End` | Scroll to top / bottom. |
 | `Escape` | Close active picker / cancel. |
 | `Right / Middle click` | Paste from the system clipboard into the input. |
+| `Mouse drag` | Select text (chat line-wise, input char-wise); releasing copies it to the clipboard. |
+| `Escape` (while selected) | Clear the selection without copying. |

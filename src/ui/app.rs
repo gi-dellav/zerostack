@@ -592,6 +592,11 @@ impl<'a> App<'a> {
     }
 
     #[cfg(test)]
+    pub(crate) fn input_selection(&self) -> Option<(usize, usize)> {
+        self.renderer.input_selection
+    }
+
+    #[cfg(test)]
     pub(crate) fn backend_output(&self) -> String {
         self.renderer.captured_output()
     }
@@ -693,31 +698,59 @@ impl<'a> App<'a> {
                     self.renderer
                         .input_cursor_for_click(row, col, &self.input.buffer)
                 {
+                    self.renderer.clear_selection();
+                    self.renderer.input_selection = Some((pos, pos));
                     self.input.set_cursor(pos);
-                } else if row < self.renderer.visible_lines() as u16
-                    && let Some(idx) = self.renderer.buffer_line_at_row(row)
-                {
-                    if let Some(url) = self.renderer.link_url_at(idx, col) {
-                        if let Err(e) = renderer_mod::open_url(&url) {
-                            self.renderer
-                                .write_line(&format!("cannot open link: {}", e), C_ERROR)?;
+                } else {
+                    self.renderer.input_selection = None;
+                    if row < self.renderer.visible_lines() as u16
+                        && let Some(idx) = self.renderer.buffer_line_at_row(row)
+                    {
+                        if let Some(url) = self.renderer.link_url_at(idx, col) {
+                            if let Err(e) = renderer_mod::open_url(&url) {
+                                self.renderer
+                                    .write_line(&format!("cannot open link: {}", e), C_ERROR)?;
+                            }
+                        } else {
+                            self.renderer.selection_active = true;
+                            self.renderer.selection_start = Some(idx);
+                            self.renderer.selection_end = Some(idx);
                         }
-                    } else {
-                        self.renderer.selection_active = true;
-                        self.renderer.selection_start = Some(idx);
-                        self.renderer.selection_end = Some(idx);
                     }
                 }
             }
-            UserEvent::MouseDrag { row, col: _ } => {
-                if self.renderer.selection_active
+            UserEvent::MouseDrag { row, col } => {
+                if self.renderer.input_selection.is_some() {
+                    if let Some(pos) =
+                        self.renderer
+                            .input_cursor_for_click(row, col, &self.input.buffer)
+                    {
+                        let anchor = self.renderer.input_selection.unwrap().0;
+                        self.renderer.input_selection = Some((anchor, pos));
+                    }
+                } else if self.renderer.selection_active
                     && let Some(idx) = self.renderer.buffer_line_at_row(row)
                 {
                     self.renderer.selection_end = Some(idx);
                 }
             }
-            UserEvent::MouseUp { row, col: _ } => {
-                if self.renderer.selection_active {
+            UserEvent::MouseUp { row, col } => {
+                if self.renderer.input_selection.is_some() {
+                    if let Some(pos) =
+                        self.renderer
+                            .input_cursor_for_click(row, col, &self.input.buffer)
+                    {
+                        let anchor = self.renderer.input_selection.unwrap().0;
+                        self.renderer.input_selection = Some((anchor, pos));
+                    }
+                    if let Some(text) = self.renderer.selected_input_text(&self.input.buffer)
+                        && let Err(e) = copy_to_clipboard(&text)
+                    {
+                        self.renderer
+                            .write_line(&format!("copy to clipboard failed: {}", e), C_ERROR)?;
+                    }
+                    self.renderer.input_selection = None;
+                } else if self.renderer.selection_active {
                     if let Some(idx) = self.renderer.buffer_line_at_row(row) {
                         self.renderer.selection_end = Some(idx);
                     }
@@ -731,9 +764,11 @@ impl<'a> App<'a> {
                 }
             }
             UserEvent::Paste(data) => {
+                self.renderer.input_selection = None;
                 self.input.handle_paste(data);
             }
             UserEvent::PasteRequest => {
+                self.renderer.input_selection = None;
                 self.paste_clipboard_into_input()?;
             }
             #[cfg(feature = "mcp")]
@@ -777,6 +812,15 @@ impl<'a> App<'a> {
     }
 
     async fn handle_key_event(&mut self, key: KeyEvent) -> anyhow::Result<()> {
+        // Any key dismisses an input selection; Esc stops there so it also
+        // works as an explicit cancel.
+        if self.renderer.input_selection.is_some() {
+            if key.code == KeyCode::Esc {
+                self.renderer.input_selection = None;
+                return Ok(());
+            }
+            self.renderer.input_selection = None;
+        }
         if self.renderer.selection_active && key.code == KeyCode::Char('y') {
             if let Some(text) = self.renderer.selected_text() {
                 match copy_to_clipboard(&text) {
