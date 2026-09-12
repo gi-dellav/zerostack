@@ -69,6 +69,17 @@ where
     f(cfg)
 }
 
+/// Whether the advisor tool is enabled. Returns `false` when `init_config`
+/// has not run yet (headless engines and tests build agents before, or
+/// without, advisor startup).
+pub fn is_enabled() -> bool {
+    CONFIG
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .is_some_and(|c| c.enabled)
+}
+
 pub fn update_client(client: AnyClient) {
     let mut guard = CONFIG.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(ref mut cfg) = *guard {
