@@ -4,18 +4,20 @@ description: "Configure LLM providers in zerostack: OpenRouter, OpenAI-compatibl
 
 # Providers
 
-zerostack supports five built-in providers and allows custom provider
+zerostack supports seven built-in providers and allows custom provider
 definitions for OpenAI-compatible endpoints.
 
 ## Built-in Providers
 
-| Provider   | Config name         | Default env var for API key |
-| ---------- | ------------------- | --------------------------- |
-| OpenRouter | `openrouter`        | `OPENROUTER_API_KEY`        |
-| OpenAI     | `openai`            | `OPENAI_API_KEY`            |
-| Anthropic  | `anthropic`         | `ANTHROPIC_API_KEY`         |
-| Gemini     | `gemini` / `google` | `GEMINI_API_KEY`            |
-| Ollama     | `ollama`            | (no key required)           |
+| Provider     | Config name     | Default env var for API key |
+| ------------ | --------------- | --------------------------- |
+| OpenRouter   | `openrouter`    | `OPENROUTER_API_KEY`        |
+| OpenAI       | `openai`        | `OPENAI_API_KEY`            |
+| Anthropic    | `anthropic`     | `ANTHROPIC_API_KEY`         |
+| Gemini       | `gemini` / `google` | `GEMINI_API_KEY`            |
+| Ollama       | `ollama`        | (no key required)           |
+| OpenCode Zen | `opencode-zen`  | `OPENCODE_API_KEY` (optional — without a key only the free models work) |
+| OpenCode Go  | `opencode-go`   | `OPENCODE_API_KEY`          |
 
 Select a provider via the config file, the `--provider` CLI flag, or the
 `ZS_PROVIDER` environment variable:
@@ -33,6 +35,7 @@ zerostack --provider openai --model gpt-4o
 ## Provider Recipes
 
 - [MiniMax](../providers/Minimax.md)
+- [OpenCode Zen / Go](../providers/OpencodeZenGo.md)
 
 ## Custom Providers
 
@@ -60,7 +63,7 @@ the `custom_providers` key in the config file:
 
 | Field                         | Type    | Description                                                                                                                                                                   |
 | ----------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `provider_type`               | string  | Must be one of the built-in provider types (`openrouter`, `openai`, `anthropic`, `gemini`, `ollama`).                                                                         |
+| `provider_type`               | string  | Must be one of the built-in provider types (`openrouter`, `openai`, `anthropic`, `gemini`, `ollama`, `opencode-zen`, `opencode-go`). |
 | `base_url`                    | string  | The API base URL.                                                                                                                                                             |
 | `api_key_env`                 | string  | Optional. Name of an environment variable holding the API key. Falls back to the provider-kind default if not set.                                                            |
 | `api_style`                   | string  | Optional. For OpenAI-based providers: `"responses"` (Responses API, default when no `base_url` is set) or `"completions"` (Chat Completions, default when `base_url` is set). |
