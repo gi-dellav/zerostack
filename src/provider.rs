@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::time::Duration;
 
 use compact_str::CompactString;
@@ -57,14 +58,23 @@ pub fn resolve_provider_config(
     }
     let kind = ProviderKind::from_name(name).ok_or_else(|| {
         anyhow::anyhow!(
-            "Unknown provider: '{}'. Supported: openrouter, openai, anthropic, gemini, ollama. Run `zerostack --setup` to configure providers.",
+            "Unknown provider: '{}'. Supported: openrouter, openai, anthropic, gemini, ollama, opencode-zen, opencode-go. Run `zerostack --setup` to configure providers.",
             name
         )
     })?;
 
+    // The OpenCode gateways pin their API roots; every other built-in resolves
+    // its default inside the rig client. The `/models` listing lives under the
+    // same `/v1` root for both catalogs.
+    let base_url = match kind {
+        ProviderKind::OpencodeZen => Some(format!("{OPENCODE_ZEN_ROOT}/v1")),
+        ProviderKind::OpencodeGo => Some(format!("{OPENCODE_GO_ROOT}/v1")),
+        _ => None,
+    };
+
     Ok(ProviderConfig {
         kind,
-        base_url: None,
+        base_url,
         api_key_env: None,
         danger_accept_invalid_certs: false,
     })
@@ -110,6 +120,7 @@ pub(crate) fn default_model_for_provider(
         "gemini" | "google" => "gemini-2.5-pro",
         "openrouter" => "openrouter/auto", // OpenRouter's always-valid auto-router
         "ollama" => "llama3.1",
+        "opencode-zen" | "opencode-go" => "kimi-k2.6",
         _ => return None,
     };
     Some((m.to_string(), None))
@@ -117,6 +128,90 @@ pub(crate) fn default_model_for_provider(
 
 fn resolve_base_url(config: &ProviderConfig) -> Option<String> {
     config.base_url.clone()
+}
+
+/// API roots of the OpenCode gateways. Chat-completions and responses models
+/// are served under `{root}/v1`; the Anthropic-native messages route hangs
+/// directly off `{root}` (the rig Anthropic client appends `/v1/messages`, so
+/// its base must not include `/v1` — same rule as the MiniMax Anthropic
+/// routes in docs/providers/Minimax.md).
+pub const OPENCODE_ZEN_ROOT: &str = "https://opencode.ai/zen";
+pub const OPENCODE_GO_ROOT: &str = "https://opencode.ai/zen/go";
+
+/// The header the OpenCode gateways route and cache by: a stable id per
+/// conversation. The free tier rejects requests without it
+/// (`MissingSessionID`); Go asks every client to send it.
+const OPENCODE_SESSION_HEADER: HeaderName = HeaderName::from_static("x-opencode-session");
+
+fn is_opencode_provider(name: &str) -> bool {
+    matches!(name, "opencode-zen" | "opencode-go")
+}
+
+static OPENCODE_SESSION_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Adopt the active zerostack session id as the OpenCode conversation id, so
+/// client rebuilds (e.g. `/provider` switches) and free-tier requests share
+/// one stable id. First call wins; without it a per-process id is generated.
+pub fn set_opencode_session_id(id: &str) {
+    let _ = OPENCODE_SESSION_ID.set(id.to_string());
+}
+
+fn opencode_session_id() -> String {
+    OPENCODE_SESSION_ID
+        .get_or_init(|| uuid::Uuid::new_v4().to_string())
+        .clone()
+}
+
+/// Value for [`OPENCODE_SESSION_HEADER`]. Pure for tests; the live id
+/// comes from [`opencode_session_id`]. Fallible only in theory (both id
+/// sources are UUIDs).
+pub(crate) fn opencode_session_header_value(id: &str) -> anyhow::Result<HeaderValue> {
+    HeaderValue::from_str(id).map_err(|e| anyhow::anyhow!("invalid OpenCode session id: {e}"))
+}
+
+/// Value for [`OPENCODE_SESSION_HEADER`] for this conversation.
+pub(crate) fn opencode_session_header() -> anyhow::Result<HeaderValue> {
+    opencode_session_header_value(&opencode_session_id())
+}
+
+/// Which API shape an OpenCode (Zen/Go) model is served on. One provider id
+/// covers three transports (see https://opencode.ai/docs/zen#endpoints), so
+/// the transport resolves per model from the baked map in
+/// `data/opencode-transports.json` instead of per provider.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpencodeTransport {
+    Chat,
+    Responses,
+    Messages,
+}
+
+static OPENCODE_TRANSPORTS: LazyLock<HashMap<String, HashMap<String, OpencodeTransport>>> =
+    LazyLock::new(|| {
+        serde_json::from_str(include_str!("../data/opencode-transports.json")).expect(
+            "embedded data/opencode-transports.json is malformed — run scripts/gen-models-catalog.sh",
+        )
+    });
+
+/// Baked transport for an OpenCode model, or `None` when the provider/model
+/// is unknown (e.g. a model added after the last catalog refresh).
+pub fn opencode_transport(provider: &str, model_id: &str) -> Option<OpencodeTransport> {
+    OPENCODE_TRANSPORTS
+        .get(provider)
+        .and_then(|models| models.get(model_id))
+        .copied()
+}
+
+/// Like [`opencode_transport`], but for request time: unknown models fall back
+/// to chat completions (the most common transport) with a warning instead of
+/// failing. Refresh the catalog when this fires for a real model id.
+pub fn resolve_opencode_transport(provider: &str, model_id: &str) -> OpencodeTransport {
+    opencode_transport(provider, model_id).unwrap_or_else(|| {
+        tracing::warn!(
+            "unknown model '{model_id}' for provider '{provider}'; assuming chat completions transport"
+        );
+        OpencodeTransport::Chat
+    })
 }
 
 /// rig 0.37 exposes two distinct OpenAI client types:
@@ -162,6 +257,35 @@ pub enum AnyClient {
     Anthropic(anthropic::Client),
     Gemini(gemini::Client),
     Ollama(ollama::Client),
+    OpencodeZen(OpencodeClient),
+    OpencodeGo(OpencodeClient),
+}
+
+/// An OpenCode gateway client (Zen or Go): one rig client per transport the
+/// gateway serves, sharing the provider's key. `provider` selects the row of
+/// the baked transport map used by [`resolve_opencode_transport`].
+#[derive(Clone)]
+pub struct OpencodeClient {
+    provider: &'static str,
+    chat: openai::CompletionsClient,
+    responses: openai::Client,
+    messages: anthropic::Client,
+}
+
+impl OpencodeClient {
+    fn completion_model(&self, name: String) -> AnyModel {
+        match resolve_opencode_transport(self.provider, &name) {
+            OpencodeTransport::Chat => {
+                AnyModel::OpenAI(OpenAiModel::Completions(self.chat.completion_model(name)))
+            }
+            OpencodeTransport::Responses => AnyModel::OpenAI(OpenAiModel::Responses(
+                self.responses.completion_model(name),
+            )),
+            OpencodeTransport::Messages => {
+                AnyModel::Anthropic(self.messages.completion_model(name).with_prompt_caching())
+            }
+        }
+    }
 }
 
 /// Extra OpenRouter request body params that pin a Claude model to the
@@ -215,6 +339,8 @@ impl AnyClient {
             AnyClient::Anthropic(_) => "anthropic",
             AnyClient::Gemini(_) => "gemini",
             AnyClient::Ollama(_) => "ollama",
+            AnyClient::OpencodeZen(_) => "opencode-zen",
+            AnyClient::OpencodeGo(_) => "opencode-go",
         }
     }
 
@@ -231,6 +357,7 @@ impl AnyClient {
             }
             AnyClient::Gemini(c) => AnyModel::Gemini(c.completion_model(name)),
             AnyClient::Ollama(c) => AnyModel::Ollama(c.completion_model(name)),
+            AnyClient::OpencodeZen(c) | AnyClient::OpencodeGo(c) => c.completion_model(name),
         }
     }
 
@@ -333,6 +460,11 @@ impl AnyClient {
             AnyClient::OpenRouter(c) => c.list_models().await?,
             AnyClient::Gemini(c) => c.list_models().await?,
             AnyClient::Ollama(c) => c.list_models().await?,
+            // Both gateways expose a single OpenAI-style listing under their
+            // `/v1` root; the responses client already targets it.
+            AnyClient::OpencodeZen(c) | AnyClient::OpencodeGo(c) => {
+                c.responses.list_models().await?
+            }
             // If any arm above does NOT impl ModelListingClient it won't compile —
             // move it down here to the manual fallback.
             AnyClient::OpenAI(OpenAiClient::Completions(_)) => {
@@ -1042,7 +1174,11 @@ pub(crate) fn build_http_client(
     base_url: Option<&str>,
     purpose: HttpPurpose,
 ) -> anyhow::Result<reqwest::Client> {
-    if custom.is_none() && !danger_accept_invalid_certs && !is_localhost(base_url) {
+    if custom.is_none()
+        && !danger_accept_invalid_certs
+        && !is_localhost(base_url)
+        && !is_opencode_provider(provider_name)
+    {
         return Ok(match purpose {
             HttpPurpose::Completion => BUILTIN_COMPLETION_CLIENT.clone(),
             HttpPurpose::Metadata => BUILTIN_METADATA_CLIENT.clone(),
@@ -1067,6 +1203,15 @@ pub(crate) fn build_http_client(
                 .map_err(|e| anyhow::anyhow!("Invalid value for header '{name}': {e}"))?;
             headers.insert(header_name, header_value);
         }
+        builder = builder.default_headers(headers);
+    }
+    // The OpenCode gateways require a stable per-conversation session id (the
+    // free tier rejects requests without it); it also drives their routing
+    // and prompt-cache affinity. They skip the shared pool above so the
+    // header is always present.
+    if is_opencode_provider(provider_name) {
+        let mut headers = HeaderMap::new();
+        headers.insert(OPENCODE_SESSION_HEADER, opencode_session_header()?);
         builder = builder.default_headers(headers);
     }
     builder = apply_purpose(builder, purpose, custom);
@@ -1252,6 +1397,16 @@ pub fn create_client(
         ProviderKind::Gemini => build_gemini_client(&key, base_url.as_deref()),
         ProviderKind::Ollama => build_ollama_client(&key, base_url.as_deref()),
         ProviderKind::OpenRouter => build_openrouter_client(&key, base_url.as_deref()),
+        ProviderKind::OpencodeZen => Ok(AnyClient::OpencodeZen(build_opencode_client(
+            &key,
+            OPENCODE_ZEN_ROOT,
+            "opencode-zen",
+        )?)),
+        ProviderKind::OpencodeGo => Ok(AnyClient::OpencodeGo(build_opencode_client(
+            &key,
+            OPENCODE_GO_ROOT,
+            "opencode-go",
+        )?)),
     }
 }
 
@@ -1296,6 +1451,48 @@ fn build_openrouter_client(key: &str, base_url: Option<&str>) -> anyhow::Result<
         .with_app_identity("zerostack", "https://github.com/gi-dellav/zerostack")
         .with_app_categories(&["cli-agent", "coding"]);
     Ok(AnyClient::OpenRouter(builder.build()?))
+}
+
+/// Builds the three transports of an OpenCode gateway behind one key. Chat
+/// and responses share the `/v1` root (rig appends `/chat/completions` and
+/// `/responses` respectively); the messages client takes the bare root (rig
+/// appends `/v1/messages`).
+fn build_opencode_client(
+    key: &str,
+    root: &str,
+    provider_name: &'static str,
+) -> anyhow::Result<OpencodeClient> {
+    let base_v1 = format!("{root}/v1");
+    // One reqwest client (one connection pool) shared by all three
+    // transports; it carries the session header via build_http_client.
+    let http_client = build_http_client(
+        provider_name,
+        false,
+        None,
+        Some(&base_v1),
+        HttpPurpose::Completion,
+    )?;
+    let chat = openai::CompletionsClient::builder()
+        .api_key(key)
+        .base_url(base_v1.as_str())
+        .http_client(http_client.clone())
+        .build()?;
+    let responses = openai::Client::builder()
+        .api_key(key)
+        .base_url(base_v1.as_str())
+        .http_client(http_client.clone())
+        .build()?;
+    let messages = anthropic::Client::builder()
+        .api_key(key)
+        .base_url(root)
+        .http_client(http_client)
+        .build()?;
+    Ok(OpencodeClient {
+        provider: provider_name,
+        chat,
+        responses,
+        messages,
+    })
 }
 
 /// Builds an OpenAiModel (Responses / Completions) into the matching OpenAiAgent.

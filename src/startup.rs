@@ -325,6 +325,10 @@ impl Startup {
             session.update_context_window(cw);
         }
 
+        // The OpenCode gateways route and cache by conversation: adopt the
+        // session id so client (re)builds and free-tier requests share one
+        // stable id for this conversation.
+        provider::set_opencode_session_id(session.id.as_str());
         let client = provider::create_client(
             &provider,
             cli.api_key.as_deref(),
@@ -1013,7 +1017,8 @@ impl Startup {
                     .saturating_add(usage.cache_creation_input_tokens);
                 session.total_cost += crate::pricing::estimate_cost(
                     crate::pricing::billable_input_tokens(
-                        self.cfg.is_anthropic_native(&session.provider),
+                        self.cfg
+                            .is_anthropic_native(&session.provider, &session.model),
                         usage.input_tokens,
                         usage.cached_input_tokens,
                         usage.cache_creation_input_tokens,

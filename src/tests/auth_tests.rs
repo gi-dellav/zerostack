@@ -141,6 +141,74 @@ fn provider_kind_from_name_recognizes_all() {
         ProviderKind::from_name("custom"),
         Some(ProviderKind::OpenAI)
     );
+    assert_eq!(
+        ProviderKind::from_name("opencode-zen"),
+        Some(ProviderKind::OpencodeZen)
+    );
+    assert_eq!(
+        ProviderKind::from_name("opencode-go"),
+        Some(ProviderKind::OpencodeGo)
+    );
+}
+
+#[test]
+fn provider_kind_has_no_opencode_aliases() {
+    // Only the canonical names resolve: no `zen`, `opencode`, `go` or `free`.
+    for name in ["zen", "opencode", "go", "free", "opencode-free"] {
+        assert_eq!(
+            ProviderKind::from_name(name),
+            None,
+            "{name} must not resolve"
+        );
+    }
+}
+
+#[test]
+fn auth_resolver_opencode_zen_reads_shared_env_var() {
+    let env = mock_env(vec![("OPENCODE_API_KEY", "sk-opencode-123")]);
+    let resolver = AuthResolver::new(ProviderKind::OpencodeZen)
+        .with_cli_key(None)
+        .with_config_keys(None);
+    let result = resolver.resolve_with_env(env).unwrap();
+    assert_eq!(result, "sk-opencode-123");
+}
+
+#[test]
+fn auth_resolver_opencode_zen_falls_back_to_public_key() {
+    // Zen serves its free models keyless via the public credential.
+    let env = mock_env(vec![]);
+    let resolver = AuthResolver::new(ProviderKind::OpencodeZen)
+        .with_cli_key(None)
+        .with_config_keys(None);
+    let result = resolver.resolve_with_env(env).unwrap();
+    assert_eq!(result, "public");
+}
+
+#[test]
+fn auth_resolver_opencode_zen_prefers_configured_key() {
+    let env = mock_env(vec![("OPENCODE_API_KEY", "env-key")]);
+    let resolver = AuthResolver::new(ProviderKind::OpencodeZen)
+        .with_cli_key(None)
+        .with_config_keys(None);
+    let result = resolver.resolve_with_env(env).unwrap();
+    assert_eq!(result, "env-key");
+}
+
+#[test]
+fn auth_resolver_opencode_go_shares_env_var_but_requires_key() {
+    let env = mock_env(vec![("OPENCODE_API_KEY", "sk-opencode-123")]);
+    let resolver = AuthResolver::new(ProviderKind::OpencodeGo)
+        .with_cli_key(None)
+        .with_config_keys(None);
+    let result = resolver.resolve_with_env(env).unwrap();
+    assert_eq!(result, "sk-opencode-123");
+
+    // No public fallback: Go is a subscription, so a missing key is an error.
+    let env = mock_env(vec![]);
+    let resolver = AuthResolver::new(ProviderKind::OpencodeGo)
+        .with_cli_key(None)
+        .with_config_keys(None);
+    assert!(resolver.resolve_with_env(env).is_err());
 }
 
 #[test]

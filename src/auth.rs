@@ -9,6 +9,8 @@ pub enum ProviderKind {
     Anthropic,
     Gemini,
     Ollama,
+    OpencodeZen,
+    OpencodeGo,
 }
 
 impl ProviderKind {
@@ -19,6 +21,8 @@ impl ProviderKind {
             "anthropic" => Some(Self::Anthropic),
             "gemini" | "google" => Some(Self::Gemini),
             "ollama" => Some(Self::Ollama),
+            "opencode-zen" => Some(Self::OpencodeZen),
+            "opencode-go" => Some(Self::OpencodeGo),
             _ => None,
         }
     }
@@ -115,6 +119,13 @@ impl AuthResolver {
             return Ok(String::new());
         }
 
+        // OpenCode Zen serves its free models keyless: with no configured key,
+        // fall back to the public credential. Paid models reject it
+        // server-side, so a real key is still required for those.
+        if self.provider_kind == ProviderKind::OpencodeZen {
+            return Ok("public".to_string());
+        }
+
         anyhow::bail!(
             "No API key found. Set the {} environment variable, add it to config.api_keys under '{}' or '{}', pass --api-key, or run `zerostack --setup` to configure interactively.",
             env_var,
@@ -132,6 +143,8 @@ impl AuthResolver {
             ProviderKind::Gemini => "GEMINI_API_KEY",
             ProviderKind::Ollama => "OLLAMA_API_KEY",
             ProviderKind::OpenRouter => "OPENROUTER_API_KEY",
+            // One key covers both the Zen and Go catalogs.
+            ProviderKind::OpencodeZen | ProviderKind::OpencodeGo => "OPENCODE_API_KEY",
         }
     }
 
@@ -142,6 +155,8 @@ impl AuthResolver {
             ProviderKind::Anthropic => "anthropic",
             ProviderKind::Gemini => "gemini",
             ProviderKind::Ollama => "ollama",
+            ProviderKind::OpencodeZen => "opencode-zen",
+            ProviderKind::OpencodeGo => "opencode-go",
         }
     }
 }
