@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 #
 # Regenerates data/models.json — the static model catalog embedded into the
-# binary (see src/models_catalog.rs). Source: https://models.dev/api.json,
+# binary (see src/models_catalog.rs) — and data/opencode-transports.json —
+# the per-model transport map for the OpenCode Zen/Go gateways (see
+# OpencodeTransport in src/provider.rs). Source: https://models.dev/api.json,
 # which lists every provider's model ids.
 #
-# The committed JSON is the single build-time source of truth, so the build
-# stays offline and reproducible. Run this (or let the scheduled CI workflow
-# .github/workflows/update-models.yml run it) to refresh the snapshot.
+# The committed JSON files are the single build-time source of truth, so the
+# build stays offline and reproducible. Run this (or let the scheduled CI
+# workflow .github/workflows/update-models.yml run it) to refresh the snapshot.
 #
 # Usage: scripts/gen-models-catalog.sh
 # Requires: curl, jq
@@ -14,6 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT="$SCRIPT_DIR/../data/models.json"
+OUT_TRANSPORTS="$SCRIPT_DIR/../data/opencode-transports.json"
 SRC="https://models.dev/api.json"
 
 # Vendors kept for the curated OpenRouter subset (its full list is ~340 models;
@@ -72,6 +75,17 @@ echo "$api" | jq --argjson orv "$OPENROUTER_VENDORS" --argjson cut "$CUTOFFS" '
     output_price: (.value.cost.output // null)
   };
   def models_of($p; $c; e): ($p.models // {}) | to_entries | map(chat($c) | e) | sort_by(.id);
+  # OpenCode Zen/Go slices: priced entries like the direct-API providers (the
+  # gateways' live /models listing carries no pricing). Retired ids are
+  # dropped via `status` (OpenCode marks them, unlike the date-cutoff vendors
+  # above), and `@ai-sdk/google` models are skipped — zerostack only speaks
+  # the chat/responses/messages transports, not the Gemini-native endpoint.
+  def opencode_models($p): ($p.models // {})
+    | to_entries
+    | map(select(.value.status != "deprecated")
+          | select((.value.provider.npm // "") != "@ai-sdk/google")
+          | chat("0000-00-00") | priced_entry)
+    | sort_by(.id);
   {
     anthropic:  models_of(.anthropic; ($cut.anthropic  // "0000-00-00"); priced_entry),
     openai:     models_of(.openai;    ($cut.openai     // "0000-00-00"); priced_entry),
@@ -82,9 +96,47 @@ echo "$api" | jq --argjson orv "$OPENROUTER_VENDORS" --argjson cut "$CUTOFFS" '
       | map(chat($cut.openrouter // "0000-00-00")
             | select((.key | split("/")[0]) as $v | $orv | index($v)) | entry)
       | sort_by(.id)
-    )
+    ),
+    "opencode-go":  opencode_models(."opencode-go"),
+    "opencode-zen": opencode_models(.opencode)
   }
 ' > "$OUT"
 
+# Per-model transport for the OpenCode gateways: one provider id serves three
+# API shapes, and the live /models listing says nothing about which model
+# needs which. models.dev records the AI SDK package per model, which maps
+# 1:1 onto the transport (`@ai-sdk/openai` hits /responses, `@ai-sdk/anthropic`
+# hits /messages, everything else hits /chat/completions). Same filters as the
+# slices above; models absent here fall back to chat at runtime with a warning.
+echo "$api" | jq '
+  def deny: [
+    "embedding","embed-","text-embedding","gemini-embedding","whisper","transcribe",
+    "tts","-audio","realtime","speech","dall-e","gpt-image","image-generation",
+    "imagen","sora","veo","moderation","rerank","aqa","davinci-002","babbage-002",
+    "stable-diffusion","flux"
+  ];
+  def chat:
+    select(.value.modalities.output | index("text"))
+    | select((.key | ascii_downcase) as $id | (deny | any(. as $d | $id | contains($d))) | not);
+  def transport: (.provider.npm // "") as $n
+    | if $n == "@ai-sdk/openai" then "responses"
+      elif $n == "@ai-sdk/anthropic" then "messages"
+      else "chat" end;
+  def opencode_transports($p): ($p.models // {})
+    | to_entries
+    | map(select(.value.status != "deprecated")
+          | select((.value.provider.npm // "") != "@ai-sdk/google")
+          | chat
+          | {key: .key, value: (.value | transport)})
+    | sort_by(.key)
+    | from_entries;
+  {
+    "opencode-go":  opencode_transports(."opencode-go"),
+    "opencode-zen": opencode_transports(.opencode)
+  }
+' > "$OUT_TRANSPORTS"
+
 echo "Wrote $OUT" >&2
 jq -r 'to_entries[] | "  \(.key): \(.value | length) models"' "$OUT" >&2
+echo "Wrote $OUT_TRANSPORTS" >&2
+jq -r 'to_entries[] | "  \(.key): \(.value | length) models"' "$OUT_TRANSPORTS" >&2
