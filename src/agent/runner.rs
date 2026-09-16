@@ -288,6 +288,44 @@ where
     }
 }
 
+/// Append a streamed `ToolCall`/`ToolResult` message to a turn's interaction
+/// history, merging it into the previous message when both are the same role.
+///
+/// `From<ToolCall>` turns every streamed call into its own `Assistant`
+/// message, so a parallel batch (all calls streamed before any result) would
+/// otherwise replay as `assistant(tool_calls) -> assistant(tool_calls) -> tool
+/// -> tool`. Strict OpenAI-compatible backends (DeepSeek) reject the first
+/// `assistant` because its calls are followed by another assistant message
+/// instead of their tool results. Merging on insert restores the
+/// one-assistant-with-all-calls / one-user-with-all-results wire shape.
+/// Sequential rounds stay separate: their tool result sits between the calls,
+/// so nothing merges across the boundary.
+fn merge_push(interactions: &mut Vec<Message>, message: Message) {
+    fn join<T: Clone>(previous: &mut rig::OneOrMany<T>, next: &rig::OneOrMany<T>) {
+        *previous = rig::OneOrMany::many(
+            previous
+                .iter()
+                .cloned()
+                .chain(next.iter().cloned())
+                .collect::<Vec<_>>(),
+        )
+        .expect("two non-empty message parts merge to a non-empty message");
+    }
+
+    match (interactions.last_mut(), message) {
+        (
+            Some(Message::Assistant {
+                content: previous, ..
+            }),
+            Message::Assistant { content, .. },
+        ) => join(previous, &content),
+        (Some(Message::User { content: previous }), Message::User { content }) => {
+            join(previous, &content)
+        }
+        (_, message) => interactions.push(message),
+    }
+}
+
 /// Builds the forked context for a `/btw` side question: the committed
 /// conversation history, plus — when the main agent is mid-task — a synthesized
 /// note describing the in-flight turn so the side question can see what the
@@ -433,7 +471,7 @@ where
                                 );
                                 pending_tool_names
                                     .insert(internal_call_id.clone(), tool_name.clone());
-                                tool_interactions.push(tool_call.clone().into());
+                                merge_push(&mut tool_interactions, tool_call.clone().into());
                                 let _ = event_tx
                                     .send(AgentEvent::ToolCall {
                                         call_id: CompactString::from(internal_call_id),
@@ -485,7 +523,7 @@ where
                                 output: CompactString::from(output),
                             })
                             .await;
-                        tool_interactions.push(tool_result.clone().into());
+                        merge_push(&mut tool_interactions, tool_result.clone().into());
                     }
                     Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                         let usage = res.usage();
@@ -737,7 +775,7 @@ where
                     }
                     pending_calls.insert(internal_call_id, (name, args));
                     #[cfg(feature = "hooks")]
-                    tool_interactions.push(tool_call.clone().into());
+                    merge_push(&mut tool_interactions, tool_call.clone().into());
                 }
                 Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                     tool_result,
@@ -800,7 +838,7 @@ where
                         subagent_calls: std::mem::take(&mut pending_subagent_calls),
                     });
                     #[cfg(feature = "hooks")]
-                    tool_interactions.push(tool_result.clone().into());
+                    merge_push(&mut tool_interactions, tool_result.clone().into());
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     usage = res.usage();
@@ -1033,8 +1071,63 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::streamed_reasoning_text;
+    use super::{merge_push, streamed_reasoning_text};
+    use rig::OneOrMany;
+    use rig::completion::Message;
+    use rig::message::{
+        AssistantContent, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
+    };
     use rig::streaming::StreamedAssistantContent;
+
+    fn assistant_tool_call(id: &str) -> Message {
+        Message::Assistant {
+            id: None,
+            content: OneOrMany::one(AssistantContent::ToolCall(ToolCall::new(
+                id.to_string(),
+                ToolFunction::new("read".to_string(), serde_json::json!({})),
+            ))),
+        }
+    }
+
+    fn user_tool_result(id: &str) -> Message {
+        Message::User {
+            content: OneOrMany::one(UserContent::ToolResult(ToolResult {
+                id: id.to_string(),
+                call_id: None,
+                content: OneOrMany::one(ToolResultContent::text("ok")),
+            })),
+        }
+    }
+
+    #[test]
+    fn merge_push_groups_parallel_tool_calls_and_results() {
+        let mut interactions = Vec::new();
+        merge_push(&mut interactions, assistant_tool_call("call-1"));
+        merge_push(&mut interactions, assistant_tool_call("call-2"));
+        merge_push(&mut interactions, user_tool_result("call-1"));
+        merge_push(&mut interactions, user_tool_result("call-2"));
+
+        assert_eq!(interactions.len(), 2);
+        match &interactions[0] {
+            Message::Assistant { content, .. } => assert_eq!(content.len(), 2),
+            other => panic!("expected coalesced assistant message, got {other:?}"),
+        }
+        match &interactions[1] {
+            Message::User { content } => assert_eq!(content.len(), 2),
+            other => panic!("expected coalesced user message, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn merge_push_keeps_sequential_rounds_separate() {
+        let mut interactions = Vec::new();
+        merge_push(&mut interactions, assistant_tool_call("call-1"));
+        merge_push(&mut interactions, user_tool_result("call-1"));
+        merge_push(&mut interactions, assistant_tool_call("call-2"));
+        merge_push(&mut interactions, user_tool_result("call-2"));
+
+        assert_eq!(interactions.len(), 4);
+    }
 
     #[test]
     fn streamed_reasoning_delta_is_forwardable_as_reasoning_text() {
