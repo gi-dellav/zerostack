@@ -763,11 +763,6 @@
       "context": 1048576
     },
     {
-      "id": "google/gemini-2.5-pro-preview-05-06",
-      "name": "Gemini 2.5 Pro Preview 05-06",
-      "context": 1048576
-    },
-    {
       "id": "google/gemini-3-flash-preview",
       "name": "Gemini 3 Flash Preview",
       "context": 1048576
@@ -968,11 +963,6 @@
       "context": 131072
     },
     {
-      "id": "mistralai/mistral-large-2512",
-      "name": "Mistral Large 3",
-      "context": 262144
-    },
-    {
       "id": "mistralai/mistral-medium-3",
       "name": "Mistral Medium 3",
       "context": 131072
@@ -1090,11 +1080,6 @@
     {
       "id": "openai/gpt-4-turbo",
       "name": "GPT-4 Turbo",
-      "context": 128000
-    },
-    {
-      "id": "openai/gpt-4-turbo-preview",
-      "name": "GPT-4 Turbo Preview",
       "context": 128000
     },
     {
@@ -1598,6 +1583,11 @@
       "context": 1000000
     },
     {
+      "id": "qwen/qwen3.8-27b:free",
+      "name": "Qwen3.8 27B (free)",
+      "context": 262144
+    },
+    {
       "id": "qwen/qwen3.8-flash",
       "name": "Qwen3.8 Flash",
       "context": 1000000
@@ -1693,6 +1683,11 @@
       "context": 1048576
     },
     {
+      "id": "z-ai/glm-5.2:free",
+      "name": "GLM 5.2 (free)",
+      "context": 32768
+    },
+    {
       "id": "z-ai/glm-5.3",
       "name": "GLM-5.3",
       "context": 1310720
@@ -1701,6 +1696,11 @@
       "id": "z-ai/glm-5.3-flash",
       "name": "GLM-5.3-Flash",
       "context": 1310720
+    },
+    {
+      "id": "z-ai/glm-5.3-flashx",
+      "name": "GLM 5.3 FlashX",
+      "context": 1048576
     },
     {
       "id": "z-ai/glm-5v-turbo",
