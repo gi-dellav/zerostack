@@ -10,7 +10,14 @@ fn ids(provider: &str) -> Vec<String> {
 
 #[test]
 fn catalog_parses_and_has_expected_providers() {
-    for p in ["anthropic", "openai", "gemini", "openrouter"] {
+    for p in [
+        "anthropic",
+        "openai",
+        "gemini",
+        "openrouter",
+        "opencode-zen",
+        "opencode-go",
+    ] {
         assert!(
             !ids(p).is_empty(),
             "missing or empty baked catalog for: {p}"

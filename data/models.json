@@ -1707,5 +1707,632 @@
       "name": "GLM-5V-Turbo",
       "context": 202752
     }
+  ],
+  "opencode-go": [
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "context": 1000000,
+      "input_price": 0.15,
+      "output_price": 0.6
+    },
+    {
+      "id": "deepseek-v4-flash-vision-exp",
+      "name": "DeepSeek V4 Flash Vision Exp",
+      "context": 1000000,
+      "input_price": 0.15,
+      "output_price": 0.6
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro (New)",
+      "context": 1000000,
+      "input_price": 0.66,
+      "output_price": 1.98
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "name": "DeepSeek V4.1 Flash",
+      "context": 1000000,
+      "input_price": 0.15,
+      "output_price": 0.6
+    },
+    {
+      "id": "glm-5.1",
+      "name": "GLM-5.1",
+      "context": 202752,
+      "input_price": 1.4,
+      "output_price": 4.4
+    },
+    {
+      "id": "glm-5.2",
+      "name": "GLM-5.2",
+      "context": 1000000,
+      "input_price": 1.4,
+      "output_price": 4.4
+    },
+    {
+      "id": "glm-5.3",
+      "name": "GLM-5.3",
+      "context": 1000000,
+      "input_price": 1.4,
+      "output_price": 4.4
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "GLM-5.3-Flash",
+      "context": 1000000,
+      "input_price": 0.15,
+      "output_price": 0.5
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
+      "context": 1050000,
+      "input_price": 0.2,
+      "output_price": 1.2
+    },
+    {
+      "id": "grok-4.6",
+      "name": "Grok 4.6",
+      "context": 500000,
+      "input_price": 2,
+      "output_price": 6
+    },
+    {
+      "id": "hy3",
+      "name": "Hy3",
+      "context": 256000,
+      "input_price": 0.14,
+      "output_price": 0.58
+    },
+    {
+      "id": "hy4-preview",
+      "name": "Hy4 preview",
+      "context": 1024000,
+      "input_price": 0.834,
+      "output_price": 2.501
+    },
+    {
+      "id": "kimi-k2.6",
+      "name": "Kimi K2.6",
+      "context": 262144,
+      "input_price": 0.95,
+      "output_price": 4
+    },
+    {
+      "id": "kimi-k2.7-code",
+      "name": "Kimi K2.7 Code",
+      "context": 262144,
+      "input_price": 0.95,
+      "output_price": 4
+    },
+    {
+      "id": "kimi-k3",
+      "name": "Kimi K3",
+      "context": 1048576,
+      "input_price": 3,
+      "output_price": 15
+    },
+    {
+      "id": "longcat-2.0",
+      "name": "LongCat-2.0",
+      "context": 1000000,
+      "input_price": 0.3,
+      "output_price": 1.2
+    },
+    {
+      "id": "mimo-v2.5",
+      "name": "MiMo V2.5",
+      "context": 1000000,
+      "input_price": 0.14,
+      "output_price": 0.28
+    },
+    {
+      "id": "mimo-v2.5-pro",
+      "name": "MiMo V2.5 Pro",
+      "context": 1048576,
+      "input_price": 0.435,
+      "output_price": 0.87
+    },
+    {
+      "id": "minimax-m2.7",
+      "name": "MiniMax-M2.7",
+      "context": 204800,
+      "input_price": 0.3,
+      "output_price": 1.2
+    },
+    {
+      "id": "minimax-m3",
+      "name": "MiniMax-M3",
+      "context": 1000000,
+      "input_price": 0.3,
+      "output_price": 1.2
+    },
+    {
+      "id": "muse-spark-1.2-contributor",
+      "name": "Muse Spark 1.2 Contributor",
+      "context": 1048576,
+      "input_price": 0.1,
+      "output_price": 0.2
+    },
+    {
+      "id": "muse-spark-1.3-contributor",
+      "name": "Muse Spark 1.3 Contributor",
+      "context": 1048576,
+      "input_price": 0.1,
+      "output_price": 0.2
+    },
+    {
+      "id": "qwen3.6-plus",
+      "name": "Qwen3.6 Plus",
+      "context": 1000000,
+      "input_price": 0.5,
+      "output_price": 3
+    },
+    {
+      "id": "qwen3.7-max",
+      "name": "Qwen3.7 Max",
+      "context": 1000000,
+      "input_price": 2.5,
+      "output_price": 7.5
+    },
+    {
+      "id": "qwen3.7-plus",
+      "name": "Qwen3.7 Plus",
+      "context": 1000000,
+      "input_price": 0.4,
+      "output_price": 1.6
+    },
+    {
+      "id": "qwen3.8-flash",
+      "name": "Qwen3.8 Flash",
+      "context": 1000000,
+      "input_price": 0.15,
+      "output_price": 0.47
+    },
+    {
+      "id": "qwen3.8-max",
+      "name": "Qwen3.8 Max",
+      "context": 1000000,
+      "input_price": 2,
+      "output_price": 6
+    }
+  ],
+  "opencode-zen": [
+    {
+      "id": "big-pickle",
+      "name": "Big Pickle",
+      "context": 200000,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "claude-fable-5",
+      "name": "Claude Fable 5",
+      "context": 1000000,
+      "input_price": 10,
+      "output_price": 50
+    },
+    {
+      "id": "claude-fable-5-1",
+      "name": "Claude Fable 5.1",
+      "context": 1000000,
+      "input_price": 10,
+      "output_price": 50
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "name": "Claude Haiku 4.5",
+      "context": 200000,
+      "input_price": 1,
+      "output_price": 5
+    },
+    {
+      "id": "claude-opus-4-5",
+      "name": "Claude Opus 4.5",
+      "context": 200000,
+      "input_price": 5,
+      "output_price": 25
+    },
+    {
+      "id": "claude-opus-4-6",
+      "name": "Claude Opus 4.6",
+      "context": 1000000,
+      "input_price": 5,
+      "output_price": 25
+    },
+    {
+      "id": "claude-opus-4-7",
+      "name": "Claude Opus 4.7",
+      "context": 1000000,
+      "input_price": 5,
+      "output_price": 25
+    },
+    {
+      "id": "claude-opus-4-8",
+      "name": "Claude Opus 4.8",
+      "context": 1000000,
+      "input_price": 5,
+      "output_price": 25
+    },
+    {
+      "id": "claude-opus-5",
+      "name": "Claude Opus 5",
+      "context": 1000000,
+      "input_price": 5,
+      "output_price": 25
+    },
+    {
+      "id": "claude-sonnet-4",
+      "name": "Claude Sonnet 4",
+      "context": 1000000,
+      "input_price": 3,
+      "output_price": 15
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "name": "Claude Sonnet 4.5",
+      "context": 1000000,
+      "input_price": 3,
+      "output_price": 15
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6",
+      "context": 1000000,
+      "input_price": 3,
+      "output_price": 15
+    },
+    {
+      "id": "claude-sonnet-5",
+      "name": "Claude Sonnet 5",
+      "context": 1000000,
+      "input_price": 2,
+      "output_price": 10
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "name": "DeepSeek V4 Flash",
+      "context": 1000000,
+      "input_price": 0.14,
+      "output_price": 0.28
+    },
+    {
+      "id": "deepseek-v4-flash-vision-exp",
+      "name": "DeepSeek V4 Flash Vision Exp",
+      "context": 1000000,
+      "input_price": 0.14,
+      "output_price": 0.28
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "name": "DeepSeek V4 Pro",
+      "context": 1000000,
+      "input_price": 1.74,
+      "output_price": 3.84
+    },
+    {
+      "id": "glm-5",
+      "name": "GLM-5",
+      "context": 204800,
+      "input_price": 1,
+      "output_price": 3.2
+    },
+    {
+      "id": "glm-5.1",
+      "name": "GLM-5.1",
+      "context": 204800,
+      "input_price": 1.4,
+      "output_price": 4.4
+    },
+    {
+      "id": "glm-5.2",
+      "name": "GLM-5.2",
+      "context": 1000000,
+      "input_price": 1.4,
+      "output_price": 4.4
+    },
+    {
+      "id": "glm-5.3",
+      "name": "GLM-5.3",
+      "context": 1000000,
+      "input_price": 1.4,
+      "output_price": 4.4
+    },
+    {
+      "id": "glm-5.3-flash",
+      "name": "GLM-5.3-Flash",
+      "context": 1000000,
+      "input_price": 0.15,
+      "output_price": 0.5
+    },
+    {
+      "id": "gpt-5",
+      "name": "GPT-5",
+      "context": 400000,
+      "input_price": 1.07,
+      "output_price": 8.5
+    },
+    {
+      "id": "gpt-5-codex",
+      "name": "GPT-5 Codex",
+      "context": 400000,
+      "input_price": 1.07,
+      "output_price": 8.5
+    },
+    {
+      "id": "gpt-5-nano",
+      "name": "GPT-5 Nano",
+      "context": 400000,
+      "input_price": 0.05,
+      "output_price": 0.4
+    },
+    {
+      "id": "gpt-5.1",
+      "name": "GPT-5.1",
+      "context": 400000,
+      "input_price": 1.07,
+      "output_price": 8.5
+    },
+    {
+      "id": "gpt-5.1-codex",
+      "name": "GPT-5.1 Codex",
+      "context": 400000,
+      "input_price": 1.07,
+      "output_price": 8.5
+    },
+    {
+      "id": "gpt-5.1-codex-max",
+      "name": "GPT-5.1 Codex Max",
+      "context": 400000,
+      "input_price": 1.25,
+      "output_price": 10
+    },
+    {
+      "id": "gpt-5.1-codex-mini",
+      "name": "GPT-5.1 Codex Mini",
+      "context": 400000,
+      "input_price": 0.25,
+      "output_price": 2
+    },
+    {
+      "id": "gpt-5.2",
+      "name": "GPT-5.2",
+      "context": 400000,
+      "input_price": 1.75,
+      "output_price": 14
+    },
+    {
+      "id": "gpt-5.2-codex",
+      "name": "GPT-5.2 Codex",
+      "context": 400000,
+      "input_price": 1.75,
+      "output_price": 14
+    },
+    {
+      "id": "gpt-5.3-codex",
+      "name": "GPT-5.3 Codex",
+      "context": 400000,
+      "input_price": 1.75,
+      "output_price": 14
+    },
+    {
+      "id": "gpt-5.3-codex-spark",
+      "name": "GPT-5.3 Codex Spark",
+      "context": 128000,
+      "input_price": 1.75,
+      "output_price": 14
+    },
+    {
+      "id": "gpt-5.4",
+      "name": "GPT-5.4",
+      "context": 1050000,
+      "input_price": 2.5,
+      "output_price": 15
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "name": "GPT-5.4 Mini",
+      "context": 400000,
+      "input_price": 0.75,
+      "output_price": 4.5
+    },
+    {
+      "id": "gpt-5.4-nano",
+      "name": "GPT-5.4 Nano",
+      "context": 400000,
+      "input_price": 0.2,
+      "output_price": 1.25
+    },
+    {
+      "id": "gpt-5.4-pro",
+      "name": "GPT-5.4 Pro",
+      "context": 1050000,
+      "input_price": 30,
+      "output_price": 180
+    },
+    {
+      "id": "gpt-5.5",
+      "name": "GPT-5.5",
+      "context": 1050000,
+      "input_price": 5,
+      "output_price": 30
+    },
+    {
+      "id": "gpt-5.5-pro",
+      "name": "GPT-5.5 Pro",
+      "context": 1050000,
+      "input_price": 30,
+      "output_price": 180
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "name": "GPT-5.6 Luna",
+      "context": 1050000,
+      "input_price": 0.2,
+      "output_price": 1.2
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "name": "GPT-5.6 Sol (50% Off)",
+      "context": 1050000,
+      "input_price": 2,
+      "output_price": 10
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "name": "GPT-5.6 Terra",
+      "context": 1050000,
+      "input_price": 2.5,
+      "output_price": 15
+    },
+    {
+      "id": "gpt-6-astra",
+      "name": "GPT-6 Astra",
+      "context": 1050000,
+      "input_price": 10,
+      "output_price": 50
+    },
+    {
+      "id": "grok-4.5",
+      "name": "Grok 4.5",
+      "context": 500000,
+      "input_price": 2,
+      "output_price": 6
+    },
+    {
+      "id": "grok-4.6",
+      "name": "Grok 4.6",
+      "context": 500000,
+      "input_price": 2,
+      "output_price": 6
+    },
+    {
+      "id": "grok-build-0.1",
+      "name": "Grok Build 0.1",
+      "context": 256000,
+      "input_price": 1,
+      "output_price": 2
+    },
+    {
+      "id": "kimi-k2.5",
+      "name": "Kimi K2.5",
+      "context": 262144,
+      "input_price": 0.6,
+      "output_price": 3
+    },
+    {
+      "id": "kimi-k2.6",
+      "name": "Kimi K2.6",
+      "context": 262144,
+      "input_price": 0.95,
+      "output_price": 4
+    },
+    {
+      "id": "kimi-k2.7-code",
+      "name": "Kimi K2.7 Code",
+      "context": 262144,
+      "input_price": 0.95,
+      "output_price": 4
+    },
+    {
+      "id": "kimi-k3",
+      "name": "Kimi K3",
+      "context": 1048576,
+      "input_price": 3,
+      "output_price": 15
+    },
+    {
+      "id": "ling-3.0-flash-fin-free",
+      "name": "Ling 3.0 Flash Fin Free",
+      "context": 262144,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "mimo-v2.5-free",
+      "name": "MiMo V2.5 Free",
+      "context": 200000,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "minimax-m2.5",
+      "name": "MiniMax-M2.5",
+      "context": 204800,
+      "input_price": 0.3,
+      "output_price": 1.2
+    },
+    {
+      "id": "minimax-m2.7",
+      "name": "MiniMax-M2.7",
+      "context": 204800,
+      "input_price": 0.3,
+      "output_price": 1.2
+    },
+    {
+      "id": "minimax-m3",
+      "name": "MiniMax-M3",
+      "context": 512000,
+      "input_price": 0.3,
+      "output_price": 1.2
+    },
+    {
+      "id": "muse-spark-1.2",
+      "name": "Muse Spark 1.2",
+      "context": 1048576,
+      "input_price": 1.25,
+      "output_price": 4.25
+    },
+    {
+      "id": "muse-spark-1.2-contributor-free",
+      "name": "Muse Spark 1.2 Free",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "muse-spark-1.3",
+      "name": "Muse Spark 1.3",
+      "context": 1048576,
+      "input_price": 1.25,
+      "output_price": 4.25
+    },
+    {
+      "id": "muse-spark-1.3-contributor-free",
+      "name": "Muse Spark 1.3 Free",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "nemotron-3-ultra-free",
+      "name": "Nemotron 3 Ultra Free",
+      "context": 1000000,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "nemotron-3.5-lightning-free",
+      "name": "Nemotron 3.5 Lightning Free",
+      "context": 262144,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "qwen3.5-plus",
+      "name": "Qwen3.5 Plus",
+      "context": 262144,
+      "input_price": 0.2,
+      "output_price": 1.2
+    },
+    {
+      "id": "qwen3.6-plus",
+      "name": "Qwen3.6 Plus",
+      "context": 262144,
+      "input_price": 0.5,
+      "output_price": 3
+    }
   ]
 }

@@ -2,9 +2,10 @@ use crate::auth::ProviderKind;
 use crate::config::{ApiStyle, CustomProviderConfig};
 use crate::provider::ModelEntry;
 use crate::provider::{
-    AnyClient, DEFAULT_METADATA_TIMEOUT, HttpPurpose, build_http_client, create_client, expand_env,
-    http_total_timeout, is_agent_model, merge_extra_body, openrouter_anthropic_routing,
-    resolve_api_style, resolve_provider_config, serialize_conversation,
+    AnyClient, AnyModel, DEFAULT_METADATA_TIMEOUT, HttpPurpose, OpenAiModel, build_http_client,
+    create_client, expand_env, http_total_timeout, is_agent_model, merge_extra_body,
+    openrouter_anthropic_routing, resolve_api_style, resolve_provider_config,
+    serialize_conversation,
 };
 use crate::session::{MessageRole, SessionMessage};
 use compact_str::CompactString;
@@ -213,6 +214,115 @@ fn resolve_builtin_ollama() {
 fn resolve_builtin_openrouter() {
     let cfg = resolve_provider_config("openrouter", &HashMap::new()).unwrap();
     assert_eq!(cfg.kind, ProviderKind::OpenRouter);
+}
+
+#[test]
+fn resolve_builtin_opencode_zen() {
+    let cfg = resolve_provider_config("opencode-zen", &HashMap::new()).unwrap();
+    assert_eq!(cfg.kind, ProviderKind::OpencodeZen);
+    assert_eq!(cfg.base_url.as_deref(), Some("https://opencode.ai/zen/v1"));
+}
+
+#[test]
+fn resolve_builtin_opencode_go() {
+    let cfg = resolve_provider_config("opencode-go", &HashMap::new()).unwrap();
+    assert_eq!(cfg.kind, ProviderKind::OpencodeGo);
+    assert_eq!(
+        cfg.base_url.as_deref(),
+        Some("https://opencode.ai/zen/go/v1")
+    );
+}
+
+// --- opencode transport tests ---
+
+#[test]
+fn opencode_transport_matches_gateway_endpoints() {
+    use crate::provider::{OpencodeTransport, opencode_transport};
+    assert_eq!(
+        opencode_transport("opencode-zen", "kimi-k2.6"),
+        Some(OpencodeTransport::Chat)
+    );
+    assert_eq!(
+        opencode_transport("opencode-zen", "gpt-5.5"),
+        Some(OpencodeTransport::Responses)
+    );
+    assert_eq!(
+        opencode_transport("opencode-zen", "claude-opus-4-6"),
+        Some(OpencodeTransport::Messages)
+    );
+    assert_eq!(
+        opencode_transport("opencode-go", "kimi-k2.6"),
+        Some(OpencodeTransport::Chat)
+    );
+    assert_eq!(
+        opencode_transport("opencode-go", "gpt-5.6-luna"),
+        Some(OpencodeTransport::Responses)
+    );
+    assert_eq!(
+        opencode_transport("opencode-go", "minimax-m2.7"),
+        Some(OpencodeTransport::Messages)
+    );
+    // Free models ride the same transports as paid ones.
+    assert_eq!(
+        opencode_transport("opencode-zen", "mimo-v2.5-free"),
+        Some(OpencodeTransport::Chat)
+    );
+    assert_eq!(
+        opencode_transport("opencode-zen", "muse-spark-1.3-contributor-free"),
+        Some(OpencodeTransport::Responses)
+    );
+    // Unknown models and non-OpenCode providers have no baked transport.
+    assert_eq!(opencode_transport("opencode-zen", "no-such-model"), None);
+    assert_eq!(opencode_transport("openai", "gpt-5.5"), None);
+}
+
+#[test]
+fn opencode_transport_falls_back_to_chat() {
+    use crate::provider::{OpencodeTransport, resolve_opencode_transport};
+    assert_eq!(
+        resolve_opencode_transport("opencode-zen", "no-such-model"),
+        OpencodeTransport::Chat
+    );
+}
+
+#[test]
+fn opencode_session_header_is_stable_and_present() {
+    use crate::provider::opencode_session_header_value;
+    // Exact bytes for a given id (the gateway gates on this header).
+    let value = opencode_session_header_value("test-conversation-id").unwrap();
+    assert_eq!(value.to_str().unwrap(), "test-conversation-id");
+    // The live id is process-global (OnceLock: first set wins, tests share
+    // it), so only stability — not the exact value — is asserted for it.
+    let live = crate::provider::opencode_session_header().unwrap();
+    assert!(!live.to_str().unwrap().is_empty());
+    assert_eq!(crate::provider::opencode_session_header().unwrap(), live);
+}
+
+#[test]
+fn opencode_client_dispatches_per_model_transport() {
+    // Zen needs no key: without one it resolves the public credential, so
+    // client construction stays offline and deterministic in tests.
+    let client = create_client("opencode-zen", None, &HashMap::new(), None).unwrap();
+    assert_eq!(client.provider_name(), "opencode-zen");
+    assert!(matches!(
+        client.completion_model("kimi-k2.6"),
+        AnyModel::OpenAI(OpenAiModel::Completions(_))
+    ));
+    assert!(matches!(
+        client.completion_model("gpt-5.5"),
+        AnyModel::OpenAI(OpenAiModel::Responses(_))
+    ));
+    assert!(matches!(
+        client.completion_model("claude-opus-4-6"),
+        AnyModel::Anthropic(_)
+    ));
+
+    let client = create_client("opencode-go", Some("sk-test"), &HashMap::new(), None).unwrap();
+    assert_eq!(client.provider_name(), "opencode-go");
+    assert!(matches!(
+        client.completion_model("kimi-k2.6"),
+        AnyModel::OpenAI(OpenAiModel::Completions(_))
+    ));
 }
 
 #[test]
