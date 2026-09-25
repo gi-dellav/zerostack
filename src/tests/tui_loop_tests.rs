@@ -595,3 +595,39 @@ async fn scroll_and_resize_events() {
 
     app.teardown().await;
 }
+
+#[tokio::test]
+async fn mouse_drag_selects_input_text_then_release_clears_it() {
+    let _guard = acquire();
+    let (mut app, _model) = headless_app(vec![vec!["ok"]]).await;
+
+    app.inject(UserEvent::Paste("hello world".to_string()))
+        .await;
+    pump(&mut app).await;
+
+    // Locate the input row: it's the only row whose click starts an input
+    // selection (chat rows start a chat selection instead, dead rows nothing).
+    let mut input_row = None;
+    for row in 0..24u16 {
+        app.inject(UserEvent::MouseDown { row, col: 4 }).await;
+        pump(&mut app).await;
+        if app.input_selection().is_some() {
+            input_row = Some(row);
+            break;
+        }
+    }
+    let row = input_row.expect("a mouse click should reach the input area");
+
+    app.inject(UserEvent::MouseDrag { row, col: 9 }).await;
+    pump(&mut app).await;
+    assert_eq!(app.input_selection(), Some((2, 7)));
+
+    // Release copies (environment-dependent clipboard, ignored here) and
+    // clears the selection; the buffer is untouched.
+    app.inject(UserEvent::MouseUp { row, col: 9 }).await;
+    pump(&mut app).await;
+    assert_eq!(app.input_selection(), None);
+    assert_eq!(app.input_buffer(), "hello world");
+
+    app.teardown().await;
+}

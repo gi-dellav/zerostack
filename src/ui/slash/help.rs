@@ -287,6 +287,10 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
         ctx.renderer,
         "  Esc (while selected)   clear selection (no copy)",
     );
+    write_result(
+        ctx.renderer,
+        "  Ctrl+V / right-click   paste from system clipboard",
+    );
     write_result(ctx.renderer, "  Ctrl+R                 toggle reasoning");
     write_result(
         ctx.renderer,

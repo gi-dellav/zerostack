@@ -264,8 +264,10 @@ message, and after the response restores the previous prompt and
 | `Ctrl+W` | Delete word backwards. |
 | `Ctrl+U` / `Ctrl+K` | Delete to start / end of line. |
 | `Ctrl+Y` | Yank (paste) the most recently deleted text. |
+| `Ctrl+V` | Paste from the system clipboard into the input. |
 | `Ctrl+A` / `Ctrl+E` | Jump to start / end of line. |
 | `Ctrl+B` / `Ctrl+F` | Move one character left / right. |
+| `Ctrl+Left` / `Ctrl+Right` | Move one word left / right. |
 | `Ctrl+P` / `Ctrl+N` | Previous / next line (history on the first / last line). |
 | `Alt+B` / `Alt+F` | Move one word left / right. |
 | `Alt+D` / `Alt+Y` | Delete next word / cycle the kill ring. |
@@ -279,3 +281,6 @@ message, and after the response restores the previous prompt and
 | `PageUp / PageDown` | Scroll viewport. |
 | `Home / End` | Scroll to top / bottom. |
 | `Escape` | Close active picker / cancel. |
+| `Right / Middle click` | Paste from the system clipboard into the input. |
+| `Mouse drag` | Select text (chat line-wise, input char-wise); releasing copies it to the clipboard. |
+| `Escape` (while selected) | Clear the selection without copying. |

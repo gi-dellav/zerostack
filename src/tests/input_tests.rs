@@ -73,6 +73,27 @@ fn right_arrow_steps_one_char_not_one_byte() {
 }
 
 #[test]
+fn ctrl_left_jumps_to_prev_word_start() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "hello world");
+    editor.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+    assert_eq!(editor.cursor, 6); // start of "world"
+    editor.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+    assert_eq!(editor.cursor, 0);
+}
+
+#[test]
+fn ctrl_right_jumps_to_next_word_end() {
+    let mut editor = InputEditor::new();
+    type_str(&mut editor, "hello world");
+    editor.cursor = 0;
+    editor.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+    assert_eq!(editor.cursor, 5); // just past "hello"
+    editor.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL));
+    assert_eq!(editor.cursor, 11); // end of buffer
+}
+
+#[test]
 fn enter_returns_buffer_and_resets() {
     let mut editor = InputEditor::new();
     type_str(&mut editor, "hei på");

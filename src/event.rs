@@ -77,6 +77,10 @@ pub enum UserEvent {
     ScrollDown,
     Resize,
     Paste(String),
+    /// Right- or middle-click paste: read the system clipboard and insert it
+    /// into the input buffer. The read happens in the app loop, not the event
+    /// thread.
+    PasteRequest,
     FocusGained,
     #[allow(dead_code)]
     MouseDown {
