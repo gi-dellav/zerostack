@@ -69,6 +69,37 @@ the `custom_providers` key in the config file:
 | `timeout_secs`                | integer | Optional. Whole-request deadline in seconds; it covers the streamed reply, so leave it unset unless a gateway needs one. Unset: completions have no deadline (5s connect cap, request fails after 300s of silence) and `GET /models` requests are capped at 8s per attempt. Like `headers`, applies to `provider_type: openai` only. |
 | `model`                       | string  | Optional. Default model name for this provider. Used when no model is specified via `--model` or `ZS_MODEL`.                                                                  |
 
+### Tsubasa
+
+Set `TSUBASA_API_KEY` through your environment and merge these values into your
+configuration:
+
+```json
+{
+  "provider": "tsubasa",
+  "model": "tsubasa-fast",
+  "context_window": 32768,
+  "max_tokens": 4096,
+  "custom_providers": {
+    "tsubasa": {
+      "provider_type": "openai",
+      "api_style": "completions",
+      "base_url": "https://api.tsubasa.sh/v1",
+      "api_key_env": "TSUBASA_API_KEY",
+      "model": "tsubasa-fast"
+    }
+  }
+}
+```
+
+Run `zerostack --provider tsubasa --model tsubasa-fast --no-tools`; use
+`--model tsubasa-pro` for the other alias. This sends prompts and
+`TSUBASA_API_KEY` to `api.tsubasa.sh`. Both aliases use a 32,768-token context;
+input, tools and the requested output must fit together. The explicit context
+setting avoids the discovery fallback below. Enable tools only when the
+endpoint and model support tool calls; a limited read-only setup uses
+`--tools read --read-only` in place of `--no-tools`.
+
 ### Live context window and pricing
 
 For custom providers, zerostack reads the context window and token pricing
