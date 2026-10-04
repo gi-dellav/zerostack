@@ -94,7 +94,7 @@ async fn headless_ask_denies_instead_of_hanging() {
     let write_tool = WriteTool::new(permission, ask_tx, None);
 
     let agent = AgentBuilder::new(model.clone())
-        .tool(write_tool)
+        .dynamic_tool(crate::agent::builder::dynamic_tool(write_tool))
         .default_max_turns(2)
         .build();
 

@@ -1,7 +1,7 @@
 use crate::agent::tools::WriteTodoList;
 use crate::agent::tools::todo::{TODO_LIST, TodoItem, TodoWriteArgs};
 use compact_str::CompactString;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 
 fn reset_todo_list() {
     let mut list = TODO_LIST
@@ -12,8 +12,7 @@ fn reset_todo_list() {
 
 #[tokio::test]
 async fn definition_name() {
-    let tool = WriteTodoList::new(None, None);
-    assert_eq!(tool.name(), "todo_write");
+    assert_eq!(WriteTodoList::NAME, "todo_write");
 }
 
 #[tokio::test]

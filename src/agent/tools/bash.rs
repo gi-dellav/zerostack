@@ -1,4 +1,4 @@
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 use tokio::time::{Duration, timeout};
 
 use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm};

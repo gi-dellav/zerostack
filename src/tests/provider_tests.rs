@@ -8,8 +8,7 @@ use crate::provider::{
 };
 use crate::session::{MessageRole, SessionMessage};
 use compact_str::CompactString;
-use rig::client::CompletionClient;
-use rig::completion::Prompt;
+use rig::agent::AgentBuilder;
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -304,7 +303,9 @@ async fn anthropic_custom_base_appends_v1_messages() {
     let AnyClient::Anthropic(client) = client else {
         panic!("expected an Anthropic client");
     };
-    let agent = client.agent("MiniMax-M3").max_tokens(16).build();
+    let agent = AgentBuilder::new(client.completion("MiniMax-M3"))
+        .max_tokens(16)
+        .build();
     assert!(agent.prompt("hello").await.is_err());
 
     server.join().unwrap();

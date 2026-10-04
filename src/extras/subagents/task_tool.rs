@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use futures::future::join_all;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 use serde::Deserialize;
 
 use crate::agent::tools::{ToolError, check_perm};
@@ -124,7 +124,13 @@ editing in a known location, grepping for a literal you will act on immediately.
                     builder::build_explore_agent(model, max_turns, &config, architecture).await;
                 let result = tokio::time::timeout(
                     SUBAGENT_TIMEOUT,
-                    agent.run_subagent(&prompt_text, max_turns, event_tx.as_ref(), &config.retry),
+                    crate::agent::runner::run_subagent(
+                        &agent,
+                        &prompt_text,
+                        max_turns,
+                        event_tx.as_ref(),
+                        &config.retry,
+                    ),
                 )
                 .await;
                 #[cfg(feature = "hooks")]
@@ -136,7 +142,8 @@ editing in a known location, grepping for a literal you will act on immediately.
                     let continuation = format!("{response}\n\n{reason}");
                     let retried = tokio::time::timeout(
                         SUBAGENT_TIMEOUT,
-                        agent.run_subagent(
+                        crate::agent::runner::run_subagent(
+                            &agent,
                             &continuation,
                             max_turns,
                             event_tx.as_ref(),

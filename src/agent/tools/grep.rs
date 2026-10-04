@@ -1,6 +1,6 @@
 use ignore::WalkBuilder;
 use regex::Regex;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 
 use crate::agent::tools::{AskSender, GrepArgs, PermCheck, ToolError, check_perm, is_skip_dir};
 

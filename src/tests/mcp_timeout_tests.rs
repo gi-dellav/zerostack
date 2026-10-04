@@ -150,10 +150,9 @@ async fn tool_call_on_dead_server_reports_reconnect_failure() {
     use std::sync::Arc;
 
     use compact_str::CompactString;
-    use rig::tool::ToolDyn;
     use tokio::sync::RwLock;
 
-    use crate::extras::mcp::tool::McpTool;
+    use crate::extras::mcp::tool::mcp_dynamic_tool;
 
     // Build a handle whose transport is already dead: spawn a process that
     // exits immediately, and wait until the peer's channel is closed.
@@ -179,15 +178,15 @@ async fn tool_call_on_dead_server_reports_reconnect_failure() {
         "noop",
         std::sync::Arc::new(rmcp::model::JsonObject::new()),
     );
-    let tool = McpTool {
-        server_name: CompactString::new("dead-server"),
+    let tool = mcp_dynamic_tool(
+        CompactString::new("dead-server"),
         definition,
-        handle: Arc::new(RwLock::new(handle)),
-        permission: None,
-        ask_tx: None,
-    };
-    let err = match tool.call("{}".to_string()).await {
-        Ok(out) => panic!("call on dead server must fail, got: {out}"),
+        Arc::new(RwLock::new(handle)),
+        None,
+        None,
+    );
+    let err = match tool.execute(serde_json::json!({})).await {
+        Ok(out) => panic!("call on dead server must fail, got: {out:?}"),
         Err(e) => e,
     };
     let msg = err.to_string();

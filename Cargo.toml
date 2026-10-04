@@ -36,8 +36,8 @@ lsp = ["dep:lsp-types"]
 rtk = []
 
 [dependencies]
-rig = { version = "0.40", features = ["rmcp"] }
-rmcp = { version = "3.1", optional = true, default-features = false, features = [
+rig = { version = "0.43", features = ["rmcp"] }
+rmcp = { version = "3.5", optional = true, default-features = false, features = [
     "client",
     "transport-child-process",
     "transport-streamable-http-client-reqwest",
@@ -66,7 +66,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 futures = "0.3"
 reqwest = "0.13"
-dirs = "6"
+dirs = "7"
 compact_str = { version = "0.10", features = ["serde"] }
 smallvec = "1"
 regex = "1"
@@ -76,7 +76,7 @@ pulldown-cmark = "0.13"
 include_dir = "0.7"
 http = "1"
 shell-words = "1.1"
-agent-client-protocol = { version = "2.0.0", optional = true }
+agent-client-protocol = { version = "2.2.0", optional = true }
 blocking = { version = "1", optional = true }
 lsp-types = { version = "0.97", optional = true }
 mimalloc = { version = "0.1", default-features = false }
@@ -91,7 +91,7 @@ mimalloc = { version = "0.1", default-features = false }
 # different feature sets and rig is recompiled between them. That is the
 # accepted cost of a test-only feature; folding `test-utils` into the release
 # dep to skip the rebuild would instead ship dead test code in the binary.
-rig = { version = "0.40", features = ["test-utils"] }
+rig = { version = "0.43", features = ["test-utils"] }
 
 [profile.dev]
 opt-level = 1

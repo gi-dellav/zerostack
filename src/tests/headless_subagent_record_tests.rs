@@ -13,7 +13,7 @@
 //! runs never listened on that channel at all.
 
 use rig::agent::AgentBuilder;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 use serde::Deserialize;
 
 use crate::agent::runner::{PrintOutcome, run_print};

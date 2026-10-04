@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use ignore::WalkBuilder;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 
 use crate::agent::tools::{
     AskSender, ListDirArgs, PermCheck, ToolError, check_perm_path, is_skip_dir,

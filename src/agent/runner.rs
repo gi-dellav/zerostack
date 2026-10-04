@@ -5,9 +5,9 @@ use futures::StreamExt;
 use rig::agent::{Agent, MultiTurnStreamItem, StreamingResult};
 #[cfg(feature = "multimodal")]
 use rig::completion::message::{AudioMediaType, DocumentMediaType, ImageMediaType};
-use rig::completion::{CompletionModel, Message};
+use rig::completion::{Message, Usage};
 use rig::message::ToolResultContent;
-use rig::streaming::{StreamedAssistantContent, StreamedUserContent, StreamingChat};
+use rig::streaming::{Item, StreamEvent, StreamedUserContent};
 use tokio::sync::mpsc;
 
 use crate::event::{AgentEvent, BtwEvent};
@@ -30,49 +30,37 @@ pub struct BtwRunner {
     pub abort_handle: tokio::task::AbortHandle,
 }
 
-fn streamed_reasoning_text<R>(content: &StreamedAssistantContent<R>) -> Option<CompactString> {
-    match content {
-        StreamedAssistantContent::Reasoning(reasoning) => {
-            Some(CompactString::new(reasoning.display_text()))
-        }
-        StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
-            if reasoning.is_empty() {
-                None
-            } else {
-                Some(CompactString::from(reasoning.as_str()))
-            }
-        }
-        _ => None,
-    }
+/// Start one streamed run of `agent` for `prompt` over `history`, retrying a
+/// retryable first-item failure per `retry_config`.
+async fn start_stream(
+    agent: &Agent,
+    prompt: String,
+    history: Vec<Message>,
+    retry_config: &RetryConfig,
+) -> Result<StreamingResult, anyhow::Error> {
+    retry::retry_stream_chat(retry_config, || {
+        let p = prompt.clone();
+        let h = history.clone();
+        async move { agent.prompt(p).history(h).stream() }
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Spawn an isolated, single-turn, tool-less side-question run. The full result
 /// is delivered as a single [`BtwEvent::Done`] (or [`BtwEvent::Error`]) tagged
 /// with `id`. Unlike [`spawn_agent`], it never registers a subagent event sink
 /// and never mutates the session.
-pub fn spawn_btw<M>(
-    agent: Agent<M>,
+pub fn spawn_btw(
+    agent: Agent,
     prompt: String,
     history: Vec<Message>,
     event_tx: mpsc::Sender<BtwEvent>,
     id: u32,
     retry_config: RetryConfig,
-) -> BtwRunner
-where
-    M: CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-{
+) -> BtwRunner {
     let join = tokio::spawn(async move {
-        let stream_result = {
-            let agent_ref = &agent;
-            retry::retry_stream_chat(&retry_config, move || {
-                let p = prompt.clone();
-                let h = history.clone();
-                async move { agent_ref.stream_chat(p, h).await }
-            })
-            .await
-        };
-        let mut stream = match stream_result {
+        let mut stream = match start_stream(&agent, prompt, history, &retry_config).await {
             Ok(s) => s,
             Err(e) => {
                 let _ = event_tx
@@ -89,9 +77,10 @@ where
 
         while let Some(item) = stream.next().await {
             match item {
-                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
+                Ok(MultiTurnStreamItem::StreamAssistantItem(Item::Event(StreamEvent::Text {
                     text,
-                ))) => acc.push_str(&text.text),
+                    ..
+                }))) => acc.push_str(&text),
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     let usage = res.usage();
                     let response_text = res.output;
@@ -104,10 +93,12 @@ where
                         .send(BtwEvent::Done {
                             id,
                             response,
-                            input_tokens: usage.input_tokens,
-                            output_tokens: usage.output_tokens,
-                            cached_input_tokens: usage.cached_input_tokens,
-                            cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                            input_tokens: usage.input_tokens.unwrap_or(0),
+                            output_tokens: usage.output_tokens.unwrap_or(0),
+                            cached_input_tokens: usage.cached_input_tokens.unwrap_or(0),
+                            cache_creation_input_tokens: usage
+                                .cache_creation_input_tokens
+                                .unwrap_or(0),
                         })
                         .await;
                     return;
@@ -190,31 +181,30 @@ pub fn convert_history(session: &Session) -> Vec<Message> {
 
 #[cfg(feature = "multimodal")]
 pub fn media_to_messages(media: &[crate::extras::multimodal::MediaAttachment]) -> Vec<Message> {
-    use rig::OneOrMany;
     use rig::completion::message::UserContent;
 
     media
         .iter()
         .map(|m| match m {
             crate::extras::multimodal::MediaAttachment::Image { data, mime, .. } => Message::User {
-                content: OneOrMany::one(UserContent::image_raw(
+                content: vec![UserContent::image_raw(
                     data.clone(),
                     Some(image_media_type(mime)),
                     None,
-                )),
+                )],
             },
             crate::extras::multimodal::MediaAttachment::Audio { data, mime, .. } => Message::User {
-                content: OneOrMany::one(UserContent::audio_raw(
+                content: vec![UserContent::audio_raw(
                     data.clone(),
                     Some(audio_media_type(mime)),
-                )),
+                )],
             },
             crate::extras::multimodal::MediaAttachment::Document { data, mime, .. } => {
                 Message::User {
-                    content: OneOrMany::one(UserContent::document_raw(
+                    content: vec![UserContent::document_raw(
                         data.clone(),
                         Some(document_media_type(mime)),
-                    )),
+                    )],
                 }
             }
         })
@@ -262,32 +252,6 @@ fn document_media_type(mime: &str) -> DocumentMediaType {
     }
 }
 
-async fn continue_prompt_injector<M>(
-    agent: &Agent<M>,
-    retry_prompt: &str,
-    retry_history: &[Message],
-    tool_interactions: &[Message],
-    retry_config: &RetryConfig,
-) -> StreamingResult<M::StreamingResponse>
-where
-    M: CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-{
-    let mut new_history = retry_history.to_vec();
-    new_history.extend_from_slice(tool_interactions);
-    new_history.push(Message::user(retry_prompt.to_string()));
-    new_history.push(Message::assistant(String::new()));
-    match retry::retry_stream_chat(retry_config, || {
-        let h = new_history.clone();
-        async move { agent.stream_chat("Please continue.", h).await }
-    })
-    .await
-    {
-        Ok(stream) => stream,
-        Err(e) => Box::pin(futures::stream::once(async move { Err(e) })),
-    }
-}
-
 /// Builds the forked context for a `/btw` side question: the committed
 /// conversation history, plus — when the main agent is mid-task — a synthesized
 /// note describing the in-flight turn so the side question can see what the
@@ -310,8 +274,8 @@ only if the user's question is about what the main assistant is doing.)",
     snapshot
 }
 
-pub fn spawn_agent<M>(
-    agent: Agent<M>,
+pub fn spawn_agent(
+    agent: Agent,
     prompt: String,
     history: Vec<Message>,
     retry_config: RetryConfig,
@@ -320,11 +284,7 @@ pub fn spawn_agent<M>(
     // `stop_hook_active`/the block cap falls out for free: each iteration is
     // a fresh call to this function). `None` outside loop mode.
     #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
-) -> AgentRunner
-where
-    M: CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-{
+) -> AgentRunner {
     let (event_tx, event_rx) = mpsc::channel::<AgentEvent>(32);
 
     #[cfg(feature = "subagents")]
@@ -337,20 +297,13 @@ where
             history.len(),
             retry_config.max_attempts,
         );
-        let retry_prompt = prompt.clone();
-        let retry_history: Vec<Message> = history.clone();
-        let mut tool_interactions: Vec<Message> = Vec::new();
-        // In-flight calls by rig `internal_call_id`. A map, not a single
-        // slot: providers may stream a whole batch of parallel `ToolCall`s
-        // before any of their `ToolResult`s, so pairing by "most recent call"
-        // records the wrong name against a result.
-        let mut pending_tool_names: HashMap<String, String> = HashMap::new();
+        // The conversation handed to rig's own multi-turn loop. Each completed
+        // run appends its transcript (`PromptResponse::messages`), so a
+        // Stop-hook continuation resumes from the exact committed state.
+        let mut conversation: Vec<Message> = history;
+        let mut current_prompt = prompt.clone();
         let mut empty_response_count: u32 = 0;
         const MAX_EMPTY_RESPONSES: u32 = 3;
-        // Overrides the next continuation message (bottom of the outer
-        // `loop`); set when a `Stop` hook forces continuation instead of the
-        // default re-injected `retry_prompt`.
-        let mut next_instruction: Option<String> = None;
         #[cfg(feature = "hooks")]
         let mut stop_hook_active = false;
         #[cfg(feature = "hooks")]
@@ -358,111 +311,74 @@ where
         #[cfg(feature = "hooks")]
         const MAX_STOP_BLOCKS: u32 = 8;
 
-        let mut stream: StreamingResult<M::StreamingResponse> = {
-            let mut attempt: usize = 0;
-            let mut backoff = std::time::Duration::from_millis(retry_config.initial_backoff_ms);
-            let max_backoff = std::time::Duration::from_millis(retry_config.max_backoff_ms);
-            loop {
-                attempt += 1;
-                let mut s = agent.stream_chat(prompt.clone(), history.clone()).await;
-                let first = s.next().await;
-                match first {
-                    Some(Ok(item)) => {
-                        break futures::stream::once(std::future::ready(Ok(item)))
-                            .chain(s)
-                            .boxed();
-                    }
-                    Some(Err(e))
-                        if attempt < retry_config.max_attempts && retry::is_retryable(&e) =>
-                    {
-                        tracing::warn!(
-                            "agent retry {attempt}/{max} after error: {e}",
-                            max = retry_config.max_attempts,
-                        );
-                        let _ = event_tx
-                            .send(AgentEvent::Retrying {
-                                attempt,
-                                max: retry_config.max_attempts,
-                            })
-                            .await;
-                        let base = retry::retry_after(&e)
-                            .unwrap_or(backoff)
-                            .min(max_backoff * 2);
-                        let jitter = retry::simple_jitter(base.as_millis() as u64 / 4 + 1);
-                        tokio::time::sleep(base + jitter).await;
-                        backoff = (backoff * 2).min(max_backoff);
-                    }
-                    Some(Err(e)) => {
-                        tracing::error!("agent non-retryable error on attempt {attempt}: {e}");
-                        let _ = event_tx
-                            .send(AgentEvent::Error(CompactString::new(e.to_string())))
-                            .await;
-                        return;
-                    }
-                    None => break s.boxed(),
-                }
-            }
-        };
-
         loop {
-            // Entries orphaned by an abandoned turn must not outlive it.
-            pending_tool_names.clear();
+            let mut stream = match start_stream(
+                &agent,
+                current_prompt.clone(),
+                conversation.clone(),
+                &retry_config,
+            )
+            .await
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("agent stream failed to start: {e}");
+                    let _ = event_tx
+                        .send(AgentEvent::Error(CompactString::new(e.to_string())))
+                        .await;
+                    return;
+                }
+            };
+
+            // In-flight calls by rig `CallId`. A map, not a single slot:
+            // providers may stream a whole batch of parallel `ToolCall`s before
+            // any of their results, so pairing by "most recent call" records
+            // the wrong name against a result.
+            let mut pending_tool_names: HashMap<String, String> = HashMap::new();
+            let mut response: Option<rig::agent::PromptResponse> = None;
+
             while let Some(item) = stream.next().await {
                 match item {
-                    Ok(MultiTurnStreamItem::StreamAssistantItem(content)) => {
-                        if let Some(reasoning) = streamed_reasoning_text(&content) {
-                            let _ = event_tx.send(AgentEvent::Reasoning(reasoning)).await;
-                            continue;
+                    Ok(MultiTurnStreamItem::StreamAssistantItem(item)) => match item {
+                        Item::Event(StreamEvent::Text { text, .. }) => {
+                            let _ = event_tx
+                                .send(AgentEvent::Token(CompactString::from(text)))
+                                .await;
                         }
-
-                        match content {
-                            StreamedAssistantContent::Text(text) => {
+                        Item::Event(StreamEvent::Reasoning { text, .. }) => {
+                            if !text.is_empty() {
                                 let _ = event_tx
-                                    .send(AgentEvent::Token(CompactString::from(text.text)))
+                                    .send(AgentEvent::Reasoning(CompactString::from(text)))
                                     .await;
                             }
-                            StreamedAssistantContent::ToolCall {
-                                tool_call,
-                                internal_call_id,
-                            } => {
-                                let tool_name = &tool_call.function.name;
-                                tracing::debug!(
-                                    "agent tool start: name={}, args_len={}",
-                                    tool_name,
-                                    tool_call.function.arguments.to_string().len(),
-                                );
-                                pending_tool_names
-                                    .insert(internal_call_id.clone(), tool_name.clone());
-                                tool_interactions.push(tool_call.clone().into());
-                                let _ = event_tx
-                                    .send(AgentEvent::ToolCall {
-                                        call_id: CompactString::from(internal_call_id),
-                                        name: CompactString::from(tool_call.function.name),
-                                        args: tool_call.function.arguments,
-                                    })
-                                    .await;
-                            }
-                            _ => {}
                         }
+                        _ => {}
+                    },
+                    Ok(MultiTurnStreamItem::ToolCall { tool_call }) => {
+                        let call_id = tool_call.id.to_string();
+                        let tool_name = tool_call.function.name.to_string();
+                        tracing::debug!(
+                            "agent tool start: name={}, args_len={}",
+                            tool_name,
+                            tool_call.function.arguments.to_string().len(),
+                        );
+                        pending_tool_names.insert(call_id.clone(), tool_name.clone());
+                        let _ = event_tx
+                            .send(AgentEvent::ToolCall {
+                                call_id: CompactString::from(call_id),
+                                name: CompactString::from(tool_name),
+                                args: tool_call.function.arguments,
+                            })
+                            .await;
                     }
                     Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                         tool_result,
-                        internal_call_id,
                     })) => {
-                        // Reachable on an abandoned turn; rig's `ToolResult`
-                        // carries only call ids, so the name is unrecoverable
-                        // and the consumer pairs on the id instead.
+                        let call_id = tool_result.call.to_string();
                         let tool_name = CompactString::new(
                             pending_tool_names
-                                .remove(&internal_call_id)
-                                .unwrap_or_else(|| {
-                                    tracing::warn!(
-                                        "tool result with no matching pending call \
-                                         (internal_call_id={id})",
-                                        id = internal_call_id.escape_debug(),
-                                    );
-                                    String::new()
-                                }),
+                                .remove(&call_id)
+                                .unwrap_or_else(|| tool_result.name.to_string()),
                         );
                         let mut output = String::new();
                         for c in tool_result.content.iter() {
@@ -480,87 +396,32 @@ where
                         );
                         let _ = event_tx
                             .send(AgentEvent::ToolResult {
-                                call_id: CompactString::from(internal_call_id),
-                                name: tool_name.clone(),
+                                call_id: CompactString::from(call_id),
+                                name: tool_name,
                                 output: CompactString::from(output),
                             })
                             .await;
-                        tool_interactions.push(tool_result.clone().into());
-                    }
-                    Ok(MultiTurnStreamItem::FinalResponse(res)) => {
-                        let usage = res.usage();
-                        let response_text = res.output;
-                        tracing::info!(
-                            "agent done: input_tokens={}, output_tokens={}, cached_input_tokens={}, cache_creation_input_tokens={}",
-                            usage.input_tokens,
-                            usage.output_tokens,
-                            usage.cached_input_tokens,
-                            usage.cache_creation_input_tokens,
-                        );
-
-                        if !response_text.is_empty() {
-                            #[cfg(feature = "hooks")]
-                            if let crate::extras::hooks::StopGate::Continue { reason } =
-                                crate::extras::hooks::dispatch_stop(
-                                    stop_hook_active,
-                                    loop_info.map(|info| u64::from(info.iteration)),
-                                    loop_info.map(|info| info.active),
-                                )
-                                .await
-                            {
-                                consecutive_stop_blocks += 1;
-                                if consecutive_stop_blocks <= MAX_STOP_BLOCKS {
-                                    stop_hook_active = true;
-                                    tracing::info!(
-                                        "hooks: Stop hook forced continuation ({consecutive_stop_blocks}/{MAX_STOP_BLOCKS}): {reason}"
-                                    );
-                                    next_instruction = Some(reason);
-                                    break;
-                                }
-                                tracing::warn!(
-                                    "hooks: Stop block cap ({MAX_STOP_BLOCKS}) reached without progress; forcing release"
-                                );
-                            }
-                            let _ = event_tx
-                                .send(AgentEvent::Done {
-                                    response: CompactString::from(response_text),
-                                    input_tokens: usage.input_tokens,
-                                    output_tokens: usage.output_tokens,
-                                    cached_input_tokens: usage.cached_input_tokens,
-                                    cache_creation_input_tokens: usage.cache_creation_input_tokens,
-                                })
-                                .await;
-                            return;
-                        }
-                        empty_response_count += 1;
-                        if empty_response_count >= MAX_EMPTY_RESPONSES {
-                            tracing::warn!(
-                                "agent: {MAX_EMPTY_RESPONSES} consecutive empty responses, aborting"
-                            );
-                            let _ = event_tx
-                                .send(AgentEvent::Error(CompactString::from(
-                                    "Agent returned empty response too many times, aborting.",
-                                )))
-                                .await;
-                            return;
-                        }
-                        break;
                     }
                     Ok(MultiTurnStreamItem::CompletionCall(call)) => {
                         let usage = call.usage;
                         tracing::debug!(
-                            "agent completion: input_tokens={}, output_tokens={}",
+                            "agent completion: input_tokens={:?}, output_tokens={:?}",
                             usage.input_tokens,
                             usage.output_tokens,
                         );
                         let _ = event_tx
                             .send(AgentEvent::CompletionCall {
-                                input_tokens: usage.input_tokens,
-                                output_tokens: usage.output_tokens,
-                                cached_input_tokens: usage.cached_input_tokens,
-                                cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                                input_tokens: usage.input_tokens.unwrap_or(0),
+                                output_tokens: usage.output_tokens.unwrap_or(0),
+                                cached_input_tokens: usage.cached_input_tokens.unwrap_or(0),
+                                cache_creation_input_tokens: usage
+                                    .cache_creation_input_tokens
+                                    .unwrap_or(0),
                             })
                             .await;
+                    }
+                    Ok(MultiTurnStreamItem::FinalResponse(res)) => {
+                        response = Some(res);
                     }
                     Err(e) => {
                         tracing::error!("agent stream error: {e}");
@@ -573,21 +434,68 @@ where
                 }
             }
 
-            tracing::debug!(
-                "agent injecting continue prompt, tool_interactions={}",
-                tool_interactions.len(),
-            );
-            let injected_prompt = next_instruction
-                .take()
-                .unwrap_or_else(|| retry_prompt.clone());
-            stream = continue_prompt_injector(
-                &agent,
-                &injected_prompt,
-                &retry_history,
-                &tool_interactions,
-                &retry_config,
-            )
-            .await;
+            let Some(res) = response else {
+                let _ = event_tx
+                    .send(AgentEvent::Error(CompactString::from(
+                        "agent stream ended without a final response",
+                    )))
+                    .await;
+                return;
+            };
+
+            if let Some(messages) = &res.messages {
+                conversation.extend(messages.iter().cloned());
+            }
+            let usage = res.usage();
+
+            if !res.output.is_empty() {
+                #[cfg(feature = "hooks")]
+                if let crate::extras::hooks::StopGate::Continue { reason } =
+                    crate::extras::hooks::dispatch_stop(
+                        stop_hook_active,
+                        loop_info.map(|info| u64::from(info.iteration)),
+                        loop_info.map(|info| info.active),
+                    )
+                    .await
+                {
+                    consecutive_stop_blocks += 1;
+                    if consecutive_stop_blocks <= MAX_STOP_BLOCKS {
+                        stop_hook_active = true;
+                        tracing::info!(
+                            "hooks: Stop hook forced continuation ({consecutive_stop_blocks}/{MAX_STOP_BLOCKS}): {reason}"
+                        );
+                        current_prompt = reason;
+                        continue;
+                    }
+                    tracing::warn!(
+                        "hooks: Stop block cap ({MAX_STOP_BLOCKS}) reached without progress; forcing release"
+                    );
+                }
+                let _ = event_tx
+                    .send(AgentEvent::Done {
+                        response: CompactString::from(res.output),
+                        input_tokens: usage.input_tokens.unwrap_or(0),
+                        output_tokens: usage.output_tokens.unwrap_or(0),
+                        cached_input_tokens: usage.cached_input_tokens.unwrap_or(0),
+                        cache_creation_input_tokens: usage.cache_creation_input_tokens.unwrap_or(0),
+                    })
+                    .await;
+                return;
+            }
+
+            empty_response_count += 1;
+            if empty_response_count >= MAX_EMPTY_RESPONSES {
+                tracing::warn!(
+                    "agent: {MAX_EMPTY_RESPONSES} consecutive empty responses, aborting"
+                );
+                let _ = event_tx
+                    .send(AgentEvent::Error(CompactString::from(
+                        "Agent returned empty response too many times, aborting.",
+                    )))
+                    .await;
+                return;
+            }
+            current_prompt = prompt.clone();
         }
     });
 
@@ -597,79 +505,36 @@ where
     }
 }
 
-/// Headless (`-p`, `--loop`) counterpart to [`spawn_agent`]'s turn loop.
-/// Deliberately drives its own manual loop instead of rig's
-/// `.max_turns(max_turns)` combinator: `max_turns` is an opaque black box
-/// that only ever yields a single terminal `FinalResponse` for the whole
-/// session, with no seam to inject "one more turn" after it — exactly what a
-/// `Stop` hook needs to do. The agent's own `default_max_turns` (set at
-/// construction, see `agent::builder::build_agent_inner`) still bounds
-/// internal tool-call round trips per call, same as [`spawn_agent`], which
-/// never used `.max_turns()` either.
-pub async fn run_print<M>(
-    agent: &Agent<M>,
+/// Headless (`-p`, `--loop`) counterpart to [`spawn_agent`]. Drives rig's own
+/// multi-turn loop and prints tokens as they stream. A `Stop` hook forces one
+/// more turn by starting a fresh run over the committed transcript.
+pub async fn run_print(
+    agent: &Agent,
     prompt: &str,
     pure_stdout: bool,
     retry_config: &RetryConfig,
     // Prior turns from a resumed session (e.g. `--continue`), converted via
-    // `convert_history`. Fed to the initial `stream_chat` call below and
-    // seeded into `retry_history` for the hooks `Stop`-continuation retry,
-    // mirroring `spawn_agent`. Empty for a fresh session.
+    // `convert_history`.
     history: Vec<Message>,
-    // `--loop` iteration/active state, for the `Stop` hook envelope's
-    // `loop_iteration`/`loop_active` fields; see `runner::spawn_agent`.
-    // `None` for plain `-p` one-shot runs.
     #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
-) -> anyhow::Result<PrintOutcome>
-where
-    M: CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-{
-    let mut stream = retry::retry_stream_chat(retry_config, || {
-        let p = prompt.to_string();
-        let h = history.clone();
-        async move { agent.stream_chat(p, h).await }
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
-
-    #[cfg(feature = "hooks")]
-    let retry_history: Vec<Message> = history;
-    #[cfg(feature = "hooks")]
-    let mut tool_interactions: Vec<Message> = Vec::new();
+) -> anyhow::Result<PrintOutcome> {
+    let mut conversation = history;
+    #[cfg_attr(not(feature = "hooks"), allow(unused_mut))]
+    let mut current_prompt = prompt.to_string();
     let mut full_response = String::new();
-    // In-flight calls by rig `internal_call_id`: (name, args). A map, not a
-    // pair of single slots — see the matching comment in `spawn_agent`.
-    let mut pending_calls: HashMap<String, (String, serde_json::Value)> = HashMap::new();
-    // Unconditional (independent of `pure_stdout` and the `hooks` feature)
-    // ordered record of this turn's completed tool call/result round trips,
-    // returned to the caller (`dispatch_print`) for session persistence. See
-    // design.md decision 5.
     let mut recorded_interactions: Vec<ToolInteraction> = Vec::new();
     // Subagent tool calls reach this loop on a side channel rather than as
     // stream items: `run_subagent` sends them from the tokio task the `task`
-    // tool spawned, concurrently with this turn's own stream. Only
-    // `spawn_agent` (the TUI) ever published a sender, so headless runs left
-    // subagent activity untraced; publishing one here is what makes it
-    // recordable. Same channel capacity as `spawn_agent`'s, and drained by
-    // the `select!` below while the `task` tool is still running, so a
-    // subagent making many tool calls cannot fill it and stall.
+    // tool spawned, concurrently with this turn's own stream.
     #[cfg(feature = "subagents")]
     let (subagent_tx, mut subagent_rx) = mpsc::channel::<AgentEvent>(32);
     #[cfg(feature = "subagents")]
     crate::extras::subagents::set_subagent_event_tx(subagent_tx.clone());
-    // Held for the whole turn: with no sender alive the channel would be
-    // closed, and the `select!` arm below would then complete immediately on
-    // every poll instead of waiting.
     #[cfg(feature = "subagents")]
     let _subagent_tx = subagent_tx;
-    // Subagent calls seen since the current main-agent tool call started;
-    // moved into that call's `ToolInteraction` when its result arrives.
     #[cfg(feature = "subagents")]
     let mut pending_subagent_calls: Vec<SubagentCall> = Vec::new();
-    let mut usage = rig::completion::Usage::new();
-    // Set true only when a `Stop` hook forces another turn; drives the outer
-    // loop. Stays false (single pass, no continuation) in the hooks-off build.
+    let mut usage = Usage::default();
     let mut continue_turn = true;
     #[cfg(feature = "hooks")]
     let mut next_instruction: Option<String> = None;
@@ -682,21 +547,23 @@ where
 
     while continue_turn {
         continue_turn = false;
-        // Entries orphaned by an abandoned turn must not outlive it.
-        pending_calls.clear();
+        let mut stream = start_stream(
+            agent,
+            current_prompt.clone(),
+            conversation.clone(),
+            retry_config,
+        )
+        .await?;
+
+        // In-flight calls by rig `CallId`: (name, args).
+        let mut pending_calls: HashMap<String, (String, serde_json::Value)> = HashMap::new();
+
         loop {
             // Wait for the next stream item while staying available to the
-            // subagent channel. `StreamExt::next` is cancel-safe (it only
-            // polls the stream, which owns its own state), so losing the race
-            // to a subagent event costs nothing: the next iteration polls the
-            // same stream again.
+            // subagent channel.
             #[cfg(feature = "subagents")]
             let next_item = loop {
                 tokio::select! {
-                    // `biased`: drain everything already queued before
-                    // touching the stream, so a subagent event that arrived
-                    // during the `task` call is attributed to that call and
-                    // not to whatever comes next.
                     biased;
                     Some(event) = subagent_rx.recv() => {
                         push_subagent_call(&mut pending_subagent_calls, event);
@@ -709,55 +576,42 @@ where
 
             let Some(item) = next_item else { break };
             match item {
-                Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(
+                Ok(MultiTurnStreamItem::StreamAssistantItem(Item::Event(StreamEvent::Text {
                     text,
-                ))) => {
-                    full_response.push_str(&text.text);
-                    print!("{}", text.text);
+                    ..
+                }))) => {
+                    full_response.push_str(&text);
+                    print!("{text}");
                     let _ = std::io::Write::flush(&mut std::io::stdout());
                 }
-                Ok(MultiTurnStreamItem::StreamAssistantItem(
-                    StreamedAssistantContent::Reasoning(r),
-                )) => {
-                    eprint!("{}", r.display_text());
+                Ok(MultiTurnStreamItem::StreamAssistantItem(Item::Event(
+                    StreamEvent::Reasoning { text, .. },
+                ))) => {
+                    eprint!("{text}");
                     let _ = std::io::Write::flush(&mut std::io::stderr());
                 }
-                Ok(MultiTurnStreamItem::StreamAssistantItem(
-                    StreamedAssistantContent::ToolCall {
-                        tool_call,
-                        internal_call_id,
-                    },
-                )) => {
-                    let name = tool_call.function.name.clone();
+                Ok(MultiTurnStreamItem::ToolCall { tool_call }) => {
+                    let call_id = tool_call.id.to_string();
+                    let name = tool_call.function.name.to_string();
                     let args = tool_call.function.arguments.clone();
                     if pure_stdout {
                         let summary = format_tool_args_summary(&args);
                         println!("\n◈ {} {}", name, summary);
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                     }
-                    pending_calls.insert(internal_call_id, (name, args));
-                    #[cfg(feature = "hooks")]
-                    tool_interactions.push(tool_call.clone().into());
+                    pending_calls.insert(call_id, (name, args));
                 }
                 Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                     tool_result,
-                    internal_call_id,
                 })) => {
-                    // Reachable: rig streams a result for a call that produced
-                    // no `ToolCall` item when the turn is abandoned over an
-                    // invalid tool call. The recorded pair stays
-                    // self-consistent (a phantom call is recorded alongside
-                    // it, see `startup.rs`); the name has to be empty because
-                    // rig's `ToolResult` carries only call ids, not the name.
-                    let (name, args) =
-                        pending_calls.remove(&internal_call_id).unwrap_or_else(|| {
-                            tracing::warn!(
-                                "tool result with no matching pending call \
-                                 (internal_call_id={id})",
-                                id = internal_call_id.escape_debug(),
-                            );
-                            (String::new(), serde_json::Value::Null)
-                        });
+                    let call_id = tool_result.call.to_string();
+                    let (name, args) = pending_calls.remove(&call_id).unwrap_or_else(|| {
+                        tracing::warn!(
+                            "tool result with no matching pending call (call_id={id})",
+                            id = call_id,
+                        );
+                        (tool_result.name.to_string(), serde_json::Value::Null)
+                    });
                     let mut output = String::new();
                     for c in tool_result.content.iter() {
                         if let ToolResultContent::Text(t) = c {
@@ -775,19 +629,10 @@ where
                             println!("{}", truncated.join("\n"));
                             println!("(truncated {} more lines)", lines.len().saturating_sub(40));
                         } else {
-                            println!("{}", output);
+                            println!("{output}");
                         }
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                     }
-                    // Attribute anything still queued to the call that just
-                    // finished: a subagent only runs inside its `task` call,
-                    // and every send completes before that call returns. The
-                    // `select!` above normally has them already, but a tool
-                    // that sends without ever yielding hands us its result in
-                    // the same poll, leaving them queued until here.
-                    // Best-effort under a parallel batch: with several calls
-                    // in flight the side channel carries no call id, so a
-                    // sibling's result can claim the `task` call's subagents.
                     #[cfg(feature = "subagents")]
                     while let Ok(event) = subagent_rx.try_recv() {
                         push_subagent_call(&mut pending_subagent_calls, event);
@@ -799,11 +644,12 @@ where
                         #[cfg(feature = "subagents")]
                         subagent_calls: std::mem::take(&mut pending_subagent_calls),
                     });
-                    #[cfg(feature = "hooks")]
-                    tool_interactions.push(tool_result.clone().into());
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     usage = res.usage();
+                    if let Some(messages) = &res.messages {
+                        conversation.extend(messages.iter().cloned());
+                    }
                     #[cfg(feature = "hooks")]
                     if let crate::extras::hooks::StopGate::Continue { reason } =
                         crate::extras::hooks::dispatch_stop(
@@ -831,10 +677,6 @@ where
                 }
                 Ok(_) => {}
                 Err(e) => {
-                    // Propagate the stream failure instead of returning `Ok`
-                    // with a truncated/empty response: dispatch must exit
-                    // non-zero and must never persist an empty assistant turn
-                    // (which would then be replayed as history on `--continue`).
                     return Err(anyhow::anyhow!("{e}"));
                 }
             }
@@ -842,21 +684,9 @@ where
 
         #[cfg(feature = "hooks")]
         if continue_turn {
-            let injected_prompt = next_instruction
+            current_prompt = next_instruction
                 .take()
                 .unwrap_or_else(|| prompt.to_string());
-            // Keep the text already streamed to stdout this turn: the caller
-            // persists the returned string as the assistant message, so
-            // clearing it here would drop turn-1 output the user already saw
-            // and desync the saved transcript from the terminal.
-            stream = continue_prompt_injector(
-                agent,
-                &injected_prompt,
-                &retry_history,
-                &tool_interactions,
-                retry_config,
-            )
-            .await;
         }
     }
 
@@ -870,36 +700,21 @@ where
 
 /// One complete tool call/result round trip from a `run_print` turn: the
 /// call's name and complete, untruncated argument JSON, plus the result text
-/// it produced. Collected unconditionally (independent of `--pure-stdout`
-/// and the `hooks` feature), unlike the `hooks`-only `tool_interactions:
-/// Vec<Message>` above, which carries the raw `rig` message types needed
-/// only for `Stop`-continuation replay. `dispatch_print` turns each of these
-/// into a `Session::add_tool_call` + `add_tool_result` pair (design.md
-/// decision 5); each round trip is paired by rig's `internal_call_id`, so a
-/// parallel batch (every call streamed before the first result) records each
-/// result against its own call.
+/// it produced.
 #[derive(Debug, Clone)]
 pub struct ToolInteraction {
     pub name: String,
     pub args: serde_json::Value,
     pub output: String,
     /// The tool calls subagents made while this call was running, in arrival
-    /// order. Nesting them here is what carries the parent link across the
-    /// concurrency boundary: only this loop knows which main-agent call was
-    /// in flight when each event arrived, and `dispatch_print` turns the
-    /// nesting into `parent_call_id` once the enclosing call has an id.
-    /// Empty for anything but a `task` call when that call runs alone; under a
-    /// parallel batch the attribution is best-effort, since queued subagent
-    /// calls attach to the batch's first-arriving result whichever call it
-    /// answers.
+    /// order.
     #[cfg(feature = "subagents")]
     pub subagent_calls: Vec<SubagentCall>,
 }
 
 /// One tool call made by a subagent, as reported by
 /// [`AgentEvent::SubagentToolCall`]: name plus complete, untruncated argument
-/// JSON. Subagent tool *results* have no event to carry them (design.md
-/// Non-Goals), so there is nothing to pair this with.
+/// JSON.
 #[cfg(feature = "subagents")]
 #[derive(Debug, Clone)]
 pub struct SubagentCall {
@@ -924,7 +739,7 @@ fn push_subagent_call(collected: &mut Vec<SubagentCall>, event: AgentEvent) {
 /// persist into the session.
 pub struct PrintOutcome {
     pub response: String,
-    pub usage: rig::completion::Usage,
+    pub usage: Usage,
     pub tool_interactions: Vec<ToolInteraction>,
 }
 
@@ -949,7 +764,6 @@ fn format_tool_args_summary(args_json: &serde_json::Value) -> String {
                         other => other.to_string(),
                     };
                     let truncated: String = if s.len() > 120 {
-                        // char-boundary-safe truncation for non-ASCII
                         let mut end = 117;
                         while !s.is_char_boundary(end) {
                             end -= 1;
@@ -970,24 +784,21 @@ fn format_tool_args_summary(args_json: &serde_json::Value) -> String {
 /// Run an agent silently (no stdout/stderr printing), collecting the full
 /// response text. Used by subagent tasks.
 #[cfg(feature = "subagents")]
-pub async fn run_subagent<M>(
-    agent: &Agent<M>,
+pub async fn run_subagent(
+    agent: &Agent,
     prompt: &str,
     max_turns: usize,
     event_tx: Option<&mpsc::Sender<AgentEvent>>,
     retry_config: &RetryConfig,
-) -> anyhow::Result<String>
-where
-    M: CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-{
+) -> anyhow::Result<String> {
     let mut stream = retry::retry_stream_chat(retry_config, || {
         let p = prompt.to_string();
         async move {
             agent
-                .stream_chat(p, Vec::<Message>::new())
+                .prompt(p)
+                .history(Vec::<Message>::new())
                 .max_turns(max_turns)
-                .await
+                .stream()
         }
     })
     .await
@@ -997,17 +808,17 @@ where
 
     while let Some(item) = stream.next().await {
         match item {
-            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) => {
-                full_response.push_str(&text.text);
-            }
-            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
-                tool_call,
+            Ok(MultiTurnStreamItem::StreamAssistantItem(Item::Event(StreamEvent::Text {
+                text,
                 ..
-            })) => {
+            }))) => {
+                full_response.push_str(&text);
+            }
+            Ok(MultiTurnStreamItem::ToolCall { tool_call }) => {
                 if let Some(tx) = event_tx {
                     let _ = tx
                         .send(AgentEvent::SubagentToolCall {
-                            name: CompactString::from(tool_call.function.name),
+                            name: CompactString::from(tool_call.function.name.to_string()),
                             args: tool_call.function.arguments,
                         })
                         .await;
@@ -1029,33 +840,4 @@ where
     }
 
     Ok(full_response)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::streamed_reasoning_text;
-    use rig::streaming::StreamedAssistantContent;
-
-    #[test]
-    fn streamed_reasoning_delta_is_forwardable_as_reasoning_text() {
-        let content = StreamedAssistantContent::<()>::ReasoningDelta {
-            id: Some("rs_demo".to_string()),
-            reasoning: "thinking in progress".to_string(),
-        };
-
-        assert_eq!(
-            streamed_reasoning_text(&content).as_deref(),
-            Some("thinking in progress")
-        );
-    }
-
-    #[test]
-    fn empty_reasoning_delta_is_ignored() {
-        let content = StreamedAssistantContent::<()>::ReasoningDelta {
-            id: None,
-            reasoning: String::new(),
-        };
-
-        assert!(streamed_reasoning_text(&content).is_none());
-    }
 }
