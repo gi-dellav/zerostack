@@ -1042,9 +1042,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.6"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "473c7e07f409a8d772161724aa8db6a765a2532a70f9667eeb7b49d3d02fbdca"
+checksum = "aa8876b300ab35ba921adea3dfd70157a46249b33f95c9084ae5709785478946"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -1052,9 +1052,9 @@ dependencies = [
 
 [[package]]
 name = "clap_builder"
-version = "4.6.6"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b48fea5a88e9ae728a2dcbedbfc0e730f7d60da42e1cb049a83c9fb8b789889"
+checksum = "ec0797fb7aeb1406c84efac526901f7ec3ead2124f946b494e72879d4b54704d"
 dependencies = [
  "anstream",
  "anstyle",
@@ -1064,9 +1064,9 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.6.4"
+version = "4.6.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d012d2b9d65aca7f18f4d9878a045bc17899bba951561ba5ec3c2ba1eed9a061"
+checksum = "f9c751b79415d4e559e3d1fcf128e09e720eb673a06d26cf6f392d37d75b66e0"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -5873,11 +5873,11 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
-version = "0.13.4"
+version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
+checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -6038,7 +6038,7 @@ version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0176524c2282918325c47aecde68aaef3fdb8fb4efcd8aa337d01586dbb7cb5"
 dependencies = [
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rig-core",
  "serde",
  "serde_json",
@@ -6080,7 +6080,7 @@ version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "895cf1b1f093e0f5b4f079424ed381fc368ed18baa4aa343f546404f4d1e1bc1"
 dependencies = [
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rig-core",
  "rig-reqwest",
  "serde",
@@ -6096,7 +6096,7 @@ dependencies = [
  "bytes",
  "futures",
  "http",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rig-http",
  "thiserror 2.0.21",
  "tokio",
@@ -6150,7 +6150,7 @@ version = "0.43.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce4405172443272cc91ed58788b49fc63bcbea2510d06142e24bc9dd3b85abe5"
 dependencies = [
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rig-core",
  "serde",
  "serde_json",
@@ -6242,7 +6242,7 @@ dependencies = [
  "oauth2",
  "pin-project-lite",
  "process-wrap",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "serde",
  "serde_json",
  "sse-stream",
@@ -7342,9 +7342,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.5+spec-1.1.0"
+version = "1.1.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12c0ba9680044b4ce98d391a62094047eada0d64860b80166c39f4a6b5640785"
+checksum = "920602543f0911ab71da12c50d59701da54c196d1a2bf5cb4b75667f137a406a"
 dependencies = [
  "indexmap 2.14.2",
  "serde_core",
@@ -8346,7 +8346,7 @@ dependencies = [
  "mimalloc",
  "pulldown-cmark",
  "regex",
- "reqwest 0.13.4",
+ "reqwest 0.13.5",
  "rig",
  "rmcp 3.5.0",
  "serde",
