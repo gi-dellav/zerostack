@@ -104,6 +104,13 @@
       "context": 1000000,
       "input_price": 2,
       "output_price": 10
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "context": 1000000,
+      "input_price": 2,
+      "output_price": 10
     }
   ],
   "openai": [
@@ -348,6 +355,13 @@
     {
       "id": "gpt-6-sol",
       "name": "GPT-6 Sol",
+      "context": 1050000,
+      "input_price": 2,
+      "output_price": 10
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
       "context": 1050000,
       "input_price": 2,
       "output_price": 10
@@ -693,6 +707,11 @@
       "context": 1000000
     },
     {
+      "id": "anthropic/claude-sonnet-5.5",
+      "name": "Claude Sonnet 5.5",
+      "context": 1000000
+    },
+    {
       "id": "deepseek/deepseek-chat",
       "name": "DeepSeek Chat",
       "context": 163840
@@ -718,11 +737,6 @@
       "context": 163840
     },
     {
-      "id": "deepseek/deepseek-r1-distill-llama-70b",
-      "name": "R1 Distill Llama 70B",
-      "context": 8192
-    },
-    {
       "id": "deepseek/deepseek-v3.1-terminus",
       "name": "DeepSeek V3.1 Terminus",
       "context": 163840
@@ -745,7 +759,7 @@
     {
       "id": "deepseek/deepseek-v4-flash-0731",
       "name": "DeepSeek V4 Flash 0731",
-      "context": 1310720
+      "context": 1048576
     },
     {
       "id": "deepseek/deepseek-v4-flash-vision-exp",
@@ -1333,6 +1347,16 @@
       "context": 1050000
     },
     {
+      "id": "openai/gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-6.1-sol-pro",
+      "name": "GPT-6.1 Sol Pro",
+      "context": 1050000
+    },
+    {
       "id": "openai/gpt-chat-latest",
       "name": "GPT Chat Latest",
       "context": 400000
@@ -1755,12 +1779,12 @@
     {
       "id": "z-ai/glm-5.3",
       "name": "GLM-5.3",
-      "context": 1310720
+      "context": 1048576
     },
     {
       "id": "z-ai/glm-5.3-flash",
       "name": "GLM-5.3-Flash",
-      "context": 1310720
+      "context": 1048576
     },
     {
       "id": "z-ai/glm-5.3-flashx",
