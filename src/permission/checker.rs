@@ -565,7 +565,7 @@ impl PermissionChecker {
     }
 
     fn is_doom_loop(&self) -> bool {
-        self.consecutive_repeat_count >= 3
+        self.consecutive_repeat_count >= 5
     }
 
     fn count_doom_loop(&self) -> usize {

@@ -419,11 +419,11 @@ impl Config {
     }
 
     pub fn resolve_max_grep_results(&self) -> u64 {
-        self.max_grep_results.unwrap_or(150)
+        self.max_grep_results.unwrap_or(200)
     }
 
     pub fn resolve_max_find_results(&self) -> u64 {
-        self.max_find_results.unwrap_or(150)
+        self.max_find_results.unwrap_or(200)
     }
 
     pub fn resolve_max_list_dir_entries(&self) -> Option<u64> {
