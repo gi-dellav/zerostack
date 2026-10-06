@@ -1,37 +1,26 @@
-use rig::tool::{ToolDyn, ToolError};
-use rig::wasm_compat::WasmBoxedFuture;
+use rig::tool::DynamicTool;
 
 use crate::agent::builder::filter_tools_by_allowlist;
 
-struct NamedTool(&'static str);
-
-impl ToolDyn for NamedTool {
-    fn name(&self) -> String {
-        self.0.to_string()
-    }
-
-    fn description(&self) -> String {
-        String::new()
-    }
-
-    fn parameters(&self) -> serde_json::Value {
-        serde_json::json!({})
-    }
-
-    fn call<'a>(&'a self, _args: String) -> WasmBoxedFuture<'a, Result<String, ToolError>> {
-        Box::pin(async { Ok(String::new()) })
-    }
+fn named_tool(name: &'static str) -> DynamicTool {
+    DynamicTool::new(
+        name,
+        String::new(),
+        serde_json::json!({}),
+        move |_args: serde_json::Value| {
+            Box::pin(async move {
+                Ok::<_, rig::tool::ToolExecutionError>(rig::tool::ToolOutput::text(""))
+            })
+        },
+    )
 }
 
-fn make_tools(names: &[&'static str]) -> Vec<Box<dyn ToolDyn>> {
-    names
-        .iter()
-        .map(|n| Box::new(NamedTool(n)) as Box<dyn ToolDyn>)
-        .collect()
+fn make_tools(names: &[&'static str]) -> Vec<DynamicTool> {
+    names.iter().map(|n| named_tool(n)).collect()
 }
 
-fn tool_names(tools: &[Box<dyn ToolDyn>]) -> Vec<String> {
-    tools.iter().map(|t| t.name()).collect()
+fn tool_names(tools: &[DynamicTool]) -> Vec<String> {
+    tools.iter().map(|t| t.name().to_string()).collect()
 }
 
 #[test]

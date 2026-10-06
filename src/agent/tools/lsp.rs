@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 use serde::Deserialize;
 
 use crate::agent::tools::ToolError;

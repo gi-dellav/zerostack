@@ -1,5 +1,5 @@
 use compact_str::CompactString;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::tools::{AskSender, PermCheck, ToolError, check_perm};

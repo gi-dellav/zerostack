@@ -18,7 +18,7 @@
 //! invalid tool call, and zerostack installs no rig hooks).
 
 use rig::agent::AgentBuilder;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 use serde::Deserialize;
 
 use crate::agent::runner::run_print;

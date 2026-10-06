@@ -99,9 +99,9 @@ pub(crate) fn reset_dispatcher() {
 /// them unchanged when no hooks are configured. The single weave point shared
 /// by the main-agent and subagent builders (design D5).
 pub(crate) fn wrap_from_global(
-    tools: Vec<Box<dyn rig::tool::ToolDyn>>,
+    tools: Vec<rig::tool::DynamicTool>,
     permission: Option<crate::permission::checker::PermCheck>,
-) -> Vec<Box<dyn rig::tool::ToolDyn>> {
+) -> Vec<rig::tool::DynamicTool> {
     match get_dispatcher() {
         Some(dispatcher) => decorator::wrap_all(tools, dispatcher, permission),
         None => tools,

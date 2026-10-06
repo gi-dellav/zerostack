@@ -71,6 +71,13 @@
       "output_price": 25
     },
     {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "context": 1000000,
+      "input_price": 4,
+      "output_price": 20
+    },
+    {
       "id": "claude-sonnet-4-5",
       "name": "Claude Sonnet 4.5 (latest)",
       "context": 1000000,
@@ -94,6 +101,13 @@
     {
       "id": "claude-sonnet-5",
       "name": "Claude Sonnet 5",
+      "context": 1000000,
+      "input_price": 2,
+      "output_price": 10
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
       "context": 1000000,
       "input_price": 2,
       "output_price": 10
@@ -332,6 +346,41 @@
       "output_price": 50
     },
     {
+      "id": "gpt-6-luna",
+      "name": "GPT-6 Luna",
+      "context": 1050000,
+      "input_price": 0.1,
+      "output_price": 0.5
+    },
+    {
+      "id": "gpt-6-sol",
+      "name": "GPT-6 Sol",
+      "context": 1050000,
+      "input_price": 2,
+      "output_price": 10
+    },
+    {
+      "id": "gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "context": 1050000,
+      "input_price": 2,
+      "output_price": 10
+    },
+    {
+      "id": "gpt-daybreak-blue-latest",
+      "name": "Daybreak Blue",
+      "context": 1050000,
+      "input_price": 4,
+      "output_price": 20
+    },
+    {
+      "id": "gpt-daybreak-red-latest",
+      "name": "Daybreak Red",
+      "context": 400000,
+      "input_price": 12.5,
+      "output_price": 75
+    },
+    {
       "id": "o1",
       "name": "o1",
       "context": 200000,
@@ -392,7 +441,7 @@
     {
       "id": "gemini-2.5-computer-use-preview-10-2025",
       "name": "Gemini 2.5 Computer Use Preview 10-2025",
-      "context": 131072,
+      "context": 128000,
       "input_price": 1.25,
       "output_price": 10
     },
@@ -434,7 +483,7 @@
     {
       "id": "gemini-3-pro-image",
       "name": "Nano Banana Pro",
-      "context": 131072,
+      "context": 65536,
       "input_price": 2,
       "output_price": 120
     },
@@ -448,7 +497,7 @@
     {
       "id": "gemini-3.1-flash-image",
       "name": "Nano Banana 2",
-      "context": 65536,
+      "context": 131072,
       "input_price": 0.5,
       "output_price": 60
     },
@@ -588,11 +637,6 @@
   ],
   "openrouter": [
     {
-      "id": "anthropic/claude-3-haiku",
-      "name": "Claude 3 Haiku",
-      "context": 200000
-    },
-    {
       "id": "anthropic/claude-fable-5",
       "name": "Claude Fable 5",
       "context": 1000000
@@ -605,11 +649,6 @@
     {
       "id": "anthropic/claude-haiku-4.5",
       "name": "Claude Haiku 4.5 (latest)",
-      "context": 200000
-    },
-    {
-      "id": "anthropic/claude-opus-4",
-      "name": "Claude Opus 4",
       "context": 200000
     },
     {
@@ -643,9 +682,14 @@
       "context": 1000000
     },
     {
+      "id": "anthropic/claude-opus-5.5",
+      "name": "Claude Opus 5.5",
+      "context": 1000000
+    },
+    {
       "id": "anthropic/claude-sonnet-4",
       "name": "Claude Sonnet 4",
-      "context": 1000000
+      "context": 200000
     },
     {
       "id": "anthropic/claude-sonnet-4.5",
@@ -660,6 +704,11 @@
     {
       "id": "anthropic/claude-sonnet-5",
       "name": "Claude Sonnet 5",
+      "context": 1000000
+    },
+    {
+      "id": "anthropic/claude-sonnet-5.5",
+      "name": "Claude Sonnet 5.5",
       "context": 1000000
     },
     {
@@ -688,11 +737,6 @@
       "context": 163840
     },
     {
-      "id": "deepseek/deepseek-r1-distill-llama-70b",
-      "name": "R1 Distill Llama 70B",
-      "context": 8192
-    },
-    {
       "id": "deepseek/deepseek-v3.1-terminus",
       "name": "DeepSeek V3.1 Terminus",
       "context": 163840
@@ -715,7 +759,7 @@
     {
       "id": "deepseek/deepseek-v4-flash-0731",
       "name": "DeepSeek V4 Flash 0731",
-      "context": 1310720
+      "context": 1048576
     },
     {
       "id": "deepseek/deepseek-v4-flash-vision-exp",
@@ -760,11 +804,6 @@
     {
       "id": "google/gemini-2.5-pro-preview",
       "name": "Gemini 2.5 Pro Preview 06-05",
-      "context": 1048576
-    },
-    {
-      "id": "google/gemini-2.5-pro-preview-05-06",
-      "name": "Gemini 2.5 Pro Preview 05-06",
       "context": 1048576
     },
     {
@@ -1093,11 +1132,6 @@
       "context": 128000
     },
     {
-      "id": "openai/gpt-4-turbo-preview",
-      "name": "GPT-4 Turbo Preview",
-      "context": 128000
-    },
-    {
       "id": "openai/gpt-4.1",
       "name": "GPT-4.1",
       "context": 1047576
@@ -1290,6 +1324,36 @@
     {
       "id": "openai/gpt-6-astra-pro",
       "name": "GPT-6 Astra Pro",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-6-luna",
+      "name": "GPT-6 Luna",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-6-luna-pro",
+      "name": "GPT-6 Luna Pro",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-6-sol",
+      "name": "GPT-6 Sol",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-6-sol-pro",
+      "name": "GPT-6 Sol Pro",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-6.1-sol",
+      "name": "GPT-6.1 Sol",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-6.1-sol-pro",
+      "name": "GPT-6.1 Sol Pro",
       "context": 1050000
     },
     {
@@ -1598,6 +1662,11 @@
       "context": 1000000
     },
     {
+      "id": "qwen/qwen3.8-27b:free",
+      "name": "Qwen3.8 27B (free)",
+      "context": 262144
+    },
+    {
       "id": "qwen/qwen3.8-flash",
       "name": "Qwen3.8 Flash",
       "context": 1000000
@@ -1605,6 +1674,16 @@
     {
       "id": "qwen/qwen3.8-max-0902",
       "name": "Qwen3.8 Max 0902",
+      "context": 1000000
+    },
+    {
+      "id": "qwen/qwen3.8-max-prime",
+      "name": "Qwen 3.8 Max Prime",
+      "context": 1000000
+    },
+    {
+      "id": "qwen/qwen3.8-omni-flash",
+      "name": "Qwen3.8 Omni Flash",
       "context": 1000000
     },
     {
@@ -1630,6 +1709,11 @@
     {
       "id": "x-ai/grok-4.6",
       "name": "Grok 4.6",
+      "context": 500000
+    },
+    {
+      "id": "x-ai/grok-4.7",
+      "name": "Grok 4.7",
       "context": 500000
     },
     {
@@ -1695,12 +1779,22 @@
     {
       "id": "z-ai/glm-5.3",
       "name": "GLM-5.3",
-      "context": 1310720
+      "context": 1048576
     },
     {
       "id": "z-ai/glm-5.3-flash",
       "name": "GLM-5.3-Flash",
-      "context": 1310720
+      "context": 1048576
+    },
+    {
+      "id": "z-ai/glm-5.3-flashx",
+      "name": "GLM 5.3 FlashX",
+      "context": 1048576
+    },
+    {
+      "id": "z-ai/glm-5.3-prime",
+      "name": "GLM 5.3 Prime",
+      "context": 1000000
     },
     {
       "id": "z-ai/glm-5v-turbo",

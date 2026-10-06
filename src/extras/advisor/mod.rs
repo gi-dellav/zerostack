@@ -1,13 +1,14 @@
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use rig::streaming::StreamingChat;
-use rig::tool::Tool;
+use rig::DynModel;
+use rig::operation::Completion;
+use rig::tool::PortableTool as Tool;
 use serde::Deserialize;
 use tokio::sync::oneshot;
 
 use crate::agent::tools::ToolError;
-use crate::provider::{AnyClient, AnyModel, OpenAiModel};
+use crate::provider::AnyClient;
 use crate::retry::{self, RetryConfig};
 use crate::session::{MessageRole, SessionMessage};
 
@@ -205,7 +206,7 @@ conversation, so focus your question on the specific decision you need help with
                 return Err(ToolError::Msg("Advisor model not configured".into()));
             };
 
-            let model = client.completion_model(cfg.advisor_model.clone());
+            let model = client.completion_model(cfg.advisor_model.clone()).as_dyn();
             let messages = SESSION_MESSAGES
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -218,7 +219,7 @@ conversation, so focus your question on the specific decision you need help with
 }
 
 async fn run_advisor_completion(
-    model: AnyModel,
+    model: DynModel<Completion>,
     question: &str,
     messages: &[SessionMessage],
 ) -> anyhow::Result<String> {
@@ -229,16 +230,7 @@ async fn run_advisor_completion(
         conversation, question
     );
 
-    match model {
-        AnyModel::OpenRouter(m, _) => advisor_call(m, prompt).await,
-        AnyModel::OpenAI(m) => match m {
-            OpenAiModel::Responses(m) => advisor_call(m, prompt).await,
-            OpenAiModel::Completions(m) => advisor_call(m, prompt).await,
-        },
-        AnyModel::Anthropic(m) => advisor_call(m, prompt).await,
-        AnyModel::Gemini(m) => advisor_call(m, prompt).await,
-        AnyModel::Ollama(m) => advisor_call(m, prompt).await,
-    }
+    advisor_call(model, prompt).await
 }
 
 pub(crate) fn format_conversation(msgs: &[SessionMessage], kilobytes_limit: u32) -> String {
@@ -323,11 +315,7 @@ pub(crate) fn format_conversation(msgs: &[SessionMessage], kilobytes_limit: u32)
     result
 }
 
-async fn advisor_call<M>(model: M, prompt: String) -> anyhow::Result<String>
-where
-    M: rig::completion::CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-{
+async fn advisor_call(model: DynModel<Completion>, prompt: String) -> anyhow::Result<String> {
     let mut preamble = ADVISOR_SYSTEM_PROMPT.to_string();
     if let Some(s) = crate::session::storage::load_suffix() {
         preamble.push_str("\n\n---\n\n");
@@ -339,12 +327,16 @@ where
         .build();
 
     use futures::StreamExt;
-    let _history: Vec<rig::completion::Message> = vec![];
     let agent_ref = &agent;
     let mut stream = retry::retry_stream_chat(&RetryConfig::default(), move || {
         let p = prompt.clone();
-        let h: Vec<rig::completion::Message> = vec![];
-        async move { agent_ref.stream_chat(p, h).max_turns(1).await }
+        async move {
+            agent_ref
+                .prompt(p)
+                .history(Vec::<rig::completion::Message>::new())
+                .max_turns(1)
+                .stream()
+        }
     })
     .await
     .map_err(|e| anyhow::anyhow!("Advisor call failed: {e}"))?;

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 use regex::RegexBuilder;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 use serde::Deserialize;
 
 use crate::agent::tools::{ToolError, check_perm};

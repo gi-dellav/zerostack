@@ -7,7 +7,7 @@ use crate::agent::tools::crc::crc32_hex;
 use crate::agent::tools::set_edit_system;
 use crate::agent::tools::{EditArgs, EditOp, edit};
 use crate::config::types::EditSystem;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 
 /// The edit system is a process-global, and `cargo test` runs tests in parallel,
 /// so a `Similarity` test could otherwise have the global flipped to `Hashedit`

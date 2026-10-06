@@ -32,7 +32,8 @@ zerostack --provider openai --model gpt-4o
 
 ## Provider Recipes
 
-- [MiniMax](../providers/Minimax.md)
+- [MiniMax](providers/Minimax.md)
+- [Opper](providers/Opper.md)
 
 ## Custom Providers
 

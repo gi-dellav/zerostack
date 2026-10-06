@@ -4,14 +4,17 @@ use std::time::Duration;
 use compact_str::CompactString;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rig::agent::Agent;
-use rig::client::{CompletionClient, ModelListingClient};
-use rig::completion::{CompletionModel, Message};
-use rig::providers::{anthropic, gemini, ollama, openai, openrouter};
-use rig::streaming::StreamingChat;
+use rig::completion::Message;
+use rig::model::{ModelInfo, ModelList};
+use rig::operation::Completion;
+use rig::providers::openai::wire::{OPENROUTER, OpenAIConfig, Route};
+use rig::{
+    DynModel,
+    providers::{anthropic, gemini, ollama, openai},
+};
 use tokio::sync::mpsc;
 
 use crate::agent::builder;
-use crate::agent::image_relay::ImageRelayModel;
 use crate::agent::prompt;
 use crate::agent::runner::{self, AgentRunner};
 use crate::auth::{AuthResolver, ProviderKind};
@@ -119,49 +122,55 @@ fn resolve_base_url(config: &ProviderConfig) -> Option<String> {
     config.base_url.clone()
 }
 
-/// rig 0.37 exposes two distinct OpenAI client types:
-/// - `openai::Client`            -> Responses API (`/responses`). Real OpenAI,
-///   including GPT-5; rig maps `max_tokens` to `max_output_tokens`, so it does
-///   not hit the GPT-5 400.
-/// - `openai::CompletionsClient` -> Chat Completions API (`/chat/completions`).
-///   Most OpenAI-compatible gateways (vLLM / LiteLLM / self-hosted) implement
-///   only this endpoint.
+/// rig 0.43 exposes OpenAI-family models through one client type:
+/// `openai::OpenAI` (an `OpenAIConfig` on a transport). The completion
+/// endpoint is chosen per model via [`Route`]:
+/// - `Route::Responses` (`/responses`) — real OpenAI, including GPT-5; rig
+///   maps `max_tokens` to `max_output_tokens`, so it does not hit the GPT-5 400.
+/// - `Route::Chat` (`/chat/completions`) — most OpenAI-compatible gateways
+///   (vLLM / LiteLLM / self-hosted) implement only this endpoint.
 ///
-/// The two cannot share a single type, so we wrap them in an inner enum and let
-/// `ApiStyle` decide which one to build.
+/// [`ApiStyle`] decides which route a model uses; [`AnyModel`] carries models
+/// already built for the right route, so no client enum is needed.
+pub type OpenAiClient = openai::OpenAI;
+
+/// A completion model: an erased `DynModel<Completion>` plus OpenRouter-only
+/// extra body params (see [`openrouter_anthropic_routing`]). `None` for every
+/// other provider.
 #[derive(Clone)]
-pub enum OpenAiClient {
-    Responses(openai::Client),
-    Completions(openai::CompletionsClient),
+pub struct OpenRouterModel {
+    pub model: DynModel<Completion>,
+    pub extra: Option<serde_json::Value>,
 }
 
-impl OpenAiClient {
-    fn completion_model(&self, name: String) -> OpenAiModel {
+#[derive(Clone)]
+pub enum OpenAiModel {
+    Responses(DynModel<Completion>),
+    Completions(DynModel<Completion>),
+}
+
+impl OpenAiModel {
+    fn as_dyn(&self) -> DynModel<Completion> {
         match self {
-            OpenAiClient::Responses(c) => OpenAiModel::Responses(c.completion_model(name)),
-            OpenAiClient::Completions(c) => OpenAiModel::Completions(c.completion_model(name)),
+            OpenAiModel::Responses(m) => m.clone(),
+            OpenAiModel::Completions(m) => m.clone(),
         }
     }
 }
 
-pub enum OpenAiModel {
-    Responses(openai::responses_api::ResponsesCompletionModel),
-    Completions(openai::completion::CompletionModel),
-}
-
 #[derive(Clone)]
 pub enum OpenAiAgent {
-    Responses(Agent<ImageRelayModel<openai::responses_api::ResponsesCompletionModel>>),
-    Completions(Agent<ImageRelayModel<openai::completion::CompletionModel>>),
+    Responses(Agent),
+    Completions(Agent),
 }
 
 #[derive(Clone)]
 pub enum AnyClient {
-    OpenRouter(openrouter::Client),
+    OpenRouter(openai::OpenAI),
     OpenAI(OpenAiClient),
-    Anthropic(anthropic::Client),
-    Gemini(gemini::Client),
-    Ollama(ollama::Client),
+    Anthropic(anthropic::Anthropic),
+    Gemini(gemini::Gemini),
+    Ollama(ollama::Ollama),
 }
 
 /// Extra OpenRouter request body params that pin a Claude model to the
@@ -223,14 +232,26 @@ impl AnyClient {
         match self {
             AnyClient::OpenRouter(c) => {
                 let extra = openrouter_anthropic_routing(&name);
-                AnyModel::OpenRouter(c.completion_model(name).with_prompt_caching(), extra)
+                let mut wire_model = c.completion(name);
+                if extra.is_some() {
+                    wire_model.wire = wire_model.wire.with_prompt_caching();
+                }
+                AnyModel::OpenRouter(OpenRouterModel {
+                    model: wire_model.erase(),
+                    extra,
+                })
             }
-            AnyClient::OpenAI(c) => AnyModel::OpenAI(c.completion_model(name)),
+            AnyClient::OpenAI(c) => AnyModel::OpenAI(match c.config().route {
+                Some(Route::Chat) => OpenAiModel::Completions(c.completion(name).erase()),
+                _ => OpenAiModel::Responses(c.completion(name).erase()),
+            }),
             AnyClient::Anthropic(c) => {
-                AnyModel::Anthropic(c.completion_model(name).with_prompt_caching())
+                let mut wire_model = c.completion(name);
+                wire_model.wire = wire_model.wire.with_prompt_caching();
+                AnyModel::Anthropic(wire_model.erase())
             }
-            AnyClient::Gemini(c) => AnyModel::Gemini(c.completion_model(name)),
-            AnyClient::Ollama(c) => AnyModel::Ollama(c.completion_model(name)),
+            AnyClient::Gemini(c) => AnyModel::Gemini(c.completion(name).erase()),
+            AnyClient::Ollama(c) => AnyModel::Ollama(c.completion(name).erase()),
         }
     }
 
@@ -265,7 +286,7 @@ pub struct ModelEntry {
 }
 
 impl ModelEntry {
-    fn from_rig(m: &rig::model::listing::Model) -> Self {
+    fn from_rig(m: &ModelInfo) -> Self {
         Self {
             id: m.id.clone(),
             display: m.display_name().to_string(),
@@ -325,19 +346,14 @@ pub fn is_agent_model(m: &ModelEntry) -> bool {
 }
 
 impl AnyClient {
-    /// Built-in providers: rig's ModelListingClient.
+    /// Built-in providers: rig's per-client `list_models`.
     pub async fn list_models(&self) -> anyhow::Result<Vec<ModelEntry>> {
-        let list = match self {
-            AnyClient::OpenAI(OpenAiClient::Responses(c)) => c.list_models().await?,
+        let list: ModelList = match self {
+            AnyClient::OpenAI(c) => c.list_models().await?,
             AnyClient::Anthropic(c) => c.list_models().await?,
             AnyClient::OpenRouter(c) => c.list_models().await?,
             AnyClient::Gemini(c) => c.list_models().await?,
             AnyClient::Ollama(c) => c.list_models().await?,
-            // If any arm above does NOT impl ModelListingClient it won't compile —
-            // move it down here to the manual fallback.
-            AnyClient::OpenAI(OpenAiClient::Completions(_)) => {
-                anyhow::bail!("rig model listing unavailable for this client")
-            }
         };
         Ok(list.iter().map(ModelEntry::from_rig).collect())
     }
@@ -541,22 +557,15 @@ pub(crate) fn parse_model_infos(
 
 async fn summarize_with_model(model: AnyModel, prompt: String) -> anyhow::Result<String> {
     match model {
-        AnyModel::OpenRouter(m, _) => run_summarizer(m, prompt).await,
-        AnyModel::OpenAI(m) => match m {
-            OpenAiModel::Responses(m) => run_summarizer(m, prompt).await,
-            OpenAiModel::Completions(m) => run_summarizer(m, prompt).await,
-        },
+        AnyModel::OpenRouter(m) => run_summarizer(m.model, prompt).await,
+        AnyModel::OpenAI(m) => run_summarizer(m.as_dyn(), prompt).await,
         AnyModel::Anthropic(m) => run_summarizer(m, prompt).await,
         AnyModel::Gemini(m) => run_summarizer(m, prompt).await,
         AnyModel::Ollama(m) => run_summarizer(m, prompt).await,
     }
 }
 
-async fn run_summarizer<M>(model: M, prompt: String) -> anyhow::Result<String>
-where
-    M: CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-{
+async fn run_summarizer(model: DynModel<Completion>, prompt: String) -> anyhow::Result<String> {
     let mut preamble = "You are a conversation summarizer.".to_string();
     if let Some(s) = crate::session::storage::load_suffix() {
         preamble.push_str("\n\n---\n\n");
@@ -572,9 +581,10 @@ where
         let p = prompt.clone();
         async move {
             agent_ref
-                .stream_chat(p, Vec::<Message>::new())
+                .prompt(p)
+                .history(Vec::<Message>::new())
                 .max_turns(1)
-                .await
+                .stream()
         }
     })
     .await
@@ -582,11 +592,12 @@ where
 
     let mut response = String::new();
     use futures::StreamExt;
+    use rig::streaming::{Item, StreamEvent};
     while let Some(item) = stream.next().await {
         match item {
-            Ok(rig::agent::MultiTurnStreamItem::StreamAssistantItem(
-                rig::streaming::StreamedAssistantContent::Text(text),
-            )) => response.push_str(&text.text),
+            Ok(rig::agent::MultiTurnStreamItem::StreamAssistantItem(Item::Event(
+                StreamEvent::Text { text, .. },
+            ))) => response.push_str(&text),
             Ok(rig::agent::MultiTurnStreamItem::FinalResponse(res)) => {
                 response = res.output.to_string();
                 break;
@@ -620,32 +631,43 @@ pub(crate) fn serialize_conversation(messages: &[SessionMessage]) -> String {
 }
 
 pub enum AnyModel {
-    /// The second field carries provider-specific extra body params. For
-    /// `anthropic/*` models routed via OpenRouter it pins `provider.order` to
-    /// the Anthropic direct route, the only route that honors `cache_control`
-    /// breakpoints (Bedrock/Vertex silently drop them). `None` for every other
-    /// OpenRouter model, which caches automatically and needs no routing.
-    OpenRouter(
-        openrouter::completion::CompletionModel,
-        Option<serde_json::Value>,
-    ),
+    /// The model plus provider-specific extra body params. For
+    /// `anthropic/*` models routed via OpenRouter `extra` pins
+    /// `provider.order` to the Anthropic direct route, the only route that
+    /// honors `cache_control` breakpoints (Bedrock/Vertex silently drop
+    /// them). `None` for every other OpenRouter model, which caches
+    /// automatically and needs no routing.
+    OpenRouter(OpenRouterModel),
     OpenAI(OpenAiModel),
-    Anthropic(anthropic::completion::CompletionModel),
-    Gemini(gemini::completion::CompletionModel),
-    Ollama(ollama::CompletionModel),
+    Anthropic(DynModel<Completion>),
+    Gemini(DynModel<Completion>),
+    Ollama(DynModel<Completion>),
+}
+
+impl AnyModel {
+    /// The erased completion model, whatever the provider.
+    pub fn as_dyn(&self) -> DynModel<Completion> {
+        match self {
+            AnyModel::OpenRouter(m) => m.model.clone(),
+            AnyModel::OpenAI(m) => m.as_dyn(),
+            AnyModel::Anthropic(m) => m.clone(),
+            AnyModel::Gemini(m) => m.clone(),
+            AnyModel::Ollama(m) => m.clone(),
+        }
+    }
 }
 
 #[derive(Clone)]
 pub enum AnyAgent {
-    OpenRouter(Agent<ImageRelayModel<openrouter::completion::CompletionModel>>),
+    OpenRouter(Agent),
     OpenAI(OpenAiAgent),
-    Anthropic(Agent<ImageRelayModel<anthropic::completion::CompletionModel>>),
-    Gemini(Agent<ImageRelayModel<gemini::completion::CompletionModel>>),
-    Ollama(Agent<ImageRelayModel<ollama::CompletionModel>>),
+    Anthropic(Agent),
+    Gemini(Agent),
+    Ollama(Agent),
     /// Scripted test double (`rig::test_utils::MockCompletionModel`), used by
     /// headless main-loop integration tests; never constructed in production.
     #[cfg(test)]
-    Mock(Agent<rig::test_utils::MockCompletionModel>),
+    Mock(Agent),
 }
 
 /// Synthesizes an `AgentRunner` for a prompt blocked by a `UserPromptSubmit`
@@ -1173,8 +1195,16 @@ pub(crate) fn resolve_api_style(
     })
 }
 
-/// Builds an OpenAI-family client (Responses or Completions) using the
-/// already-constructed shared http_client.
+/// Wraps a configured `reqwest::Client` as rig's erased HTTP transport so a
+/// provider client sends through zerostack's pooled, per-purpose client.
+fn rig_http(http_client: reqwest::Client) -> rig::http_client::DynHttpClient {
+    rig::http_client::DynHttpClient::new(rig::http_client::ReqwestClient::from(http_client))
+}
+
+/// Builds an OpenAI-family client (Responses or Chat Completions) using the
+/// already-constructed shared http_client. The completion endpoint is chosen
+/// via [`Route`] on the config; [`AnyClient::completion_model`] reads that
+/// route back when it builds each model.
 fn build_openai_client(
     key: &str,
     base_url: Option<&str>,
@@ -1182,37 +1212,15 @@ fn build_openai_client(
     http_client: reqwest::Client,
 ) -> anyhow::Result<OpenAiClient> {
     let style = resolve_api_style(base_url, custom);
-
-    match style {
-        ApiStyle::Responses => {
-            let client = match base_url {
-                Some(u) => openai::Client::builder()
-                    .api_key(key)
-                    .base_url(u)
-                    .http_client(http_client)
-                    .build()?,
-                None => openai::Client::builder()
-                    .api_key(key)
-                    .http_client(http_client)
-                    .build()?,
-            };
-            Ok(OpenAiClient::Responses(client))
-        }
-        ApiStyle::Completions => {
-            let client = match base_url {
-                Some(u) => openai::CompletionsClient::builder()
-                    .api_key(key)
-                    .base_url(u)
-                    .http_client(http_client)
-                    .build()?,
-                None => openai::CompletionsClient::builder()
-                    .api_key(key)
-                    .http_client(http_client)
-                    .build()?,
-            };
-            Ok(OpenAiClient::Completions(client))
-        }
-    }
+    let route = match style {
+        ApiStyle::Responses => Route::Responses,
+        ApiStyle::Completions => Route::Chat,
+    };
+    let config = match base_url {
+        Some(u) => OpenAIConfig::new(key).with_base_url(u),
+        None => OpenAIConfig::new(key),
+    };
+    Ok(config.with_route(route).connect(rig_http(http_client)))
 }
 
 pub fn create_client(
@@ -1255,50 +1263,45 @@ pub fn create_client(
     }
 }
 
-macro_rules! build_provider_client {
-    ($client_ty:ty, $variant:ident, $key_expr:expr, $base_url:expr) => {{
-        let key = $key_expr;
-        let builder = match $base_url {
-            Some(u) => <$client_ty>::builder().api_key(key).base_url(u),
-            None => <$client_ty>::builder().api_key(key),
-        };
-        Ok(AnyClient::$variant(builder.build()?))
-    }};
-}
-
 fn build_anthropic_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {
-    build_provider_client!(anthropic::Client, Anthropic, key, base_url)
+    let config = match base_url {
+        Some(u) => anthropic::wire::AnthropicConfig::new(key).with_base_url(u),
+        None => anthropic::wire::AnthropicConfig::new(key),
+    };
+    Ok(AnyClient::Anthropic(config.client()))
 }
 
 fn build_gemini_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {
-    build_provider_client!(gemini::Client, Gemini, key, base_url)
+    let config = match base_url {
+        Some(u) => gemini::GeminiConfig::new(key).with_base_url(u),
+        None => gemini::GeminiConfig::new(key),
+    };
+    Ok(AnyClient::Gemini(config.client()))
 }
 
 fn build_ollama_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {
-    build_provider_client!(
-        ollama::Client,
-        Ollama,
-        ollama::OllamaApiKey::from(key),
-        base_url
-    )
+    let config = ollama::wire::OllamaConfig::new().with_api_key(key);
+    let config = match base_url {
+        Some(u) => config.with_base_url(u),
+        None => config,
+    };
+    Ok(AnyClient::Ollama(config.client()))
 }
 
 fn build_openrouter_client(key: &str, base_url: Option<&str>) -> anyhow::Result<AnyClient> {
-    // Expanded from `build_provider_client!` so we can chain OpenRouter's
-    // builder-only app-identity calls: these set `X-OpenRouter-Title` /
-    // `HTTP-Referer` / `X-OpenRouter-Categories` so zerostack's traffic is
-    // attributed in OpenRouter's dashboards instead of showing up anonymously.
-    let builder = match base_url {
-        Some(u) => openrouter::Client::builder().api_key(key).base_url(u),
-        None => openrouter::Client::builder().api_key(key),
+    // OpenRouter is an OpenAI-shaped dialect. `with_key` pins the dialect so
+    // its base URL, auth header, and quirks apply; a custom `base_url`
+    // overrides the dialect default.
+    let config = OpenAIConfig::with_key(&OPENROUTER, key);
+    let config = match base_url {
+        Some(u) => config.with_base_url(u),
+        None => config,
     };
-    let builder = builder
-        .with_app_identity("zerostack", "https://github.com/gi-dellav/zerostack")
-        .with_app_categories(&["cli-agent", "coding"]);
-    Ok(AnyClient::OpenRouter(builder.build()?))
+    Ok(AnyClient::OpenRouter(config.client()))
 }
 
-/// Builds an OpenAiModel (Responses / Completions) into the matching OpenAiAgent.
+/// Builds an OpenAiModel (Responses / Chat Completions) into the matching
+/// OpenAiAgent.
 #[allow(clippy::too_many_arguments)]
 async fn build_openai_agent(
     model: OpenAiModel,
@@ -1366,9 +1369,9 @@ pub async fn build_agent(
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
 ) -> AnyAgent {
     match model {
-        AnyModel::OpenRouter(m, routing) => AnyAgent::OpenRouter(
+        AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(
             builder::build_agent_inner(
-                m,
+                m.model,
                 cli,
                 cfg,
                 context,
@@ -1377,7 +1380,7 @@ pub async fn build_agent(
                 sandbox.clone(),
                 reasoning_enabled,
                 temperature,
-                merge_extra_body(routing, extra_body),
+                merge_extra_body(m.extra, extra_body),
                 #[cfg(feature = "mcp")]
                 mcp_manager,
             )
@@ -1468,8 +1471,8 @@ pub fn build_btw_agent(
     extra_body: Option<serde_json::Value>,
 ) -> AnyAgent {
     match model {
-        AnyModel::OpenRouter(m, routing) => AnyAgent::OpenRouter(builder::build_btw_agent_inner(
-            m,
+        AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(builder::build_btw_agent_inner(
+            m.model,
             cli,
             cfg,
             context,
@@ -1477,7 +1480,7 @@ pub fn build_btw_agent(
             ask_tx,
             reasoning_enabled,
             temperature,
-            merge_extra_body(routing, extra_body),
+            merge_extra_body(m.extra, extra_body),
         )),
         AnyModel::OpenAI(m) => AnyAgent::OpenAI(match m {
             OpenAiModel::Responses(m) => OpenAiAgent::Responses(builder::build_btw_agent_inner(

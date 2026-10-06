@@ -13,7 +13,7 @@
 //! then `add_message(Assistant)`.
 
 use rig::agent::AgentBuilder;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 use serde::Deserialize;
 
 use crate::agent::runner::{PrintOutcome, run_print};
