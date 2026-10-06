@@ -602,6 +602,45 @@ fn standard_allows_readonly_git_commands() {
 }
 
 #[test]
+fn standard_darcs_commands() {
+    let mut checker = make_checker(SecurityMode::Standard);
+    for cmd in [
+        "darcs annotate README.rst",
+        "darcs diff",
+        "darcs diff ./lib",
+        "darcs diff --last 3",
+        "darcs show authors",
+        "darcs show contents README.rst",
+        "darcs show files",
+        "darcs show index",
+        "darcs show pristine",
+        "darcs show tags",
+        "darcs whatsnew",
+        "darcs whatsnew --look-for-adds",
+    ] {
+        assert!(
+            matches!(checker.check("bash", cmd), CheckResult::Allowed),
+            "expected Allowed for {cmd}"
+        );
+    }
+}
+
+#[test]
+fn restricted_darcs_commands() {
+    let mut checker = make_checker(SecurityMode::Standard);
+    for cmd in [
+        "darcs diff --diff-command \"sh -c 'rm -rf /' x %1 %2\"",
+        "darcs log --prehook=\"sudo rm -rf /\"",
+        "darcs test --posthook=\"sudo rm -rf /\"",
+    ] {
+        assert!(
+            matches!(checker.check("bash", cmd), CheckResult::Denied(_)),
+            "expected Denied for {cmd}"
+        );
+    }
+}
+
+#[test]
 fn standard_allows_pixi_run() {
     let mut checker = make_checker(SecurityMode::Standard);
     assert!(matches!(

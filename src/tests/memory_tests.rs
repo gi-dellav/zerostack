@@ -897,12 +897,15 @@ fn bak_files_never_surface_in_list_or_search() {
 fn subagent_memory_tool_set_excludes_memory_edit() {
     use crate::extras::memory::MemoryEdit;
     use crate::extras::subagents::builder::subagent_memory_tools;
-    use rig::tool::Tool;
+    use rig::tool::PortableTool as Tool;
     // Exercise the real production assembly of a subagent's memory tools, not a
     // hand-copied list: build_explore_agent_inner grants exactly what this
     // function returns, so if memory_edit (or any mutating tool) ever leaks into
     // it, this fails.
-    let names: Vec<String> = subagent_memory_tools().iter().map(|t| t.name()).collect();
+    let names: Vec<String> = subagent_memory_tools()
+        .iter()
+        .map(|t| t.name().to_string())
+        .collect();
     assert!(
         !names.iter().any(|n| n == MemoryEdit::NAME),
         "subagents must not receive memory_edit; got {names:?}"

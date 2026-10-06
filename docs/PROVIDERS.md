@@ -34,8 +34,9 @@ zerostack --provider openai --model gpt-4o
 
 ## Provider Recipes
 
-- [MiniMax](../providers/Minimax.md)
-- [OpenCode Zen / Go](../providers/OpencodeZenGo.md)
+- [MiniMax](providers/Minimax.md)
+- [OpenCode Zen / Go](providers/OpencodeZenGo.md)
+- [Opper](providers/Opper.md)
 
 ## Custom Providers
 

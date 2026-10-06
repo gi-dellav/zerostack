@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 
 use crate::agent::tools::{AskSender, PermCheck, ToolError, WriteArgs, check_perm_path};
 #[cfg(feature = "lsp")]

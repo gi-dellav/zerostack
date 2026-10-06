@@ -1,4 +1,4 @@
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 
 use crate::agent::tools::crc::crc32_hex;
 use crate::agent::tools::{

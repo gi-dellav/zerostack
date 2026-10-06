@@ -1003,18 +1003,20 @@ impl Startup {
                     session.add_tool_result(call_id, &interaction.name, &interaction.output);
                 }
                 session.add_message(MessageRole::Assistant, &response);
-                session.total_input_tokens = session
-                    .total_input_tokens
-                    .saturating_add(usage.input_tokens);
-                session.total_output_tokens = session
-                    .total_output_tokens
-                    .saturating_add(usage.output_tokens);
+                let input_tokens = usage.input_tokens.unwrap_or(0);
+                let output_tokens = usage.output_tokens.unwrap_or(0);
+                let cached_input_tokens = usage.cached_input_tokens.unwrap_or(0);
+                let cache_creation_input_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
+                session.total_input_tokens =
+                    session.total_input_tokens.saturating_add(input_tokens);
+                session.total_output_tokens =
+                    session.total_output_tokens.saturating_add(output_tokens);
                 session.total_cached_input_tokens = session
                     .total_cached_input_tokens
-                    .saturating_add(usage.cached_input_tokens);
+                    .saturating_add(cached_input_tokens);
                 session.total_cache_creation_input_tokens = session
                     .total_cache_creation_input_tokens
-                    .saturating_add(usage.cache_creation_input_tokens);
+                    .saturating_add(cache_creation_input_tokens);
                 session.total_cost += crate::pricing::estimate_cost(
                     crate::pricing::billable_input_tokens(
                         self.cfg
@@ -1023,7 +1025,7 @@ impl Startup {
                         usage.cached_input_tokens,
                         usage.cache_creation_input_tokens,
                     ),
-                    usage.output_tokens,
+                    output_tokens,
                     session.input_token_cost,
                     session.output_token_cost,
                 );

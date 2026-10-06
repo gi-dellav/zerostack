@@ -149,7 +149,7 @@ fn set_deny_repeated_reads_toggle() {
 
 #[test]
 fn find_files_descriptors_say_regex_not_glob() {
-    use rig::tool::Tool;
+    use rig::tool::PortableTool as Tool;
 
     let tool = crate::agent::tools::FindFilesTool::new(None, None, 100);
     let desc = tool.description();

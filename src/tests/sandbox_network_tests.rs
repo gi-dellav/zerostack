@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 
 use crate::agent::tools::bash::{BashTool, network_hint_for_exit};
 use crate::cli::Cli;

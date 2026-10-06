@@ -8,8 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use compact_str::CompactString;
+use rig::tool::DynamicTool;
 use tokio::sync::RwLock;
-use tool::McpTool;
+use tool::mcp_dynamic_tool;
 
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
@@ -84,7 +85,7 @@ impl McpClientManager {
         &self,
         permission: Option<PermCheck>,
         ask_tx: Option<AskSender>,
-    ) -> Vec<McpTool> {
+    ) -> Vec<DynamicTool> {
         tracing::debug!("MCP collecting tools from {} handles", self.handles.len());
         // Parallelize list_tools across servers so a slow server doesn't stall others.
         let futures = self.handles.iter().map(|shared| {
@@ -103,12 +104,14 @@ impl McpClientManager {
                         );
                         tools
                             .into_iter()
-                            .map(|definition| McpTool {
-                                server_name: server_name.clone(),
-                                definition,
-                                handle: shared.clone(),
-                                permission: permission.clone(),
-                                ask_tx: ask_tx.clone(),
+                            .map(|definition| {
+                                mcp_dynamic_tool(
+                                    server_name.clone(),
+                                    definition,
+                                    shared.clone(),
+                                    permission.clone(),
+                                    ask_tx.clone(),
+                                )
                             })
                             .collect::<Vec<_>>()
                     }

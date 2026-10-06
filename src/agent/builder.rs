@@ -1,7 +1,10 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
+use rig::DynModel;
 use rig::agent::{Agent, AgentBuilder};
-use rig::completion::CompletionModel;
+use rig::operation::Completion;
+use rig::tool::{DynamicTool, IntoToolOutput, PortableTool, ToolContext, ToolExecutionError};
 use smallvec::SmallVec;
 
 use crate::agent::prompt::{SYSTEM_PROMPT, TODO_TOOLS_PROMPT};
@@ -14,6 +17,47 @@ use crate::extras::mcp::McpClientManager;
 use crate::permission::ask::AskSender;
 use crate::permission::checker::PermCheck;
 use crate::sandbox::Sandbox;
+
+/// Erase a typed tool into rig's runtime-defined [`DynamicTool`] so a mixed
+/// set of tools (built-ins, memory, MCP, subagents) lives in one `Vec` and
+/// can be filtered and hook-wrapped uniformly.
+pub(crate) fn dynamic_tool<T>(tool: T) -> DynamicTool
+where
+    T: PortableTool + 'static,
+{
+    let name = T::NAME.to_string();
+    let description = PortableTool::description(&tool);
+    let parameters = PortableTool::parameters(&tool);
+    let tool = Arc::new(tool);
+    DynamicTool::new_with_context(
+        name,
+        description,
+        parameters,
+        move |_context: &mut ToolContext, args: serde_json::Value| {
+            let tool = Arc::clone(&tool);
+            Box::pin(async move {
+                let parsed: T::Args = serde_json::from_value(args).map_err(|error| {
+                    ToolExecutionError::invalid_args(format!(
+                        "failed to parse tool arguments: {error}"
+                    ))
+                    .with_source(error)
+                })?;
+                match PortableTool::call(&*tool, parsed).await {
+                    Ok(output) => output.into_tool_output(),
+                    Err(error) => {
+                        // `ToolExecutionError::from_error` redacts the
+                        // model-facing feedback; zerostack's tools rely on
+                        // their error text being shown to the model (permission
+                        // denials, edit mismatches, size limits), so surface it.
+                        let message = error.to_string();
+                        let mapped = PortableTool::map_error(&*tool, error);
+                        Err(mapped.with_model_output(rig::tool::ToolOutput::text(message)))
+                    }
+                }
+            })
+        },
+    )
+}
 
 /// Assemble the system-prompt preamble every request carries: the base
 /// `SYSTEM_PROMPT`, tool-use guidance, context files (AGENTS.md, ARCHITECTURE.md,
@@ -149,9 +193,9 @@ pub fn estimate_overhead(context: &ContextFiles, reasoning_enabled: bool) -> u64
 /// reported via `eprintln` and `tracing::warn`, with a case-insensitive
 /// suggestion when applicable.
 pub(crate) fn filter_tools_by_allowlist(
-    tools: Vec<Box<dyn rig::tool::ToolDyn>>,
+    tools: Vec<DynamicTool>,
     allowlist: &[String],
-) -> Vec<Box<dyn rig::tool::ToolDyn>> {
+) -> Vec<DynamicTool> {
     let cleaned: Vec<String> = allowlist
         .iter()
         .map(|s| s.trim().to_string())
@@ -161,7 +205,7 @@ pub(crate) fn filter_tools_by_allowlist(
         return tools;
     }
     let allowed: HashSet<String> = cleaned.iter().cloned().collect();
-    let available: Vec<String> = tools.iter().map(|t| t.name()).collect();
+    let available: Vec<String> = tools.iter().map(|t| t.name().to_string()).collect();
     for name in &allowed {
         if !available.iter().any(|t| t == name) {
             let suggestion = available
@@ -177,7 +221,7 @@ pub(crate) fn filter_tools_by_allowlist(
         // Also list available tools when filtering leaves empty, to help typo discovery.
         let filtered: Vec<_> = tools
             .iter()
-            .filter(|t| allowed.contains(&t.name()))
+            .filter(|t| allowed.contains(&t.name().to_string()))
             .collect();
         if filtered.is_empty() {
             tracing::warn!(
@@ -188,9 +232,9 @@ pub(crate) fn filter_tools_by_allowlist(
         }
     }
     let allowed_ref: HashSet<&str> = allowed.iter().map(|s| s.as_str()).collect();
-    let filtered: Vec<Box<dyn rig::tool::ToolDyn>> = tools
+    let filtered: Vec<DynamicTool> = tools
         .into_iter()
-        .filter(|t| allowed_ref.contains(t.name().as_str()))
+        .filter(|t| allowed_ref.contains(t.name()))
         .collect();
     if filtered.is_empty() && !allowed_ref.is_empty() {
         eprintln!(
@@ -202,8 +246,8 @@ pub(crate) fn filter_tools_by_allowlist(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn build_agent_inner<M: CompletionModel + 'static>(
-    model: M,
+pub async fn build_agent_inner(
+    model: DynModel<Completion>,
     cli: &Cli,
     cfg: &Config,
     context: &ContextFiles,
@@ -217,7 +261,7 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     // `None` for providers that need no extra routing.
     additional_params: Option<serde_json::Value>,
     #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
-) -> Agent<crate::agent::image_relay::ImageRelayModel<M>> {
+) -> Agent {
     #[cfg(feature = "lsp")]
     let lsp_manager = if cli.resolve_no_tools(cfg) {
         None
@@ -245,8 +289,7 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
         preamble.push_str(crate::agent::prompt::RTK_PROMPT);
     }
 
-    let mut builder = AgentBuilder::new(crate::agent::image_relay::ImageRelayModel::new(model))
-        .preamble(&preamble);
+    let mut builder = AgentBuilder::new(model).preamble(&preamble);
 
     if let Some(params) = additional_params {
         builder = builder.additional_params(params);
@@ -263,132 +306,136 @@ pub async fn build_agent_inner<M: CompletionModel + 'static>(
     }
 
     if cli.resolve_no_tools(cfg) {
-        builder.build()
-    } else {
-        let max_text_file_size = cfg.max_text_file_size;
-        let max_read_lines = cfg.resolve_max_read_lines();
-        let max_bash_output_lines = cfg.resolve_max_bash_output_lines();
-        let max_grep_results = cfg.resolve_max_grep_results();
-        let max_find_results = cfg.resolve_max_find_results();
-        let max_list_dir_entries = cfg.resolve_max_list_dir_entries();
-        let write_tool =
-            tools::WriteTool::new(permission.clone(), ask_tx.clone(), max_text_file_size);
-        #[cfg(feature = "lsp")]
-        let write_tool = write_tool.with_lsp(lsp_manager.clone());
-        let edit_tool = tools::EditTool::new(permission.clone(), ask_tx.clone());
-        #[cfg(feature = "lsp")]
-        let edit_tool = edit_tool.with_lsp(lsp_manager.clone());
-        let base_tools: SmallVec<[Box<dyn rig::tool::ToolDyn>; 8]> = SmallVec::from_buf([
-            Box::new(tools::ReadTool::new(
-                permission.clone(),
-                ask_tx.clone(),
-                max_text_file_size,
-                max_read_lines,
-            )),
-            Box::new(write_tool),
-            Box::new(edit_tool),
-            Box::new(tools::BashTool::new(
-                permission.clone(),
-                ask_tx.clone(),
-                sandbox.clone(),
-                max_bash_output_lines,
-                #[cfg(feature = "rtk")]
-                rtk,
-            )),
-            Box::new(tools::GrepTool::new(
-                permission.clone(),
-                ask_tx.clone(),
-                max_grep_results,
-            )),
-            Box::new(tools::FindFilesTool::new(
-                permission.clone(),
-                ask_tx.clone(),
-                max_find_results,
-            )),
-            Box::new(tools::ListDirTool::new(
-                permission.clone(),
-                ask_tx.clone(),
-                max_list_dir_entries,
-            )),
-            Box::new(tools::WriteTodoList::new(
-                permission.clone(),
-                ask_tx.clone(),
-            )),
-        ]);
-
-        #[cfg_attr(
-            not(any(
-                feature = "subagents",
-                feature = "memory",
-                feature = "mcp",
-                feature = "advisor",
-                feature = "lsp"
-            )),
-            allow(unused_mut)
-        )]
-        let mut all_tools: Vec<Box<dyn rig::tool::ToolDyn>> = base_tools.into_vec();
-
-        #[cfg(feature = "subagents")]
-        if cfg.task_enabled.unwrap_or(true) {
-            use crate::extras::subagents::task_tool::TaskTool;
-            all_tools.push(Box::new(TaskTool::new(permission.clone(), ask_tx.clone())));
-        }
-
-        #[cfg(feature = "memory")]
-        {
-            use crate::extras::memory::{MemoryEdit, MemoryRead, MemorySearch, MemoryWrite};
-            all_tools.push(Box::new(MemoryWrite::new(
-                permission.clone(),
-                ask_tx.clone(),
-            )));
-            all_tools.push(Box::new(MemoryEdit::new(
-                permission.clone(),
-                ask_tx.clone(),
-            )));
-            all_tools.push(Box::new(MemoryRead::new(
-                permission.clone(),
-                ask_tx.clone(),
-            )));
-            all_tools.push(Box::new(MemorySearch::new(
-                permission.clone(),
-                ask_tx.clone(),
-            )));
-        }
-
-        #[cfg(feature = "mcp")]
-        if let Some(manager) = &mcp_manager {
-            let allow_all = cfg.allow_all_mcp_calls.unwrap_or(false);
-            if allow_all && let Some(ref perm) = permission {
-                perm.lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .set_allow_all_mcp_calls(true);
-            }
-            let mcp_tools = manager
-                .collect_tools(permission.clone(), ask_tx.clone())
-                .await;
-            for t in mcp_tools {
-                all_tools.push(Box::new(t) as Box<dyn rig::tool::ToolDyn>);
-            }
-        }
-
-        #[cfg(feature = "advisor")]
-        if crate::extras::advisor::is_enabled() {
-            use crate::extras::advisor::AdvisorTool;
-            all_tools.push(Box::new(AdvisorTool::new()));
-        }
-
-        #[cfg(feature = "lsp")]
-        if let Some(lsp) = &lsp_manager {
-            all_tools.push(Box::new(tools::lsp::LspTool::new(lsp.clone())));
-        }
-
-        let all_tools = filter_tools_by_allowlist(all_tools, &cli.resolve_tools(cfg));
-
-        #[cfg(feature = "hooks")]
-        let all_tools = crate::extras::hooks::wrap_from_global(all_tools, permission.clone());
-
-        builder.tools(all_tools).build()
+        return builder.build();
     }
+
+    let max_text_file_size = cfg.max_text_file_size;
+    let max_read_lines = cfg.resolve_max_read_lines();
+    let max_bash_output_lines = cfg.resolve_max_bash_output_lines();
+    let max_grep_results = cfg.resolve_max_grep_results();
+    let max_find_results = cfg.resolve_max_find_results();
+    let max_list_dir_entries = cfg.resolve_max_list_dir_entries();
+    let write_tool = tools::WriteTool::new(permission.clone(), ask_tx.clone(), max_text_file_size);
+    #[cfg(feature = "lsp")]
+    let write_tool = write_tool.with_lsp(lsp_manager.clone());
+    let edit_tool = tools::EditTool::new(permission.clone(), ask_tx.clone());
+    #[cfg(feature = "lsp")]
+    let edit_tool = edit_tool.with_lsp(lsp_manager.clone());
+    let base_tools: SmallVec<[DynamicTool; 8]> = SmallVec::from_buf([
+        dynamic_tool(tools::ReadTool::new(
+            permission.clone(),
+            ask_tx.clone(),
+            max_text_file_size,
+            max_read_lines,
+        )),
+        dynamic_tool(write_tool),
+        dynamic_tool(edit_tool),
+        dynamic_tool(tools::BashTool::new(
+            permission.clone(),
+            ask_tx.clone(),
+            sandbox.clone(),
+            max_bash_output_lines,
+            #[cfg(feature = "rtk")]
+            rtk,
+        )),
+        dynamic_tool(tools::GrepTool::new(
+            permission.clone(),
+            ask_tx.clone(),
+            max_grep_results,
+        )),
+        dynamic_tool(tools::FindFilesTool::new(
+            permission.clone(),
+            ask_tx.clone(),
+            max_find_results,
+        )),
+        dynamic_tool(tools::ListDirTool::new(
+            permission.clone(),
+            ask_tx.clone(),
+            max_list_dir_entries,
+        )),
+        dynamic_tool(tools::WriteTodoList::new(
+            permission.clone(),
+            ask_tx.clone(),
+        )),
+    ]);
+
+    #[cfg_attr(
+        not(any(
+            feature = "subagents",
+            feature = "memory",
+            feature = "mcp",
+            feature = "advisor",
+            feature = "lsp"
+        )),
+        allow(unused_mut)
+    )]
+    let mut all_tools: Vec<DynamicTool> = base_tools.into_vec();
+
+    #[cfg(feature = "subagents")]
+    if cfg.task_enabled.unwrap_or(true) {
+        use crate::extras::subagents::task_tool::TaskTool;
+        all_tools.push(dynamic_tool(TaskTool::new(
+            permission.clone(),
+            ask_tx.clone(),
+        )));
+    }
+
+    #[cfg(feature = "memory")]
+    {
+        use crate::extras::memory::{MemoryEdit, MemoryRead, MemorySearch, MemoryWrite};
+        all_tools.push(dynamic_tool(MemoryWrite::new(
+            permission.clone(),
+            ask_tx.clone(),
+        )));
+        all_tools.push(dynamic_tool(MemoryEdit::new(
+            permission.clone(),
+            ask_tx.clone(),
+        )));
+        all_tools.push(dynamic_tool(MemoryRead::new(
+            permission.clone(),
+            ask_tx.clone(),
+        )));
+        all_tools.push(dynamic_tool(MemorySearch::new(
+            permission.clone(),
+            ask_tx.clone(),
+        )));
+    }
+
+    #[cfg(feature = "mcp")]
+    if let Some(manager) = &mcp_manager {
+        let allow_all = cfg.allow_all_mcp_calls.unwrap_or(false);
+        if allow_all && let Some(ref perm) = permission {
+            perm.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .set_allow_all_mcp_calls(true);
+        }
+        let mcp_tools = manager
+            .collect_tools(permission.clone(), ask_tx.clone())
+            .await;
+        all_tools.extend(mcp_tools);
+    }
+
+    #[cfg(feature = "advisor")]
+    if crate::extras::advisor::is_enabled() {
+        use crate::extras::advisor::AdvisorTool;
+        all_tools.push(dynamic_tool(AdvisorTool::new()));
+    }
+
+    #[cfg(feature = "lsp")]
+    if let Some(lsp) = &lsp_manager {
+        all_tools.push(dynamic_tool(tools::lsp::LspTool::new(lsp.clone())));
+    }
+
+    let all_tools = filter_tools_by_allowlist(all_tools, &cli.resolve_tools(cfg));
+
+    #[cfg(feature = "hooks")]
+    let all_tools = crate::extras::hooks::wrap_from_global(all_tools, permission.clone());
+
+    let mut server = rig::tool::server::ToolServer::new();
+    for tool in all_tools {
+        server = server.dynamic_tool(tool);
+    }
+    builder.tool_server_handle(server.run()).build()
 }
 
 /// Dedicated system prompt for the `/btw` side-assistant. Deliberately NOT the
@@ -426,8 +473,8 @@ const BTW_MAX_TURNS: usize = 8;
 /// project context for reference, NO tools, and a single turn. Never mutates the
 /// session.
 #[allow(clippy::too_many_arguments)]
-pub fn build_btw_agent_inner<M: CompletionModel + 'static>(
-    model: M,
+pub fn build_btw_agent_inner(
+    model: DynModel<Completion>,
     cli: &Cli,
     cfg: &Config,
     context: &ContextFiles,
@@ -437,7 +484,7 @@ pub fn build_btw_agent_inner<M: CompletionModel + 'static>(
     temperature: Option<f64>,
     // See `build_agent_inner`: OpenRouter `provider.order` pin for `anthropic/*`.
     additional_params: Option<serde_json::Value>,
-) -> Agent<crate::agent::image_relay::ImageRelayModel<M>> {
+) -> Agent {
     let cwd = std::env::current_dir()
         .ok()
         .map(|p| p.display().to_string())
@@ -486,7 +533,7 @@ pub fn build_btw_agent_inner<M: CompletionModel + 'static>(
 
     // Honor --no-tools: fall back to a pure-context, single-turn answer.
     if cli.resolve_no_tools(cfg) {
-        let mut builder = AgentBuilder::new(crate::agent::image_relay::ImageRelayModel::new(model))
+        let mut builder = AgentBuilder::new(model)
             .preamble(&preamble)
             .default_max_turns(1)
             .max_tokens(max_tokens);
@@ -509,24 +556,24 @@ pub fn build_btw_agent_inner<M: CompletionModel + 'static>(
     let max_grep_results = cfg.resolve_max_grep_results();
     let max_find_results = cfg.resolve_max_find_results();
     let max_list_dir_entries = cfg.resolve_max_list_dir_entries();
-    let mut read_tools: Vec<Box<dyn rig::tool::ToolDyn>> = vec![
-        Box::new(tools::ReadTool::new(
+    let mut read_tools: Vec<DynamicTool> = vec![
+        dynamic_tool(tools::ReadTool::new(
             permission.clone(),
             ask_tx.clone(),
             max_text_file_size,
             max_read_lines,
         )),
-        Box::new(tools::GrepTool::new(
+        dynamic_tool(tools::GrepTool::new(
             permission.clone(),
             ask_tx.clone(),
             max_grep_results,
         )),
-        Box::new(tools::FindFilesTool::new(
+        dynamic_tool(tools::FindFilesTool::new(
             permission.clone(),
             ask_tx.clone(),
             max_find_results,
         )),
-        Box::new(tools::ListDirTool::new(
+        dynamic_tool(tools::ListDirTool::new(
             permission.clone(),
             ask_tx.clone(),
             max_list_dir_entries,
@@ -543,15 +590,14 @@ pub fn build_btw_agent_inner<M: CompletionModel + 'static>(
             .collect();
         if !cleaned.is_empty() {
             let allowed: std::collections::HashSet<String> = cleaned.into_iter().collect();
-            read_tools.retain(|t| allowed.contains(&t.name()));
+            read_tools.retain(|t| allowed.contains(t.name()));
         }
     }
 
-    let mut builder = AgentBuilder::new(crate::agent::image_relay::ImageRelayModel::new(model))
+    let mut builder = AgentBuilder::new(model)
         .preamble(&preamble)
         .default_max_turns(BTW_MAX_TURNS)
-        .max_tokens(max_tokens)
-        .tools(read_tools);
+        .max_tokens(max_tokens);
 
     if let Some(params) = additional_params {
         builder = builder.additional_params(params);
@@ -561,5 +607,9 @@ pub fn build_btw_agent_inner<M: CompletionModel + 'static>(
         builder = builder.temperature(temp);
     }
 
-    builder.build()
+    let mut server = rig::tool::server::ToolServer::new();
+    for tool in read_tools {
+        server = server.dynamic_tool(tool);
+    }
+    builder.tool_server_handle(server.run()).build()
 }

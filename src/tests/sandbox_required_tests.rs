@@ -7,7 +7,7 @@ use crate::config::Config;
 use crate::permission::checker::{PermCheck, PermissionChecker};
 use crate::permission::{PermissionConfigs, SecurityMode};
 use crate::sandbox::Sandbox;
-use rig::tool::Tool;
+use rig::tool::PortableTool as Tool;
 
 fn missing_backend(backend: &str) -> Sandbox {
     Sandbox::new(true, backend)

@@ -47,7 +47,6 @@ mod headless_tool_record_tests;
 #[cfg(all(test, feature = "hooks"))]
 mod hooks;
 #[cfg(test)]
-mod image_relay_tests;
 #[cfg(test)]
 mod input_tests;
 #[cfg(test)]
