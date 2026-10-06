@@ -252,70 +252,6 @@ fn document_media_type(mime: &str) -> DocumentMediaType {
     }
 }
 
-async fn continue_prompt_injector<M>(
-    agent: &Agent<M>,
-    retry_prompt: &str,
-    retry_history: &[Message],
-    tool_interactions: &[Message],
-    retry_config: &RetryConfig,
-) -> StreamingResult<M::StreamingResponse>
-where
-    M: CompletionModel + 'static,
-    M::StreamingResponse: Send + Sync + Unpin + Clone + 'static,
-{
-    let mut new_history = retry_history.to_vec();
-    new_history.extend_from_slice(tool_interactions);
-    new_history.push(Message::user(retry_prompt.to_string()));
-    new_history.push(Message::assistant(String::new()));
-    match retry::retry_stream_chat(retry_config, || {
-        let h = new_history.clone();
-        async move { agent.stream_chat("Please continue.", h).await }
-    })
-    .await
-    {
-        Ok(stream) => stream,
-        Err(e) => Box::pin(futures::stream::once(async move { Err(e) })),
-    }
-}
-
-/// Append a streamed `ToolCall`/`ToolResult` message to a turn's interaction
-/// history, merging it into the previous message when both are the same role.
-///
-/// `From<ToolCall>` turns every streamed call into its own `Assistant`
-/// message, so a parallel batch (all calls streamed before any result) would
-/// otherwise replay as `assistant(tool_calls) -> assistant(tool_calls) -> tool
-/// -> tool`. Strict OpenAI-compatible backends (DeepSeek) reject the first
-/// `assistant` because its calls are followed by another assistant message
-/// instead of their tool results. Merging on insert restores the
-/// one-assistant-with-all-calls / one-user-with-all-results wire shape.
-/// Sequential rounds stay separate: their tool result sits between the calls,
-/// so nothing merges across the boundary.
-fn merge_push(interactions: &mut Vec<Message>, message: Message) {
-    fn join<T: Clone>(previous: &mut rig::OneOrMany<T>, next: &rig::OneOrMany<T>) {
-        *previous = rig::OneOrMany::many(
-            previous
-                .iter()
-                .cloned()
-                .chain(next.iter().cloned())
-                .collect::<Vec<_>>(),
-        )
-        .expect("two non-empty message parts merge to a non-empty message");
-    }
-
-    match (interactions.last_mut(), message) {
-        (
-            Some(Message::Assistant {
-                content: previous, ..
-            }),
-            Message::Assistant { content, .. },
-        ) => join(previous, &content),
-        (Some(Message::User { content: previous }), Message::User { content }) => {
-            join(previous, &content)
-        }
-        (_, message) => interactions.push(message),
-    }
-}
-
 /// Builds the forked context for a `/btw` side question: the committed
 /// conversation history, plus — when the main agent is mid-task — a synthesized
 /// note describing the in-flight turn so the side question can see what the
@@ -415,28 +351,6 @@ pub fn spawn_agent(
                                     .send(AgentEvent::Reasoning(CompactString::from(text)))
                                     .await;
                             }
-                            StreamedAssistantContent::ToolCall {
-                                tool_call,
-                                internal_call_id,
-                            } => {
-                                let tool_name = &tool_call.function.name;
-                                tracing::debug!(
-                                    "agent tool start: name={}, args_len={}",
-                                    tool_name,
-                                    tool_call.function.arguments.to_string().len(),
-                                );
-                                pending_tool_names
-                                    .insert(internal_call_id.clone(), tool_name.clone());
-                                merge_push(&mut tool_interactions, tool_call.clone().into());
-                                let _ = event_tx
-                                    .send(AgentEvent::ToolCall {
-                                        call_id: CompactString::from(internal_call_id),
-                                        name: CompactString::from(tool_call.function.name),
-                                        args: tool_call.function.arguments,
-                                    })
-                                    .await;
-                            }
-                            _ => {}
                         }
                         _ => {}
                     },
@@ -487,66 +401,6 @@ pub fn spawn_agent(
                                 output: CompactString::from(output),
                             })
                             .await;
-                        merge_push(&mut tool_interactions, tool_result.clone().into());
-                    }
-                    Ok(MultiTurnStreamItem::FinalResponse(res)) => {
-                        let usage = res.usage();
-                        let response_text = res.output;
-                        tracing::info!(
-                            "agent done: input_tokens={}, output_tokens={}, cached_input_tokens={}, cache_creation_input_tokens={}",
-                            usage.input_tokens,
-                            usage.output_tokens,
-                            usage.cached_input_tokens,
-                            usage.cache_creation_input_tokens,
-                        );
-
-                        if !response_text.is_empty() {
-                            #[cfg(feature = "hooks")]
-                            if let crate::extras::hooks::StopGate::Continue { reason } =
-                                crate::extras::hooks::dispatch_stop(
-                                    stop_hook_active,
-                                    loop_info.map(|info| u64::from(info.iteration)),
-                                    loop_info.map(|info| info.active),
-                                )
-                                .await
-                            {
-                                consecutive_stop_blocks += 1;
-                                if consecutive_stop_blocks <= MAX_STOP_BLOCKS {
-                                    stop_hook_active = true;
-                                    tracing::info!(
-                                        "hooks: Stop hook forced continuation ({consecutive_stop_blocks}/{MAX_STOP_BLOCKS}): {reason}"
-                                    );
-                                    next_instruction = Some(reason);
-                                    break;
-                                }
-                                tracing::warn!(
-                                    "hooks: Stop block cap ({MAX_STOP_BLOCKS}) reached without progress; forcing release"
-                                );
-                            }
-                            let _ = event_tx
-                                .send(AgentEvent::Done {
-                                    response: CompactString::from(response_text),
-                                    input_tokens: usage.input_tokens,
-                                    output_tokens: usage.output_tokens,
-                                    cached_input_tokens: usage.cached_input_tokens,
-                                    cache_creation_input_tokens: usage.cache_creation_input_tokens,
-                                })
-                                .await;
-                            return;
-                        }
-                        empty_response_count += 1;
-                        if empty_response_count >= MAX_EMPTY_RESPONSES {
-                            tracing::warn!(
-                                "agent: {MAX_EMPTY_RESPONSES} consecutive empty responses, aborting"
-                            );
-                            let _ = event_tx
-                                .send(AgentEvent::Error(CompactString::from(
-                                    "Agent returned empty response too many times, aborting.",
-                                )))
-                                .await;
-                            return;
-                        }
-                        break;
                     }
                     Ok(MultiTurnStreamItem::CompletionCall(call)) => {
                         let usage = call.usage;
@@ -745,9 +599,7 @@ pub async fn run_print(
                         println!("\n◈ {} {}", name, summary);
                         let _ = std::io::Write::flush(&mut std::io::stdout());
                     }
-                    pending_calls.insert(internal_call_id, (name, args));
-                    #[cfg(feature = "hooks")]
-                    merge_push(&mut tool_interactions, tool_call.clone().into());
+                    pending_calls.insert(call_id, (name, args));
                 }
                 Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
                     tool_result,
@@ -792,8 +644,6 @@ pub async fn run_print(
                         #[cfg(feature = "subagents")]
                         subagent_calls: std::mem::take(&mut pending_subagent_calls),
                     });
-                    #[cfg(feature = "hooks")]
-                    merge_push(&mut tool_interactions, tool_result.clone().into());
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     usage = res.usage();
@@ -990,88 +840,4 @@ pub async fn run_subagent(
     }
 
     Ok(full_response)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{merge_push, streamed_reasoning_text};
-    use rig::OneOrMany;
-    use rig::completion::Message;
-    use rig::message::{
-        AssistantContent, ToolCall, ToolFunction, ToolResult, ToolResultContent, UserContent,
-    };
-    use rig::streaming::StreamedAssistantContent;
-
-    fn assistant_tool_call(id: &str) -> Message {
-        Message::Assistant {
-            id: None,
-            content: OneOrMany::one(AssistantContent::ToolCall(ToolCall::new(
-                id.to_string(),
-                ToolFunction::new("read".to_string(), serde_json::json!({})),
-            ))),
-        }
-    }
-
-    fn user_tool_result(id: &str) -> Message {
-        Message::User {
-            content: OneOrMany::one(UserContent::ToolResult(ToolResult {
-                id: id.to_string(),
-                call_id: None,
-                content: OneOrMany::one(ToolResultContent::text("ok")),
-            })),
-        }
-    }
-
-    #[test]
-    fn merge_push_groups_parallel_tool_calls_and_results() {
-        let mut interactions = Vec::new();
-        merge_push(&mut interactions, assistant_tool_call("call-1"));
-        merge_push(&mut interactions, assistant_tool_call("call-2"));
-        merge_push(&mut interactions, user_tool_result("call-1"));
-        merge_push(&mut interactions, user_tool_result("call-2"));
-
-        assert_eq!(interactions.len(), 2);
-        match &interactions[0] {
-            Message::Assistant { content, .. } => assert_eq!(content.len(), 2),
-            other => panic!("expected coalesced assistant message, got {other:?}"),
-        }
-        match &interactions[1] {
-            Message::User { content } => assert_eq!(content.len(), 2),
-            other => panic!("expected coalesced user message, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn merge_push_keeps_sequential_rounds_separate() {
-        let mut interactions = Vec::new();
-        merge_push(&mut interactions, assistant_tool_call("call-1"));
-        merge_push(&mut interactions, user_tool_result("call-1"));
-        merge_push(&mut interactions, assistant_tool_call("call-2"));
-        merge_push(&mut interactions, user_tool_result("call-2"));
-
-        assert_eq!(interactions.len(), 4);
-    }
-
-    #[test]
-    fn streamed_reasoning_delta_is_forwardable_as_reasoning_text() {
-        let content = StreamedAssistantContent::<()>::ReasoningDelta {
-            id: Some("rs_demo".to_string()),
-            reasoning: "thinking in progress".to_string(),
-        };
-
-        assert_eq!(
-            streamed_reasoning_text(&content).as_deref(),
-            Some("thinking in progress")
-        );
-    }
-
-    #[test]
-    fn empty_reasoning_delta_is_ignored() {
-        let content = StreamedAssistantContent::<()>::ReasoningDelta {
-            id: None,
-            reasoning: String::new(),
-        };
-
-        assert!(streamed_reasoning_text(&content).is_none());
-    }
 }
