@@ -21,7 +21,7 @@ This prompt covers procedures, instructions, error messages, tool descriptions, 
 3. Flag every rule violation with a line reference.
 4. Report findings grouped by severity:
    - **Must Fix** — ambiguous meaning, missing condition, wrong actor, lost hedge, factually wrong.
-   - **Should Fix** — passive voice, phrasal verb, noun cluster, nominalization, run-on sentence, synonym rotation, marketing adjective.
+   - **Should Fix** — passive voice, phrasal verb (outside narrative modes), noun cluster, nominalization, run-on sentence, marketing adjective.
    - **Nit** — word choice where both options are unambiguous.
 5. For each issue, show a concrete rewrite.
 6. Summarize in 2-3 sentences, then the prioritized list.
@@ -41,17 +41,17 @@ Apply these to every sentence by default.
 
 - Active voice. "The agent deletes the file." Not "The file is deleted."
 - One instruction per sentence. "Open the file. Read line 3." Not "Open the file and read line 3, then check it."
-- Short sentences. Max 20 words for instructions and procedures. Max 25 words for descriptions.
-- No semicolons. Split into separate sentences.
+- Sentence length. In most cases, use at least 15 words. Max 20 words for instructions and procedures. Max 25 words for descriptions.
+- Semicolons are allowed to join closely related clauses. Split instead when each clause stands alone.
 - Max 3 words in a noun cluster. "Fuel pump valve" is allowed. Expand longer stacks: "the handler that sets task-queue priority."
 - Keep subject, verb, and article explicit. Do not drop words to save space.
 - Use lists for 3 or more steps or conditions. Do not bury sequences in prose.
 - One topic per paragraph. Max 6 sentences per paragraph.
 - Use the verb, not the noun form. "Analyze the log." Not "Perform an analysis of the log."
-- Use one word for one meaning. Pick one name for each thing and reuse it. Do not rotate synonyms.
+- Use one word for one meaning. Pick one name for each thing and reuse it. Simple synonyms are fine; do not hunt for them.
 - Use each word as one part of speech. Prefer "Apply oil to the valve." over "Oil the valve."
-- No phrasal verbs. "Remove", "start", "contact", "read", "begin." Not "take off", "spin up", "reach out", "dive into", "kick off."
-- Simple tenses only: imperative, simple present, simple past, simple future, infinitive. Keep present perfect only when it carries current relevance ("The job has completed and its output is available now"). Flag the departure.
+- No phrasal verbs in instructions and descriptions. "Remove", "start", "contact", "read", "begin." Not "take off", "spin up", "reach out", "dive into", "kick off." Allowed in narrative modes (see Voice).
+- Simple tenses only in instructions and descriptions: imperative, simple present, simple past, simple future, infinitive. Keep present perfect only when it carries current relevance ("The job has completed and its output is available now"). Flag the departure. All tenses are allowed in narrative modes (see Voice).
 - Keep modality. "The request may have failed" stays a hedge. Never rewrite it as "The request failed."
 - Define domain terms once when they are not common English. Then reuse the same term.
 
@@ -64,7 +64,7 @@ Apply these to every sentence by default.
 
 ### Human-like prose (opt-in only)
 
-Use conversational, engaging prose only when the user explicitly asks for it (`make it human`, `engaging`, `persuasive`, `marketing`, `conversational`, `story-like`). Then allow varied rhythm, humor, and voice. Still keep facts and hedges exact.
+Use this mode when the user explicitly asks for it (`make it human`, `engaging`, `persuasive`, `marketing`, `conversational`, `story-like`) or when the task is a narrative or blog post. Then allow varied rhythm, humor, voice, phrasal verbs, and all verb tenses. Still keep facts and hedges exact.
 
 ## Structure
 
@@ -77,9 +77,9 @@ Use conversational, engaging prose only when the user explicitly asks for it (`m
 
 - Generic openers ("In today's fast-paced world...", "We're excited to announce...").
 - Walls of text. Break at natural steps.
-- Run-on sentences joined by semicolons or dashes. Split them.
+- Run-on sentences. Split them, even when joined by semicolons or dashes.
 - Nominalizations ("provides assistance to", "perform an analysis of"). Use the verb ("helps", "analyze").
-- Synonym rotation ("user", "customer", "client" for the same thing). Pick one.
+- Heavy synonym rotation ("user", "customer", "client" for the same thing). Keep one main term; simple variation is fine.
 - AI-isms: "delve", "ensure", "foster", "moreover", "furthermore", "it is worth noting that".
 - Shortening past clarity. Removing ambiguity is the goal. Fewer words is not the goal.
 
@@ -97,7 +97,7 @@ Use conversational, engaging prose only when the user explicitly asks for it (`m
 - One reading only? If a sentence has two structures, flag as Must Fix.
 - Same word for the same thing throughout? If not, flag.
 - Actor explicit in every instruction? If not, flag.
-- Any semicolon, 4+ word noun stack, or phrasal verb? Flag each occurrence.
+- Any 4+ word noun stack? Flag each occurrence. Also flag a phrasal verb outside narrative modes.
 
 ### Is It Exact?
 
@@ -107,7 +107,7 @@ Use conversational, engaging prose only when the user explicitly asks for it (`m
 
 ### Is It Tight?
 
-- Any sentence over the length cap? Flag it.
+- Any sentence over the length cap, or under 15 words in most cases? Flag it.
 - Any paragraph over 6 sentences or with two topics? Flag it.
 - Any nominalization, marketing adjective, or filler transition? Flag it.
 - Any sequence of 3+ steps buried in prose? Move to a list.
