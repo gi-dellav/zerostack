@@ -14,23 +14,16 @@ use rig::{
 };
 use tokio::sync::mpsc;
 
-use crate::agent::builder;
+use crate::agent::builder::{self, AgentBuild};
 use crate::agent::prompt;
 use crate::agent::runner::{self, AgentRunner};
 use crate::auth::{AuthResolver, ProviderKind};
-use crate::cli::Cli;
 use crate::config::{ApiStyle, Config, CustomProviderConfig};
-use crate::context::ContextFiles;
 #[cfg(any(feature = "hooks", feature = "subagents"))]
 use crate::event::AgentEvent;
 #[cfg(feature = "hooks")]
 use crate::extras::hooks::LoopInfo;
-#[cfg(feature = "mcp")]
-use crate::extras::mcp::McpClientManager;
-use crate::permission::ask::AskSender;
-use crate::permission::checker::PermCheck;
 use crate::retry::{self, RetryConfig};
-use crate::sandbox::Sandbox;
 use crate::session::SessionMessage;
 
 pub struct ProviderConfig {
@@ -1004,8 +997,9 @@ pub(crate) fn http_total_timeout(
 }
 
 /// Builder with the defaults every provider client shares: user agent,
-/// keepalive, pool sizing, and the connect cap.
-fn base_client_builder() -> reqwest::ClientBuilder {
+/// keepalive, pool sizing, and the connect cap. Reused by the MCP, OAuth, and
+/// gist-upload clients so those timeouts/headers stay in one place.
+pub(crate) fn base_client_builder() -> reqwest::ClientBuilder {
     reqwest::Client::builder()
         .user_agent(format!(
             "zerostack/{} (https://github.com/gi-dellav/zerostack)",
@@ -1302,244 +1296,49 @@ fn build_openrouter_client(key: &str, base_url: Option<&str>) -> anyhow::Result<
 
 /// Builds an OpenAiModel (Responses / Chat Completions) into the matching
 /// OpenAiAgent.
-#[allow(clippy::too_many_arguments)]
-async fn build_openai_agent(
-    model: OpenAiModel,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: Option<PermCheck>,
-    ask_tx: Option<AskSender>,
-    sandbox: Sandbox,
-    reasoning_enabled: bool,
-    temperature: Option<f64>,
-    extra_body: Option<serde_json::Value>,
-    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
-) -> OpenAiAgent {
+async fn build_openai_agent(model: OpenAiModel, build: AgentBuild<'_>) -> OpenAiAgent {
     match model {
-        OpenAiModel::Responses(m) => OpenAiAgent::Responses(
-            builder::build_agent_inner(
-                m,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                sandbox,
-                reasoning_enabled,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                mcp_manager,
-            )
-            .await,
-        ),
-        OpenAiModel::Completions(m) => OpenAiAgent::Completions(
-            builder::build_agent_inner(
-                m,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                sandbox,
-                reasoning_enabled,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                mcp_manager,
-            )
-            .await,
-        ),
+        OpenAiModel::Responses(m) => {
+            OpenAiAgent::Responses(builder::build_agent_inner(m, build).await)
+        }
+        OpenAiModel::Completions(m) => {
+            OpenAiAgent::Completions(builder::build_agent_inner(m, build).await)
+        }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn build_agent(
-    model: AnyModel,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: Option<PermCheck>,
-    ask_tx: Option<AskSender>,
-    sandbox: Sandbox,
-    reasoning_enabled: bool,
-    temperature: Option<f64>,
-    extra_body: Option<serde_json::Value>,
-    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
-) -> AnyAgent {
+pub async fn build_agent(model: AnyModel, build: AgentBuild<'_>) -> AnyAgent {
     match model {
-        AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(
-            builder::build_agent_inner(
-                m.model,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                sandbox.clone(),
-                reasoning_enabled,
-                temperature,
-                merge_extra_body(m.extra, extra_body),
-                #[cfg(feature = "mcp")]
-                mcp_manager,
-            )
-            .await,
-        ),
-        AnyModel::OpenAI(m) => AnyAgent::OpenAI(
-            build_openai_agent(
-                m,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                sandbox.clone(),
-                reasoning_enabled,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                mcp_manager,
-            )
-            .await,
-        ),
-        AnyModel::Anthropic(m) => AnyAgent::Anthropic(
-            builder::build_agent_inner(
-                m,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                sandbox.clone(),
-                reasoning_enabled,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                mcp_manager,
-            )
-            .await,
-        ),
-        AnyModel::Gemini(m) => AnyAgent::Gemini(
-            builder::build_agent_inner(
-                m,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                sandbox.clone(),
-                reasoning_enabled,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                mcp_manager,
-            )
-            .await,
-        ),
-        AnyModel::Ollama(m) => AnyAgent::Ollama(
-            builder::build_agent_inner(
-                m,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                sandbox,
-                reasoning_enabled,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                mcp_manager,
-            )
-            .await,
-        ),
+        AnyModel::OpenRouter(m) => {
+            let mut build = build;
+            build.extra_body = merge_extra_body(m.extra, build.extra_body);
+            AnyAgent::OpenRouter(builder::build_agent_inner(m.model, build).await)
+        }
+        AnyModel::OpenAI(m) => AnyAgent::OpenAI(build_openai_agent(m, build).await),
+        AnyModel::Anthropic(m) => AnyAgent::Anthropic(builder::build_agent_inner(m, build).await),
+        AnyModel::Gemini(m) => AnyAgent::Gemini(builder::build_agent_inner(m, build).await),
+        AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_agent_inner(m, build).await),
     }
 }
 
 /// Builds the isolated, tool-less `/btw` agent for the active provider.
-#[allow(clippy::too_many_arguments)]
-pub fn build_btw_agent(
-    model: AnyModel,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    reasoning_enabled: bool,
-    temperature: Option<f64>,
-    extra_body: Option<serde_json::Value>,
-) -> AnyAgent {
+pub fn build_btw_agent(model: AnyModel, build: AgentBuild<'_>) -> AnyAgent {
     match model {
-        AnyModel::OpenRouter(m) => AnyAgent::OpenRouter(builder::build_btw_agent_inner(
-            m.model,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
-            reasoning_enabled,
-            temperature,
-            merge_extra_body(m.extra, extra_body),
-        )),
+        AnyModel::OpenRouter(m) => {
+            let mut build = build;
+            build.extra_body = merge_extra_body(m.extra, build.extra_body);
+            AnyAgent::OpenRouter(builder::build_btw_agent_inner(m.model, build))
+        }
         AnyModel::OpenAI(m) => AnyAgent::OpenAI(match m {
-            OpenAiModel::Responses(m) => OpenAiAgent::Responses(builder::build_btw_agent_inner(
-                m,
-                cli,
-                cfg,
-                context,
-                permission,
-                ask_tx,
-                reasoning_enabled,
-                temperature,
-                extra_body,
-            )),
+            OpenAiModel::Responses(m) => {
+                OpenAiAgent::Responses(builder::build_btw_agent_inner(m, build))
+            }
             OpenAiModel::Completions(m) => {
-                OpenAiAgent::Completions(builder::build_btw_agent_inner(
-                    m,
-                    cli,
-                    cfg,
-                    context,
-                    permission,
-                    ask_tx,
-                    reasoning_enabled,
-                    temperature,
-                    extra_body,
-                ))
+                OpenAiAgent::Completions(builder::build_btw_agent_inner(m, build))
             }
         }),
-        AnyModel::Anthropic(m) => AnyAgent::Anthropic(builder::build_btw_agent_inner(
-            m,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
-            reasoning_enabled,
-            temperature,
-            extra_body,
-        )),
-        AnyModel::Gemini(m) => AnyAgent::Gemini(builder::build_btw_agent_inner(
-            m,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
-            reasoning_enabled,
-            temperature,
-            extra_body,
-        )),
-        AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_btw_agent_inner(
-            m,
-            cli,
-            cfg,
-            context,
-            permission,
-            ask_tx,
-            reasoning_enabled,
-            temperature,
-            extra_body,
-        )),
+        AnyModel::Anthropic(m) => AnyAgent::Anthropic(builder::build_btw_agent_inner(m, build)),
+        AnyModel::Gemini(m) => AnyAgent::Gemini(builder::build_btw_agent_inner(m, build)),
+        AnyModel::Ollama(m) => AnyAgent::Ollama(builder::build_btw_agent_inner(m, build)),
     }
 }

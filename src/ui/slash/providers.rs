@@ -37,7 +37,11 @@ pub(crate) async fn fetch_models_cached(
     refresh: bool,
 ) -> anyhow::Result<Arc<[ModelEntry]>> {
     if !refresh {
-        if let Some(hit) = MODEL_CACHE.lock().unwrap().get(provider) {
+        if let Some(hit) = MODEL_CACHE
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(provider)
+        {
             return Ok(Arc::clone(hit)); // guard dropped here, NOT across any await
         }
         // No cache yet: serve the baked catalog for built-in providers — no network.
@@ -50,7 +54,7 @@ pub(crate) async fn fetch_models_cached(
             let arc: Arc<[ModelEntry]> = Arc::from(models.into_boxed_slice());
             MODEL_CACHE
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .insert(provider.to_string(), Arc::clone(&arc));
             return Ok(arc);
         }
@@ -83,7 +87,7 @@ pub(crate) async fn fetch_models_cached(
         let arc: Arc<[ModelEntry]> = Arc::from(m.into_boxed_slice());
         MODEL_CACHE
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(provider.to_string(), Arc::clone(&arc));
         return Ok(arc);
     } else {
@@ -118,7 +122,7 @@ pub(crate) async fn fetch_models_cached(
     let arc: Arc<[ModelEntry]> = Arc::from(models.into_boxed_slice());
     MODEL_CACHE
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .insert(provider.to_string(), Arc::clone(&arc));
     Ok(arc)
 }
@@ -127,7 +131,7 @@ pub(crate) async fn fetch_models_cached(
 pub(crate) fn cached_model_ids(provider: &str) -> Vec<String> {
     MODEL_CACHE
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .get(provider)
         .map(|v| v.iter().map(|m| m.id.clone()).collect())
         .unwrap_or_default()
@@ -166,7 +170,7 @@ pub(crate) async fn warm_model_cache(
 fn lookup_pricing_from_cache(provider: &str, model_id: &str) -> Option<(f64, f64)> {
     MODEL_CACHE
         .lock()
-        .unwrap()
+        .unwrap_or_else(|e| e.into_inner())
         .get(provider)
         .and_then(|models| {
             models.iter().find_map(|m| {

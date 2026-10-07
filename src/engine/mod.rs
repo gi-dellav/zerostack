@@ -35,6 +35,7 @@ pub use sink::{EventSink, StringSink};
 use compact_str::CompactString;
 use smallvec::SmallVec;
 
+use crate::agent::builder::AgentBuild;
 use crate::agent::runner::{self, AgentRunner};
 use crate::cli::Cli;
 use crate::config::{self, Config};
@@ -497,19 +498,21 @@ impl Engine {
         let extra_body = config::resolve_extra_body(&self.cfg, &self.session.model);
         let agent = crate::provider::build_agent(
             model,
-            &self.cli,
-            &self.cfg,
-            &self.context,
-            self.permission.clone(),
-            // Headless: no one drains the ask channel, so an `Ask` verdict
-            // must fail closed (same as `dispatch_print`'s `None`).
-            None,
-            self.sandbox.clone(),
-            self.reasoning_enabled,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            None,
+            AgentBuild {
+                cli: &self.cli,
+                cfg: &self.cfg,
+                context: &self.context,
+                permission: self.permission.clone(),
+                // Headless: no one drains the ask channel, so an `Ask` verdict
+                // must fail closed (same as `dispatch_print`'s `None`).
+                ask_tx: None,
+                sandbox: self.sandbox.clone(),
+                reasoning_enabled: self.reasoning_enabled,
+                temperature,
+                extra_body,
+                #[cfg(feature = "mcp")]
+                mcp_manager: None,
+            },
         )
         .await;
         self.session.overhead_tokens =
@@ -549,17 +552,19 @@ impl Engine {
         let extra_body = config::resolve_extra_body(cfg, model_id);
         let agent = crate::provider::build_agent(
             model,
-            cli,
-            cfg,
-            context,
-            permission.clone(),
-            None,
-            sandbox.clone(),
-            self.reasoning_enabled,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            None,
+            AgentBuild {
+                cli,
+                cfg,
+                context,
+                permission: permission.clone(),
+                ask_tx: None,
+                sandbox: sandbox.clone(),
+                reasoning_enabled: self.reasoning_enabled,
+                temperature,
+                extra_body,
+                #[cfg(feature = "mcp")]
+                mcp_manager: None,
+            },
         )
         .await;
         self.agent = Some(agent);
@@ -757,14 +762,19 @@ impl Engine {
         let extra_body = config::resolve_extra_body(&self.cfg, &self.session.model);
         let btw_agent = crate::provider::build_btw_agent(
             model,
-            &self.cli,
-            &self.cfg,
-            &self.context,
-            &self.permission,
-            &None,
-            self.reasoning_enabled,
-            temperature,
-            extra_body,
+            AgentBuild {
+                cli: &self.cli,
+                cfg: &self.cfg,
+                context: &self.context,
+                permission: self.permission.clone(),
+                ask_tx: None,
+                sandbox: self.sandbox.clone(),
+                reasoning_enabled: self.reasoning_enabled,
+                temperature,
+                extra_body,
+                #[cfg(feature = "mcp")]
+                mcp_manager: None,
+            },
         );
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(32);
         let _runner = btw_agent.spawn_btw(

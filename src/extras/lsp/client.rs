@@ -140,7 +140,11 @@ impl LspClient {
                         }
                         // Response to one of our requests.
                         (None, Some(id)) => {
-                            if let Some(tx) = pending.lock().unwrap().remove(&id) {
+                            if let Some(tx) = pending
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .remove(&id)
+                            {
                                 let _ = tx.send(msg);
                             }
                         }
@@ -148,7 +152,7 @@ impl LspClient {
                     }
                 }
                 // Server died: fail every outstanding request.
-                pending.lock().unwrap().clear();
+                pending.lock().unwrap_or_else(|e| e.into_inner()).clear();
             });
         }
 
@@ -205,7 +209,10 @@ impl LspClient {
     async fn request(&self, method: &str, params: Value, timeout: Duration) -> Option<Value> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().unwrap().insert(id, tx);
+        self.pending
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id, tx);
         let msg = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
         let body = serde_json::to_vec(&msg).ok()?;
         {
@@ -215,7 +222,10 @@ impl LspClient {
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(resp)) => Some(resp),
             _ => {
-                self.pending.lock().unwrap().remove(&id);
+                self.pending
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(&id);
                 tracing::debug!("lsp[{}]: '{}' timed out", self.name, method);
                 None
             }
@@ -245,7 +255,7 @@ impl LspClient {
             Change(i64),
         }
         let action = {
-            let mut open = self.open.lock().unwrap();
+            let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
             match open.get_mut(&uri_str) {
                 Some(version) => {
                     *version += 1;
@@ -299,7 +309,7 @@ fn store_diagnostics(diags: &DiagStore, server: &str, params: &Value) {
     let diagnostics: Vec<lsp_types::Diagnostic> =
         serde_json::from_value(params.get("diagnostics").cloned().unwrap_or(Value::Null))
             .unwrap_or_default();
-    let mut store = diags.lock().unwrap();
+    let mut store = diags.lock().unwrap_or_else(|e| e.into_inner());
     let entry = store.entry(uri.to_string()).or_insert_with(|| FileDiags {
         server: server.to_string(),
         version: 0,

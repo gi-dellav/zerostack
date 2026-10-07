@@ -167,14 +167,8 @@ fn escape_html(text: &str) -> String {
 
 /// Shared HTTP client for gist uploads — pooled, with timeout and user-agent.
 static GIST_CLIENT: std::sync::LazyLock<reqwest::Client> = std::sync::LazyLock::new(|| {
-    reqwest::Client::builder()
-        .user_agent(format!(
-            "zerostack/{} (https://github.com/gi-dellav/zerostack)",
-            env!("CARGO_PKG_VERSION")
-        ))
+    crate::provider::base_client_builder()
         .timeout(std::time::Duration::from_secs(15))
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .pool_idle_timeout(std::time::Duration::from_secs(90))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())
 });

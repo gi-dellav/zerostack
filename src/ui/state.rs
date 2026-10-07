@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use compact_str::CompactString;
 use tokio::sync::mpsc;
 
+use crate::agent::builder::AgentBuild;
 use crate::cli::Cli;
 use crate::config::Config;
 use crate::context::ContextFiles;
@@ -109,17 +110,19 @@ impl AgentBuildCtx<'_> {
         let extra_body = crate::config::resolve_extra_body(self.cfg, model_id);
         crate::provider::build_agent(
             model,
-            self.cli,
-            self.cfg,
-            self.context,
-            self.permission.clone(),
-            self.ask_tx.clone(),
-            self.sandbox.clone(),
-            reasoning_enabled,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            self.mcp_manager,
+            AgentBuild {
+                cli: self.cli,
+                cfg: self.cfg,
+                context: self.context,
+                permission: self.permission.clone(),
+                ask_tx: self.ask_tx.clone(),
+                sandbox: self.sandbox.clone(),
+                reasoning_enabled,
+                temperature,
+                extra_body,
+                #[cfg(feature = "mcp")]
+                mcp_manager: self.mcp_manager,
+            },
         )
         .await
     }

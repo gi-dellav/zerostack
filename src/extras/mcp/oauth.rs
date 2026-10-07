@@ -173,13 +173,8 @@ pub async fn build_auth_client(
         anyhow::bail!("no OAuth token stored; run `/mcp login {server_name}`");
     }
 
-    let http = reqwest::Client::builder()
-        .user_agent(format!(
-            "zerostack/{} (https://github.com/gi-dellav/zerostack)",
-            env!("CARGO_PKG_VERSION")
-        ))
+    let http = crate::provider::base_client_builder()
         .timeout(Duration::from_secs(10))
-        .connect_timeout(Duration::from_secs(5))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     Ok(AuthClient::new(http, manager))

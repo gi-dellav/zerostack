@@ -12,15 +12,8 @@ use tokio::process::Command;
 use super::config::McpServerConfig;
 
 static SHARED_HTTP_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .user_agent(format!(
-            "zerostack/{} (https://github.com/gi-dellav/zerostack)",
-            env!("CARGO_PKG_VERSION")
-        ))
+    crate::provider::base_client_builder()
         .timeout(Duration::from_secs(8))
-        .connect_timeout(Duration::from_secs(5))
-        .tcp_keepalive(Duration::from_secs(30))
-        .pool_idle_timeout(Duration::from_secs(90))
         .pool_max_idle_per_host(16)
         .build()
         .unwrap_or_else(|_| reqwest::Client::new())

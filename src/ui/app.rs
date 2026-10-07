@@ -8,6 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crossterm::style::Color;
 use tokio::sync::mpsc;
 
+use crate::agent::builder::AgentBuild;
 use crate::config;
 use crate::event::{AgentEvent, BtwEvent, UserEvent};
 #[cfg(feature = "mcp")]
@@ -181,11 +182,10 @@ impl<'a> App<'a> {
         }
         input.set_quick_model_names(config::quick_models_map(ui.cfg).into_keys().collect());
         {
-            let mut providers: Vec<String> =
-                ["anthropic", "openai", "gemini", "openrouter", "ollama"]
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect();
+            let mut providers: Vec<String> = crate::auth::BUILTIN_PROVIDER_NAMES
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
             providers.extend(ui.cfg.custom_providers_map().keys().cloned());
             input.set_provider_names(providers);
         }
@@ -1463,14 +1463,19 @@ impl<'a> App<'a> {
         let extra_body = crate::config::resolve_extra_body(self.ui.cfg, &self.ui.session.model);
         let btw_agent = crate::provider::build_btw_agent(
             model,
-            self.ui.cli,
-            self.ui.cfg,
-            self.ui.context,
-            &self.ui.permission,
-            &self.ui.ask_tx,
-            self.slash.reasoning_enabled,
-            temperature,
-            extra_body,
+            AgentBuild {
+                cli: self.ui.cli,
+                cfg: self.ui.cfg,
+                context: self.ui.context,
+                permission: self.ui.permission.clone(),
+                ask_tx: self.ui.ask_tx.clone(),
+                sandbox: self.ui.sandbox.clone(),
+                reasoning_enabled: self.slash.reasoning_enabled,
+                temperature,
+                extra_body,
+                #[cfg(feature = "mcp")]
+                mcp_manager: None,
+            },
         );
         let runner = btw_agent.spawn_btw(
             btw_text.to_string(),

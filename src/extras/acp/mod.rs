@@ -306,17 +306,19 @@ async fn run_prompt(
     let extra_body = crate::config::resolve_extra_body(&state.cfg, &model_str);
     let agent = crate::provider::build_agent(
         model,
-        &state.cli,
-        &state.cfg,
-        &state.context,
-        permission,
-        ask_tx,
-        sandbox,
-        false,
-        temperature,
-        extra_body,
-        #[cfg(feature = "mcp")]
-        None::<&crate::extras::mcp::McpClientManager>,
+        crate::agent::builder::AgentBuild {
+            cli: &state.cli,
+            cfg: &state.cfg,
+            context: &state.context,
+            permission,
+            ask_tx,
+            sandbox,
+            reasoning_enabled: false,
+            temperature,
+            extra_body,
+            #[cfg(feature = "mcp")]
+            mcp_manager: None,
+        },
     )
     .await;
 

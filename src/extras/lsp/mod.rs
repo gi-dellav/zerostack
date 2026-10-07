@@ -104,7 +104,7 @@ impl LspManager {
             .inner
             .diags
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .get(&uri)
             .map(|d| d.version)
             .unwrap_or(0);
@@ -114,7 +114,7 @@ impl LspManager {
                 .inner
                 .diags
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .get(&uri)
                 .map(|d| d.version)
                 .unwrap_or(0);
@@ -128,7 +128,7 @@ impl LspManager {
                 break; // timeout: use whatever is stored
             }
         }
-        let store = self.inner.diags.lock().unwrap();
+        let store = self.inner.diags.lock().unwrap_or_else(|e| e.into_inner());
         let file = store.get(&uri)?;
         format_file_diags(&file.server, &file.diagnostics)
     }
@@ -143,7 +143,7 @@ impl LspManager {
     /// All files that currently have diagnostics, formatted for the
     /// `lsp_diagnostics` tool. `None` when everything is clean.
     pub fn all_diagnostics_block(&self) -> Option<String> {
-        let store = self.inner.diags.lock().unwrap();
+        let store = self.inner.diags.lock().unwrap_or_else(|e| e.into_inner());
         let mut out = String::new();
         let mut lines = 0usize;
         let mut entries: Vec<_> = store.iter().collect();
@@ -182,14 +182,18 @@ impl LspManager {
         server: &str,
         diagnostics: Vec<lsp_types::Diagnostic>,
     ) {
-        self.inner.diags.lock().unwrap().insert(
-            uri.to_string(),
-            client::FileDiags {
-                server: server.to_string(),
-                version: 1,
-                diagnostics,
-            },
-        );
+        self.inner
+            .diags
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                uri.to_string(),
+                client::FileDiags {
+                    server: server.to_string(),
+                    version: 1,
+                    diagnostics,
+                },
+            );
     }
 }
 

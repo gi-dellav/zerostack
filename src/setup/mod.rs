@@ -156,18 +156,13 @@ struct Ctx {
 }
 
 fn builtin_provider_names() -> &'static [&'static str] {
-    &["openrouter", "openai", "anthropic", "gemini", "ollama"]
+    &crate::auth::BUILTIN_PROVIDER_NAMES
 }
 
 fn provider_env_var(name: &str) -> &'static str {
-    match name {
-        "openrouter" => "OPENROUTER_API_KEY",
-        "openai" => "OPENAI_API_KEY",
-        "anthropic" => "ANTHROPIC_API_KEY",
-        "gemini" => "GEMINI_API_KEY",
-        "ollama" => "OLLAMA_API_KEY",
-        _ => "",
-    }
+    crate::auth::ProviderKind::from_name(name)
+        .map(|k| k.env_var())
+        .unwrap_or("")
 }
 
 fn collect_provider_names(cfg: &Config) -> Vec<String> {
