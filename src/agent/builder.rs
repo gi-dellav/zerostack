@@ -221,7 +221,7 @@ pub(crate) fn filter_tools_by_allowlist(
         // Also list available tools when filtering leaves empty, to help typo discovery.
         let filtered: Vec<_> = tools
             .iter()
-            .filter(|t| allowed.contains(&t.name().to_string()))
+            .filter(|t| allowed.contains(t.name()))
             .collect();
         if filtered.is_empty() {
             tracing::warn!(

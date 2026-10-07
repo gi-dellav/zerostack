@@ -217,13 +217,13 @@ pub fn resolve_opencode_transport(provider: &str, model_id: &str) -> OpencodeTra
     })
 }
 
-/// rig 0.37 exposes two distinct OpenAI client types:
-/// - `openai::Client`            -> Responses API (`/responses`). Real OpenAI,
-///   including GPT-5; rig maps `max_tokens` to `max_output_tokens`, so it does
-///   not hit the GPT-5 400.
-/// - `openai::CompletionsClient` -> Chat Completions API (`/chat/completions`).
-///   Most OpenAI-compatible gateways (vLLM / LiteLLM / self-hosted) implement
-///   only this endpoint.
+/// rig 0.43 exposes OpenAI-family models through one client type:
+/// `openai::OpenAI` (an `OpenAIConfig` on a transport). The completion
+/// endpoint is chosen per model via [`Route`]:
+/// - `Route::Responses` (`/responses`) — real OpenAI, including GPT-5; rig
+///   maps `max_tokens` to `max_output_tokens`, so it does not hit the GPT-5 400.
+/// - `Route::Chat` (`/chat/completions`) — most OpenAI-compatible gateways
+///   (vLLM / LiteLLM / self-hosted) implement only this endpoint.
 ///
 /// [`ApiStyle`] decides which route a model uses; [`AnyModel`] carries models
 /// already built for the right route, so no client enum is needed.
@@ -263,9 +263,9 @@ pub enum OpenAiAgent {
 pub enum AnyClient {
     OpenRouter(openai::OpenAI),
     OpenAI(OpenAiClient),
-    Anthropic(anthropic::Client),
-    Gemini(gemini::Client),
-    Ollama(ollama::Client),
+    Anthropic(anthropic::Anthropic),
+    Gemini(gemini::Gemini),
+    Ollama(ollama::Ollama),
     OpencodeZen(OpencodeClient),
     OpencodeGo(OpencodeClient),
 }
@@ -276,22 +276,24 @@ pub enum AnyClient {
 #[derive(Clone)]
 pub struct OpencodeClient {
     provider: &'static str,
-    chat: openai::CompletionsClient,
-    responses: openai::Client,
-    messages: anthropic::Client,
+    chat: openai::OpenAI,
+    responses: openai::OpenAI,
+    messages: anthropic::Anthropic,
 }
 
 impl OpencodeClient {
     fn completion_model(&self, name: String) -> AnyModel {
         match resolve_opencode_transport(self.provider, &name) {
             OpencodeTransport::Chat => {
-                AnyModel::OpenAI(OpenAiModel::Completions(self.chat.completion_model(name)))
+                AnyModel::OpenAI(OpenAiModel::Completions(self.chat.completion(name).erase()))
             }
             OpencodeTransport::Responses => AnyModel::OpenAI(OpenAiModel::Responses(
-                self.responses.completion_model(name),
+                self.responses.completion(name).erase(),
             )),
             OpencodeTransport::Messages => {
-                AnyModel::Anthropic(self.messages.completion_model(name).with_prompt_caching())
+                let mut wire_model = self.messages.completion(name);
+                wire_model.wire = wire_model.wire.with_prompt_caching();
+                AnyModel::Anthropic(wire_model.erase())
             }
         }
     }
@@ -376,8 +378,8 @@ impl AnyClient {
                 wire_model.wire = wire_model.wire.with_prompt_caching();
                 AnyModel::Anthropic(wire_model.erase())
             }
-            AnyClient::Gemini(c) => AnyModel::Gemini(c.completion_model(name)),
-            AnyClient::Ollama(c) => AnyModel::Ollama(c.completion_model(name)),
+            AnyClient::Gemini(c) => AnyModel::Gemini(c.completion(name).erase()),
+            AnyClient::Ollama(c) => AnyModel::Ollama(c.completion(name).erase()),
             AnyClient::OpencodeZen(c) | AnyClient::OpencodeGo(c) => c.completion_model(name),
         }
     }
@@ -485,11 +487,6 @@ impl AnyClient {
             // `/v1` root; the responses client already targets it.
             AnyClient::OpencodeZen(c) | AnyClient::OpencodeGo(c) => {
                 c.responses.list_models().await?
-            }
-            // If any arm above does NOT impl ModelListingClient it won't compile —
-            // move it down here to the manual fallback.
-            AnyClient::OpenAI(OpenAiClient::Completions(_)) => {
-                anyhow::bail!("rig model listing unavailable for this client")
             }
         };
         Ok(list.iter().map(ModelEntry::from_rig).collect())
@@ -1461,8 +1458,8 @@ fn build_openrouter_client(key: &str, base_url: Option<&str>) -> anyhow::Result<
 }
 
 /// Builds the three transports of an OpenCode gateway behind one key. Chat
-/// and responses share the `/v1` root (rig appends `/chat/completions` and
-/// `/responses` respectively); the messages client takes the bare root (rig
+/// and responses share the `/v1` root (rig selects `/chat/completions` vs
+/// `/responses` via [`Route`]); the messages client takes the bare root (rig
 /// appends `/v1/messages`).
 fn build_opencode_client(
     key: &str,
@@ -1479,21 +1476,18 @@ fn build_opencode_client(
         Some(&base_v1),
         HttpPurpose::Completion,
     )?;
-    let chat = openai::CompletionsClient::builder()
-        .api_key(key)
-        .base_url(base_v1.as_str())
-        .http_client(http_client.clone())
-        .build()?;
-    let responses = openai::Client::builder()
-        .api_key(key)
-        .base_url(base_v1.as_str())
-        .http_client(http_client.clone())
-        .build()?;
-    let messages = anthropic::Client::builder()
-        .api_key(key)
-        .base_url(root)
-        .http_client(http_client)
-        .build()?;
+    let http = rig_http(http_client);
+    let chat = OpenAIConfig::new(key)
+        .with_base_url(base_v1.as_str())
+        .with_route(Route::Chat)
+        .connect(http.clone());
+    let responses = OpenAIConfig::new(key)
+        .with_base_url(base_v1.as_str())
+        .with_route(Route::Responses)
+        .connect(http.clone());
+    let messages = anthropic::wire::AnthropicConfig::new(key)
+        .with_base_url(root)
+        .connect(http);
     Ok(OpencodeClient {
         provider: provider_name,
         chat,

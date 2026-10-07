@@ -345,12 +345,10 @@ pub fn spawn_agent(
                                 .send(AgentEvent::Token(CompactString::from(text)))
                                 .await;
                         }
-                        Item::Event(StreamEvent::Reasoning { text, .. }) => {
-                            if !text.is_empty() {
-                                let _ = event_tx
-                                    .send(AgentEvent::Reasoning(CompactString::from(text)))
-                                    .await;
-                            }
+                        Item::Event(StreamEvent::Reasoning { text, .. }) if !text.is_empty() => {
+                            let _ = event_tx
+                                .send(AgentEvent::Reasoning(CompactString::from(text)))
+                                .await;
                         }
                         _ => {}
                     },
