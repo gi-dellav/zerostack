@@ -1,8 +1,19 @@
 use std::path::{Path, PathBuf};
 
-use include_dir::{Dir, include_dir};
-
-static EMBEDDED: Dir = include_dir!("$CARGO_MANIFEST_DIR/docs");
+/// The docs the binary actually reads at runtime. Website-only assets
+/// (`index.html`, `template.html`, `robots.txt`, `providers/*.md`) and the
+/// unreferenced `PUBLISHING_RELEASES.md` / `STATUS_SIGNALS.md` are deliberately
+/// left out so they are not baked into the binary.
+const EMBEDDED: &[(&str, &str)] = &[
+    ("GET_STARTED.md", include_str!("../docs/GET_STARTED.md")),
+    ("COMMANDS.md", include_str!("../docs/COMMANDS.md")),
+    ("CONFIG.md", include_str!("../docs/CONFIG.md")),
+    ("PROVIDERS.md", include_str!("../docs/PROVIDERS.md")),
+    ("HASHEDIT.md", include_str!("../docs/HASHEDIT.md")),
+    ("MEMORY.md", include_str!("../docs/MEMORY.md")),
+    ("ARCHITECTURE.md", include_str!("../docs/ARCHITECTURE.md")),
+    ("SUBAGENTS.md", include_str!("../docs/SUBAGENTS.md")),
+];
 
 pub fn global_docs_dir() -> PathBuf {
     crate::session::storage::data_dir().join("docs")
@@ -48,13 +59,8 @@ pub fn ensure_global() -> anyhow::Result<bool> {
 }
 
 fn copy_embedded(dest: &Path) -> anyhow::Result<()> {
-    for file in EMBEDDED.files() {
-        if let Some(name) = file.path().file_name().and_then(|s| s.to_str()) {
-            let dest_path = dest.join(name);
-            if let Some(content) = file.contents_utf8() {
-                std::fs::write(&dest_path, content)?;
-            }
-        }
+    for (name, content) in EMBEDDED {
+        std::fs::write(dest.join(name), content)?;
     }
     Ok(())
 }
