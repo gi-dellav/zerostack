@@ -156,13 +156,28 @@ struct Ctx {
 }
 
 fn builtin_provider_names() -> &'static [&'static str] {
-    &crate::auth::BUILTIN_PROVIDER_NAMES
+    &[
+        "openrouter",
+        "openai",
+        "anthropic",
+        "gemini",
+        "ollama",
+        "opencode-zen",
+        "opencode-go",
+    ]
 }
 
 fn provider_env_var(name: &str) -> &'static str {
-    crate::auth::ProviderKind::from_name(name)
-        .map(|k| k.env_var())
-        .unwrap_or("")
+    match name {
+        "openrouter" => "OPENROUTER_API_KEY",
+        "openai" => "OPENAI_API_KEY",
+        "anthropic" => "ANTHROPIC_API_KEY",
+        "gemini" => "GEMINI_API_KEY",
+        "ollama" => "OLLAMA_API_KEY",
+        // One key covers both the Zen and Go catalogs.
+        "opencode-zen" | "opencode-go" => "OPENCODE_API_KEY",
+        _ => "",
+    }
 }
 
 fn collect_provider_names(cfg: &Config) -> Vec<String> {
@@ -1238,7 +1253,7 @@ fn handle_provider_detail_key(ctx: &Ctx, key: KeyEvent) -> anyhow::Result<KeyRes
                         selected_field,
                         None,
                         Some(format!(
-                            "Unknown provider type '{new_provider_type}' (valid: openrouter, openai, anthropic, gemini, ollama, custom)"
+                            "Unknown provider type '{new_provider_type}' (valid: openrouter, openai, anthropic, gemini, ollama, opencode-zen, opencode-go, custom)"
                         )),
                     )));
                 }
@@ -1793,6 +1808,8 @@ fn apply_autoconfigure(cfg: &mut Config) {
         ("anthropic", "ANTHROPIC_API_KEY"),
         ("gemini", "GEMINI_API_KEY"),
         ("openrouter", "OPENROUTER_API_KEY"),
+        ("opencode-zen", "OPENCODE_API_KEY"),
+        ("opencode-go", "OPENCODE_API_KEY"),
     ];
 
     for (provider, env_var) in providers_to_check {

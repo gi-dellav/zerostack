@@ -400,7 +400,8 @@ impl Engine {
             .saturating_add(usage.cache_creation_input_tokens);
         self.session.total_cost += crate::pricing::estimate_cost(
             crate::pricing::billable_input_tokens(
-                self.cfg.is_anthropic_native(&self.session.provider),
+                self.cfg
+                    .is_anthropic_native(&self.session.provider, &self.session.model),
                 usage.input_tokens,
                 usage.cached_input_tokens,
                 usage.cache_creation_input_tokens,
@@ -410,7 +411,8 @@ impl Engine {
             self.session.output_token_cost,
         );
         let context_input_tokens = Session::real_input_tokens(
-            self.cfg.is_anthropic_native(&self.session.provider),
+            self.cfg
+                .is_anthropic_native(&self.session.provider, &self.session.model),
             usage.input_tokens,
             usage.cached_input_tokens,
             usage.cache_creation_input_tokens,
@@ -444,7 +446,8 @@ impl Engine {
         usage: &mut TurnUsage,
     ) {
         let real = Session::real_input_tokens(
-            self.cfg.is_anthropic_native(&self.session.provider),
+            self.cfg
+                .is_anthropic_native(&self.session.provider, &self.session.model),
             input_tokens,
             cached_input_tokens,
             cache_creation_input_tokens,
@@ -461,7 +464,8 @@ impl Engine {
             .saturating_add(output_tokens);
         self.session.total_cost += crate::pricing::estimate_cost(
             crate::pricing::billable_input_tokens(
-                self.cfg.is_anthropic_native(&self.session.provider),
+                self.cfg
+                    .is_anthropic_native(&self.session.provider, &self.session.model),
                 input_tokens,
                 cached_input_tokens,
                 cache_creation_input_tokens,

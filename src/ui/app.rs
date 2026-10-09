@@ -182,10 +182,18 @@ impl<'a> App<'a> {
         }
         input.set_quick_model_names(config::quick_models_map(ui.cfg).into_keys().collect());
         {
-            let mut providers: Vec<String> = crate::auth::BUILTIN_PROVIDER_NAMES
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
+            let mut providers: Vec<String> = [
+                "anthropic",
+                "openai",
+                "gemini",
+                "openrouter",
+                "ollama",
+                "opencode-zen",
+                "opencode-go",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
             providers.extend(ui.cfg.custom_providers_map().keys().cloned());
             input.set_provider_names(providers);
         }
@@ -1084,7 +1092,9 @@ impl<'a> App<'a> {
             && let Some(threshold) = self.ui.cfg.resolve_mid_turn_compact_threshold()
         {
             let real_input_tokens = crate::session::Session::real_input_tokens(
-                self.ui.cfg.is_anthropic_native(&self.ui.session.provider),
+                self.ui
+                    .cfg
+                    .is_anthropic_native(&self.ui.session.provider, &self.ui.session.model),
                 *input_tokens,
                 *cached_input_tokens,
                 *cache_creation_input_tokens,
@@ -1935,7 +1945,9 @@ impl<'a> App<'a> {
             } => {
                 self.btw_total_cost += crate::pricing::estimate_cost(
                     crate::pricing::billable_input_tokens(
-                        self.ui.cfg.is_anthropic_native(&self.ui.session.provider),
+                        self.ui
+                            .cfg
+                            .is_anthropic_native(&self.ui.session.provider, &self.ui.session.model),
                         input_tokens,
                         cached_input_tokens,
                         cache_creation_input_tokens,

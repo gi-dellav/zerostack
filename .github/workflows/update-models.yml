@@ -1,9 +1,10 @@
 name: Update model catalog
 
-# Refreshes the embedded static model catalog (data/models.json) from
-# models.dev on a schedule. The committed JSON stays the single build-time
-# source of truth, so this only opens a PR when models.dev actually changes —
-# builds remain offline and reproducible. See scripts/gen-models-catalog.sh.
+# Refreshes the embedded static model catalog (data/models.json) and the
+# OpenCode transport map (data/opencode-transports.json) from models.dev on a
+# schedule. The committed JSON stays the single build-time source of truth, so
+# this only opens a PR when models.dev actually changes — builds remain
+# offline and reproducible. See scripts/gen-models-catalog.sh.
 
 on:
   schedule:
@@ -33,10 +34,13 @@ jobs:
           commit-message: 'chore: refresh model catalog from models.dev'
           title: 'chore: refresh model catalog from models.dev'
           body: |
-            Automated refresh of `data/models.json` from https://models.dev/api.json
+            Automated refresh of `data/models.json` and
+            `data/opencode-transports.json` from https://models.dev/api.json
             via `scripts/gen-models-catalog.sh`.
 
             Review the diff for unexpected additions/removals before merging.
           branch: chore/refresh-model-catalog
           delete-branch: true
-          add-paths: data/models.json
+          add-paths: |
+            data/models.json
+            data/opencode-transports.json

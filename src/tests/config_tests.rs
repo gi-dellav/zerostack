@@ -19,11 +19,33 @@ fn custom_provider(provider_type: &str) -> CustomProviderConfig {
 #[test]
 fn is_anthropic_native_builtin_providers() {
     let cfg = Config::default();
-    assert!(cfg.is_anthropic_native("anthropic"));
-    assert!(cfg.is_anthropic_native("Anthropic")); // case-insensitive
-    for p in ["openai", "gemini", "google", "openrouter", "ollama"] {
-        assert!(!cfg.is_anthropic_native(p), "{p} is not anthropic-native");
+    assert!(cfg.is_anthropic_native("anthropic", "claude-sonnet-4-6"));
+    assert!(cfg.is_anthropic_native("Anthropic", "claude-sonnet-4-6")); // case-insensitive
+    for p in [
+        "openai",
+        "gemini",
+        "google",
+        "openrouter",
+        "ollama",
+        "opencode-zen",
+        "opencode-go",
+    ] {
+        assert!(
+            !cfg.is_anthropic_native(p, "kimi-k2.6"),
+            "{p} is not anthropic-native for chat models"
+        );
     }
+}
+
+#[test]
+fn is_anthropic_native_follows_opencode_transport() {
+    // One provider id, three transports: only messages-route models count.
+    let cfg = Config::default();
+    assert!(cfg.is_anthropic_native("opencode-zen", "claude-opus-4-6"));
+    assert!(cfg.is_anthropic_native("opencode-go", "minimax-m2.7"));
+    assert!(!cfg.is_anthropic_native("opencode-zen", "gpt-5.5"));
+    assert!(!cfg.is_anthropic_native("opencode-go", "kimi-k2.6"));
+    assert!(!cfg.is_anthropic_native("opencode-zen", "no-such-model"));
 }
 
 #[test]
@@ -38,10 +60,10 @@ fn is_anthropic_native_resolves_custom_provider_type() {
         custom_providers: Some(providers),
         ..Config::default()
     };
-    assert!(cfg.is_anthropic_native("my-claude-proxy"));
-    assert!(!cfg.is_anthropic_native("my-oai-gateway"));
+    assert!(cfg.is_anthropic_native("my-claude-proxy", "claude-sonnet-4-6"));
+    assert!(!cfg.is_anthropic_native("my-oai-gateway", "gpt-4o"));
     // Unknown name with no custom entry falls back to the literal kind.
-    assert!(!cfg.is_anthropic_native("totally-unknown"));
+    assert!(!cfg.is_anthropic_native("totally-unknown", "whatever"));
 }
 
 #[test]

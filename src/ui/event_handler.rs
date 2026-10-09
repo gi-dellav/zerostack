@@ -253,7 +253,8 @@ pub async fn handle_agent_event(
             // Use the cache-inclusive prompt size so Anthropic cache hits (which
             // report input_tokens excluding cached tokens) don't deflate it.
             let real = Session::real_input_tokens(
-                ui.cfg.is_anthropic_native(&ui.session.provider),
+                ui.cfg
+                    .is_anthropic_native(&ui.session.provider, &ui.session.model),
                 input_tokens,
                 cached_input_tokens,
                 cache_creation_input_tokens,
@@ -271,7 +272,8 @@ pub async fn handle_agent_event(
                 ui.session.total_output_tokens.saturating_add(output_tokens);
             ui.session.total_cost += crate::pricing::estimate_cost(
                 crate::pricing::billable_input_tokens(
-                    ui.cfg.is_anthropic_native(&ui.session.provider),
+                    ui.cfg
+                        .is_anthropic_native(&ui.session.provider, &ui.session.model),
                     input_tokens,
                     cached_input_tokens,
                     cache_creation_input_tokens,
@@ -398,7 +400,8 @@ async fn handle_agent_done(
         .saturating_add(usage.output_tokens);
     ui.session.total_cost += crate::pricing::estimate_cost(
         crate::pricing::billable_input_tokens(
-            ui.cfg.is_anthropic_native(&ui.session.provider),
+            ui.cfg
+                .is_anthropic_native(&ui.session.provider, &ui.session.model),
             usage.input_tokens,
             usage.cached_input_tokens,
             usage.cache_creation_input_tokens,
@@ -413,7 +416,8 @@ async fn handle_agent_done(
     // which would otherwise collapse the context meter to ~0 on cache hits).
     // Must come after add_message so the anchor includes the just-appended response.
     let context_input_tokens = Session::real_input_tokens(
-        ui.cfg.is_anthropic_native(&ui.session.provider),
+        ui.cfg
+            .is_anthropic_native(&ui.session.provider, &ui.session.model),
         usage.input_tokens,
         usage.cached_input_tokens,
         usage.cache_creation_input_tokens,
