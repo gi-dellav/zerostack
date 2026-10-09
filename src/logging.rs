@@ -78,6 +78,9 @@ fn write_crash_report(info: &std::panic::PanicHookInfo) -> Option<PathBuf> {
     fs::write(&path, content).ok().map(|_| path)
 }
 
+// Only the `logging` feature's `init` calls this; keep it compiled for the
+// tests that cover the flag handling without the feature.
+#[cfg_attr(not(feature = "logging"), allow(dead_code))]
 pub fn resolve_log_path(cli: &Cli) -> Option<PathBuf> {
     if let Some(ref path) = cli.log_file {
         return Some(path.clone());

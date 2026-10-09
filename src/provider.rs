@@ -1491,20 +1491,7 @@ fn build_opencode_client(
 }
 
 /// Builds an OpenAiModel (Responses / Completions) into the matching OpenAiAgent.
-#[allow(clippy::too_many_arguments)]
-async fn build_openai_agent(
-    model: OpenAiModel,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: Option<PermCheck>,
-    ask_tx: Option<AskSender>,
-    sandbox: Sandbox,
-    reasoning_enabled: bool,
-    temperature: Option<f64>,
-    extra_body: Option<serde_json::Value>,
-    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
-) -> OpenAiAgent {
+async fn build_openai_agent(model: OpenAiModel, build: AgentBuild<'_>) -> OpenAiAgent {
     match model {
         OpenAiModel::Responses(m) => {
             OpenAiAgent::Responses(builder::build_agent_inner(m, build).await)

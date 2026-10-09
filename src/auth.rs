@@ -13,11 +13,6 @@ pub enum ProviderKind {
     OpencodeGo,
 }
 
-/// Built-in provider slugs, in display order. Single source of truth for the
-/// provider pickers and the setup wizard.
-pub const BUILTIN_PROVIDER_NAMES: [&str; 5] =
-    ["openrouter", "openai", "anthropic", "gemini", "ollama"];
-
 impl ProviderKind {
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().as_str() {
@@ -40,6 +35,8 @@ impl ProviderKind {
             Self::Anthropic => "anthropic",
             Self::Gemini => "gemini",
             Self::Ollama => "ollama",
+            Self::OpencodeZen => "opencode-zen",
+            Self::OpencodeGo => "opencode-go",
         }
     }
 
@@ -51,6 +48,8 @@ impl ProviderKind {
             Self::Gemini => "GEMINI_API_KEY",
             Self::Ollama => "OLLAMA_API_KEY",
             Self::OpenRouter => "OPENROUTER_API_KEY",
+            // One key covers both the Zen and Go catalogs.
+            Self::OpencodeZen | Self::OpencodeGo => "OPENCODE_API_KEY",
         }
     }
 }
@@ -161,29 +160,5 @@ impl AuthResolver {
                 .as_deref()
                 .unwrap_or("provider_name")
         )
-    }
-
-    fn env_var_name(&self) -> &'static str {
-        match self.provider_kind {
-            ProviderKind::OpenAI => "OPENAI_API_KEY",
-            ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
-            ProviderKind::Gemini => "GEMINI_API_KEY",
-            ProviderKind::Ollama => "OLLAMA_API_KEY",
-            ProviderKind::OpenRouter => "OPENROUTER_API_KEY",
-            // One key covers both the Zen and Go catalogs.
-            ProviderKind::OpencodeZen | ProviderKind::OpencodeGo => "OPENCODE_API_KEY",
-        }
-    }
-
-    fn provider_slug(&self) -> &'static str {
-        match self.provider_kind {
-            ProviderKind::OpenRouter => "openrouter",
-            ProviderKind::OpenAI => "openai",
-            ProviderKind::Anthropic => "anthropic",
-            ProviderKind::Gemini => "gemini",
-            ProviderKind::Ollama => "ollama",
-            ProviderKind::OpencodeZen => "opencode-zen",
-            ProviderKind::OpencodeGo => "opencode-go",
-        }
     }
 }
