@@ -245,23 +245,41 @@ pub(crate) fn filter_tools_by_allowlist(
     filtered
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn build_agent_inner(
-    model: DynModel<Completion>,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: Option<PermCheck>,
-    ask_tx: Option<AskSender>,
-    sandbox: Sandbox,
-    reasoning_enabled: bool,
-    temperature: Option<f64>,
-    // Provider-specific extra body params (e.g. OpenRouter `provider.order` to
-    // pin Claude to the Anthropic direct route so `cache_control` is honored).
-    // `None` for providers that need no extra routing.
-    additional_params: Option<serde_json::Value>,
-    #[cfg(feature = "mcp")] mcp_manager: Option<&McpClientManager>,
-) -> Agent {
+/// Bundled arguments for [`build_agent_inner`] and [`build_btw_agent_inner`].
+/// Grouping them lets the provider dispatch in `provider::build_agent` wrap
+/// each model variant without repeating an eleven-argument call per match arm.
+pub struct AgentBuild<'a> {
+    pub cli: &'a Cli,
+    pub cfg: &'a Config,
+    pub context: &'a ContextFiles,
+    pub permission: Option<PermCheck>,
+    pub ask_tx: Option<AskSender>,
+    pub sandbox: Sandbox,
+    pub reasoning_enabled: bool,
+    pub temperature: Option<f64>,
+    /// Provider-specific extra body params (e.g. OpenRouter `provider.order` to
+    /// pin Claude to the Anthropic direct route so `cache_control` is honored).
+    /// `None` for providers that need no extra routing.
+    pub extra_body: Option<serde_json::Value>,
+    #[cfg(feature = "mcp")]
+    pub mcp_manager: Option<&'a McpClientManager>,
+}
+
+pub async fn build_agent_inner(model: DynModel<Completion>, build: AgentBuild<'_>) -> Agent {
+    let AgentBuild {
+        cli,
+        cfg,
+        context,
+        permission,
+        ask_tx,
+        sandbox,
+        reasoning_enabled,
+        temperature,
+        extra_body: additional_params,
+        #[cfg(feature = "mcp")]
+        mcp_manager,
+    } = build;
+
     #[cfg(feature = "lsp")]
     let lsp_manager = if cli.resolve_no_tools(cfg) {
         None
@@ -472,19 +490,18 @@ const BTW_MAX_TURNS: usize = 8;
 /// Builds the isolated `/btw` agent: a lightweight read-only Q&A helper with the
 /// project context for reference, NO tools, and a single turn. Never mutates the
 /// session.
-#[allow(clippy::too_many_arguments)]
-pub fn build_btw_agent_inner(
-    model: DynModel<Completion>,
-    cli: &Cli,
-    cfg: &Config,
-    context: &ContextFiles,
-    permission: &Option<PermCheck>,
-    ask_tx: &Option<AskSender>,
-    _reasoning_enabled: bool,
-    temperature: Option<f64>,
-    // See `build_agent_inner`: OpenRouter `provider.order` pin for `anthropic/*`.
-    additional_params: Option<serde_json::Value>,
-) -> Agent {
+pub fn build_btw_agent_inner(model: DynModel<Completion>, build: AgentBuild<'_>) -> Agent {
+    let AgentBuild {
+        cli,
+        cfg,
+        context,
+        permission,
+        ask_tx,
+        temperature,
+        extra_body: additional_params,
+        ..
+    } = build;
+
     let cwd = std::env::current_dir()
         .ok()
         .map(|p| p.display().to_string())

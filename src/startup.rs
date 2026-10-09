@@ -1,5 +1,6 @@
 use compact_str::CompactString;
 
+use crate::agent::builder::AgentBuild;
 use crate::agent::tools;
 use crate::cli::Cli;
 use crate::config::{self, Config};
@@ -939,20 +940,22 @@ impl Startup {
             let mcp_manager = connect_headless_mcp(&self.cfg).await;
             let agent = provider::build_agent(
                 completion_model,
-                &self.cli,
-                &self.cfg,
-                &self.context,
-                self.permission,
-                // Non-interactive dispatch never keeps the ask channel: with
-                // no one draining it, an `Ask` verdict must fail closed as a
-                // denial rather than block forever. See `handle_ask_inner`.
-                None,
-                self.sandbox.clone(),
-                true,
-                temperature,
-                extra_body,
-                #[cfg(feature = "mcp")]
-                mcp_manager.as_ref(),
+                AgentBuild {
+                    cli: &self.cli,
+                    cfg: &self.cfg,
+                    context: &self.context,
+                    permission: self.permission,
+                    // Non-interactive dispatch never keeps the ask channel: with
+                    // no one draining it, an `Ask` verdict must fail closed as a
+                    // denial rather than block forever. See `handle_ask_inner`.
+                    ask_tx: None,
+                    sandbox: self.sandbox.clone(),
+                    reasoning_enabled: true,
+                    temperature,
+                    extra_body,
+                    #[cfg(feature = "mcp")]
+                    mcp_manager: mcp_manager.as_ref(),
+                },
             )
             .await;
             #[cfg(feature = "advisor")]
@@ -1053,19 +1056,21 @@ impl Startup {
         let mcp_manager = connect_headless_mcp(&self.cfg).await;
         let agent = provider::build_agent(
             model_completion,
-            &self.cli,
-            &self.cfg,
-            &self.context,
-            self.permission,
-            // Non-interactive dispatch never keeps the ask channel; see the
-            // matching note in `dispatch_print`.
-            None,
-            self.sandbox.clone(),
-            true,
-            temperature,
-            extra_body,
-            #[cfg(feature = "mcp")]
-            mcp_manager.as_ref(),
+            AgentBuild {
+                cli: &self.cli,
+                cfg: &self.cfg,
+                context: &self.context,
+                permission: self.permission,
+                // Non-interactive dispatch never keeps the ask channel; see the
+                // matching note in `dispatch_print`.
+                ask_tx: None,
+                sandbox: self.sandbox.clone(),
+                reasoning_enabled: true,
+                temperature,
+                extra_body,
+                #[cfg(feature = "mcp")]
+                mcp_manager: mcp_manager.as_ref(),
+            },
         )
         .await;
         let result = crate::extras::r#loop::headless::run_headless_loop(

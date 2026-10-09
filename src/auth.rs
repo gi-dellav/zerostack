@@ -13,6 +13,11 @@ pub enum ProviderKind {
     OpencodeGo,
 }
 
+/// Built-in provider slugs, in display order. Single source of truth for the
+/// provider pickers and the setup wizard.
+pub const BUILTIN_PROVIDER_NAMES: [&str; 5] =
+    ["openrouter", "openai", "anthropic", "gemini", "ollama"];
+
 impl ProviderKind {
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().as_str() {
@@ -24,6 +29,28 @@ impl ProviderKind {
             "opencode-zen" => Some(Self::OpencodeZen),
             "opencode-go" => Some(Self::OpencodeGo),
             _ => None,
+        }
+    }
+
+    /// Canonical slug — matches [`Self::from_name`] keys and config `api_keys`.
+    pub fn slug(self) -> &'static str {
+        match self {
+            Self::OpenRouter => "openrouter",
+            Self::OpenAI => "openai",
+            Self::Anthropic => "anthropic",
+            Self::Gemini => "gemini",
+            Self::Ollama => "ollama",
+        }
+    }
+
+    /// Environment variable consulted for this provider's API key.
+    pub fn env_var(self) -> &'static str {
+        match self {
+            Self::OpenAI => "OPENAI_API_KEY",
+            Self::Anthropic => "ANTHROPIC_API_KEY",
+            Self::Gemini => "GEMINI_API_KEY",
+            Self::Ollama => "OLLAMA_API_KEY",
+            Self::OpenRouter => "OPENROUTER_API_KEY",
         }
     }
 }
@@ -83,7 +110,7 @@ impl AuthResolver {
             tracing::warn!(
                 "API key provided via --api-key is visible in process listings. \
                  Use the {} environment variable instead.",
-                self.env_var_name()
+                self.provider_kind.env_var()
             );
             return Ok(key.clone());
         }
@@ -92,7 +119,7 @@ impl AuthResolver {
         let env_var = self
             .api_key_env_override
             .as_deref()
-            .unwrap_or_else(|| self.env_var_name());
+            .unwrap_or_else(|| self.provider_kind.env_var());
 
         if let Ok(key) = get_env(env_var)
             && !key.is_empty()
@@ -102,7 +129,7 @@ impl AuthResolver {
 
         // Priority 3: Config file (try provider slug first, then custom provider name)
         if let Some(ref keys) = self.config_api_keys {
-            let slug = self.provider_slug();
+            let slug = self.provider_kind.slug();
             if let Some(key) = keys.get(slug).filter(|k| !k.is_empty()) {
                 return Ok(key.clone());
             }
@@ -129,7 +156,7 @@ impl AuthResolver {
         anyhow::bail!(
             "No API key found. Set the {} environment variable, add it to config.api_keys under '{}' or '{}', pass --api-key, or run `zerostack --setup` to configure interactively.",
             env_var,
-            self.provider_slug(),
+            self.provider_kind.slug(),
             self.custom_provider_name
                 .as_deref()
                 .unwrap_or("provider_name")

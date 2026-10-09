@@ -1,12 +1,19 @@
 use std::backtrace::Backtrace;
 use std::fs;
-use std::io;
 use std::path::PathBuf;
+
+#[cfg(feature = "logging")]
+use std::io;
+#[cfg(feature = "logging")]
 use std::sync::Mutex;
 
+#[cfg(feature = "logging")]
 use tracing_subscriber::EnvFilter;
+#[cfg(feature = "logging")]
 use tracing_subscriber::Layer;
+#[cfg(feature = "logging")]
 use tracing_subscriber::layer::SubscriberExt;
+#[cfg(feature = "logging")]
 use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::cli::Cli;
@@ -85,6 +92,7 @@ pub fn resolve_log_path(cli: &Cli) -> Option<PathBuf> {
     None
 }
 
+#[cfg(feature = "logging")]
 pub fn build_stderr_filter(cli: &Cli) -> EnvFilter {
     if let Some(ref lvl) = cli.log_level
         && let Ok(f) = EnvFilter::try_new(format!("{lvl},rig=off"))
@@ -97,6 +105,12 @@ pub fn build_stderr_filter(cli: &Cli) -> EnvFilter {
     EnvFilter::new("warn,rig=off")
 }
 
+/// No-op when the `logging` feature is disabled: the `tracing` macros still
+/// compile but no subscriber is installed, so log lines are dropped.
+#[cfg(not(feature = "logging"))]
+pub fn init(_cli: &Cli) {}
+
+#[cfg(feature = "logging")]
 pub fn init(cli: &Cli) {
     let stderr_filter = build_stderr_filter(cli);
     let file_filter = EnvFilter::new("zerostack=trace,rig=off");

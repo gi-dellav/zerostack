@@ -46,6 +46,7 @@ fn test_resolve_log_path_cli_overrides_verbose() {
     assert_eq!(log_path, Some(PathBuf::from("/tmp/override.log")));
 }
 
+#[cfg(feature = "logging")]
 #[test]
 fn test_build_stderr_filter_default() {
     let cli = parse_cli(&[]);
@@ -54,6 +55,7 @@ fn test_build_stderr_filter_default() {
     assert!(s.contains("warn"));
 }
 
+#[cfg(feature = "logging")]
 #[test]
 fn test_build_stderr_filter_log_level() {
     let cli = parse_cli(&["--log-level", "info"]);
@@ -62,6 +64,7 @@ fn test_build_stderr_filter_log_level() {
     assert!(s.contains("info"));
 }
 
+#[cfg(feature = "logging")]
 #[test]
 fn test_build_stderr_filter_invalid_log_level_does_not_panic() {
     let cli = parse_cli(&["--log-level", "invalid"]);

@@ -69,7 +69,7 @@ Or pick a tarball manually from [GitHub Releases](https://github.com/gi-dellav/z
 ### Cargo
 
 ```bash
-# Default: loop, git-worktree, mcp, subagents, archmd, status-signals, multithread
+# Default: git-worktree, mcp, subagents, archmd, status-signals, multithread, export, logging
 cargo install zerostack
 
 # With all features

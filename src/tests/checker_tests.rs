@@ -190,10 +190,11 @@ fn deny_rule_is_denied_in_yolo() {
 // --- Doom loop detection ---
 
 #[test]
-fn doom_loop_triggers_after_three_repeated_calls() {
+fn doom_loop_triggers_after_five_repeated_calls() {
     let mut checker = make_checker(SecurityMode::Standard);
-    checker.check("bash", "ls");
-    checker.check("bash", "ls");
+    for _ in 0..4 {
+        checker.check("bash", "ls");
+    }
     let result = checker.check("bash", "ls");
     assert!(
         matches!(result, CheckResult::AllowedWithCoaching(_)),
@@ -203,11 +204,12 @@ fn doom_loop_triggers_after_three_repeated_calls() {
 }
 
 #[test]
-fn doom_loop_does_not_trigger_before_three() {
+fn doom_loop_does_not_trigger_before_five() {
     let mut checker = make_checker(SecurityMode::Standard);
-    checker.check("bash", "ls");
-    let result = checker.check("bash", "ls");
-    assert!(matches!(result, CheckResult::Allowed));
+    for _ in 0..4 {
+        let result = checker.check("bash", "ls");
+        assert!(matches!(result, CheckResult::Allowed), "got {:?}", result);
+    }
 }
 
 #[test]
@@ -223,12 +225,13 @@ fn doom_loop_resets_for_different_inputs() {
 #[test]
 fn doom_loop_detects_consecutive_repeats() {
     let mut checker = make_checker(SecurityMode::Standard);
-    checker.check("bash", "ls");
-    checker.check("bash", "ls");
+    for _ in 0..4 {
+        checker.check("bash", "ls");
+    }
     let result = checker.check("bash", "ls");
     assert!(
         matches!(result, CheckResult::AllowedWithCoaching(_)),
-        "three consecutive identical calls should trigger doom loop coaching, got {:?}",
+        "five consecutive identical calls should trigger doom loop coaching, got {:?}",
         result,
     );
 }
@@ -237,8 +240,9 @@ fn doom_loop_detects_consecutive_repeats() {
 #[test]
 fn record_blocked_feeds_doom_loop_detection() {
     let mut checker = make_checker(SecurityMode::Standard);
-    checker.record_blocked("bash", "ls -la");
-    checker.record_blocked("bash", "ls -la");
+    for _ in 0..4 {
+        checker.record_blocked("bash", "ls -la");
+    }
     let result = checker.check("bash", "ls -la");
     assert!(
         matches!(result, CheckResult::AllowedWithCoaching(_)),
@@ -1314,8 +1318,9 @@ fn doom_loop_triggers_in_guarded() {
     let mut checker = make_checker(SecurityMode::Guarded);
     // "echo test" matches echo ** allow rule, so action is Allow.
     // Doom loop should coach instead of asking.
-    checker.check("bash", "echo test");
-    checker.check("bash", "echo test");
+    for _ in 0..4 {
+        checker.check("bash", "echo test");
+    }
     let result = checker.check("bash", "echo test");
     assert!(
         matches!(result, CheckResult::AllowedWithCoaching(_)),
@@ -1327,9 +1332,10 @@ fn doom_loop_triggers_in_guarded() {
 #[test]
 fn doom_loop_still_asks_for_read_tool_in_restrictive() {
     let mut checker = make_checker(SecurityMode::Restrictive);
-    // In Restrictive, first 2 calls ask (or ask through mode default)
-    checker.check("read", "some_file");
-    checker.check("read", "some_file");
+    // In Restrictive, the earlier calls ask (or ask through mode default)
+    for _ in 0..4 {
+        checker.check("read", "some_file");
+    }
     let result = checker.check("read", "some_file");
     assert!(
         matches!(result, CheckResult::Ask),
@@ -1343,14 +1349,12 @@ fn doom_loop_path_coaches_in_standard_auto_allow() {
     let mut checker = make_checker(SecurityMode::Standard);
     // In Standard, path tools within CWD are auto-allowed.
     // Doom loop should coach instead of asking.
-    assert!(matches!(
-        checker.check_path("edit", "src/main.rs"),
-        CheckResult::Allowed,
-    ));
-    assert!(matches!(
-        checker.check_path("edit", "src/main.rs"),
-        CheckResult::Allowed,
-    ));
+    for _ in 0..4 {
+        assert!(matches!(
+            checker.check_path("edit", "src/main.rs"),
+            CheckResult::Allowed,
+        ));
+    }
     let result = checker.check_path("edit", "src/main.rs");
     assert!(
         matches!(result, CheckResult::AllowedWithCoaching(_)),

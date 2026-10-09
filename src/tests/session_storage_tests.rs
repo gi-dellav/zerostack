@@ -175,7 +175,7 @@ fn long_tool_result_is_saved_and_truncated_in_session() {
     assert_eq!(returned, content);
     assert!(content.starts_with(&format!("bash/unsafe:\n{head}")));
     assert!(content.ends_with(&tail));
-    assert!(content.contains("[tool output truncated: 12001 characters; 2001 omitted]"));
+    assert!(content.contains("[tool output truncated: 12001 characters; 1 omitted]"));
     assert!(!content.contains(&"M".repeat(80)));
 
     let path_line = content

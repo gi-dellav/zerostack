@@ -7,9 +7,9 @@ use compact_str::CompactString;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const TOOL_RESULT_SAVE_THRESHOLD: usize = 12_000;
-pub const TOOL_RESULT_HEAD_CHARS: usize = 2_000;
+pub const TOOL_RESULT_HEAD_CHARS: usize = 4_000;
 pub const TOOL_RESULT_TAIL_CHARS: usize = 8_000;
+pub const TOOL_RESULT_SAVE_THRESHOLD: usize = TOOL_RESULT_HEAD_CHARS + TOOL_RESULT_TAIL_CHARS;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
