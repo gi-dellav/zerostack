@@ -144,7 +144,7 @@ Here is some keybindings to speed up your coding experience:
 | ---- | ------ |
 | `Ctrl+R` | Toggle reasoning/thinking |
 | `Ctrl+G` | Open input in `$EDITOR` |
-| `Ctrl+H` | Launches `lazygit`
+| `Ctrl+H` | Launches `lazygit` (disable with `--disable-lazygit`)
 | `Ctrl+S` | Force-save session |
 | `Ctrl+C` | Interrupt the agent |
 | `PgUp` / `PgDn` | Scroll chat |

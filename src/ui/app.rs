@@ -217,7 +217,7 @@ impl<'a> App<'a> {
         render_session(&mut renderer, ui.session, ui.cli, ui.cfg, ui.context)?;
         let marker_path = crate::session::storage::data_dir().join("shown_welcome_msg");
         if ui.cfg.resolve_always_show_welcome() || !marker_path.exists() {
-            crate::ui::events::show_welcome(&mut renderer)?;
+            crate::ui::events::show_welcome(&mut renderer, !ui.cli.disable_lazygit)?;
             if !ui.cfg.resolve_always_show_welcome() {
                 if let Some(dir) = marker_path.parent()
                     && let Err(e) = std::fs::create_dir_all(dir)
@@ -899,7 +899,10 @@ impl<'a> App<'a> {
             return Ok(());
         }
 
-        if key.code == KeyCode::Char('h') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        if !self.ui.cli.disable_lazygit
+            && key.code == KeyCode::Char('h')
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
             self.run_lazygit()?;
             return Ok(());
         }

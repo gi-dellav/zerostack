@@ -114,6 +114,9 @@ pub struct Cli {
     #[arg(long = "no-color", help = "Disable colored TUI output")]
     pub no_color: bool,
 
+    #[arg(long = "disable-lazygit", help = "Disable the Ctrl+H lazygit shortcut")]
+    pub disable_lazygit: bool,
+
     #[cfg(feature = "hooks")]
     #[arg(long = "no-hooks", help = "Disable all hooks")]
     pub no_hooks: bool,

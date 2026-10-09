@@ -401,3 +401,33 @@ mod cursor_positioning {
         assert_eq!(emitted_cursor(&line, VISIBLE_WIDTH + 12).1, COLS - 1);
     }
 }
+
+/// `--disable-lazygit` must also drop the Ctrl+H line from the welcome /
+/// `/welcome` quickstart so the shortcut isn't advertised when it's inert.
+#[test]
+fn show_welcome_toggles_lazygit_shortcut() {
+    let welcome_text = |show_lazygit: bool| {
+        let mut r = crate::ui::renderer::Renderer::with_backend(Box::new(
+            crate::ui::renderer::FakeBackend::new(80, 24),
+        ));
+        crate::ui::events::show_welcome(&mut r, show_lazygit).unwrap();
+        r.feed()
+            .lines(80)
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let enabled = welcome_text(true);
+    assert!(
+        enabled.contains("Ctrl+H     Launch lazygit"),
+        "welcome should advertise Ctrl+H when enabled: {enabled}"
+    );
+
+    let disabled = welcome_text(false);
+    assert!(
+        !disabled.contains("Launch lazygit"),
+        "welcome should hide Ctrl+H when --disable-lazygit is set: {disabled}"
+    );
+}

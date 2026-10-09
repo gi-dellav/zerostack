@@ -1,7 +1,7 @@
 use crate::ui::slash::{SlashCtx, write_ok, write_result};
 
-pub fn handle_welcome(renderer: &mut crate::ui::renderer::Renderer) {
-    let _ = crate::ui::events::show_welcome(renderer);
+pub fn handle_welcome(renderer: &mut crate::ui::renderer::Renderer, show_lazygit: bool) {
+    let _ = crate::ui::events::show_welcome(renderer, show_lazygit);
 }
 
 pub fn handle_tutor(renderer: &mut crate::ui::renderer::Renderer, mouse_capture: bool) {

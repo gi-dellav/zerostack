@@ -176,7 +176,7 @@ fn render_tool_result_to_feed(
     Ok(())
 }
 
-pub fn show_welcome(renderer: &mut Renderer) -> std::io::Result<()> {
+pub fn show_welcome(renderer: &mut Renderer, show_lazygit: bool) -> std::io::Result<()> {
     let feed = renderer.feed_mut();
     feed.push_line(
         BlockStyle::Welcome,
@@ -223,7 +223,9 @@ pub fn show_welcome(renderer: &mut Renderer) -> std::io::Result<()> {
     feed.push_line(BlockStyle::Plain, "");
     feed.push_line(BlockStyle::Tool, "  Keybindings:");
     feed.push_line(BlockStyle::Plain, "    Ctrl+G     Open input in $EDITOR");
-    feed.push_line(BlockStyle::Plain, "    Ctrl+H     Launch lazygit");
+    if show_lazygit {
+        feed.push_line(BlockStyle::Plain, "    Ctrl+H     Launch lazygit");
+    }
     feed.push_line(BlockStyle::Plain, "    Ctrl+S     Save session");
     feed.push_line(BlockStyle::Plain, "    Alt+M      Quick-model switcher");
     feed.push_line(BlockStyle::Plain, "    Alt+P      Prompt switcher");

@@ -455,7 +455,7 @@ pub async fn handle_slash(
             Ok(())
         }
         "/welcome" | "/tutorial" => {
-            help::handle_welcome(ctx.renderer);
+            help::handle_welcome(ctx.renderer, !ctx.cli.disable_lazygit);
             Ok(())
         }
         "/tutor" => {

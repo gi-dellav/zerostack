@@ -271,7 +271,7 @@ message, and after the response restores the previous prompt and
 | `Alt+B` / `Alt+F` | Move one word left / right. |
 | `Alt+D` / `Alt+Y` | Delete next word / cycle the kill ring. |
 | `Ctrl+G` | Open the current input in the system editor (`$EDITOR`). |
-| `Ctrl+H` | Launch `lazygit` (git TUI) in the project directory. |
+| `Ctrl+H` | Launch `lazygit` (git TUI) in the project directory. Disable with `--disable-lazygit`. |
 | `Alt+M` | Open the quick-model switcher (fuzzy filter, `Tab` toggles Quick/Provider, `Enter` applies immediately via `/models <name>`). |
 | `Alt+P` | Open the prompt switcher (fuzzy filter, `Enter` applies immediately via `/prompt <name>`, including `%%mode=` and `[prompt_to_model]`). |
 | `Tab` | Insert two spaces. |
