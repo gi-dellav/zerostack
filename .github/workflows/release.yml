@@ -85,7 +85,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Build lite
-        run: cargo build --release --no-default-features --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
 
@@ -142,7 +142,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Build static lite binary (${{ matrix.target }})
-        run: cross build --release --no-default-features --target ${{ matrix.target }}
+        run: cross build --release --target ${{ matrix.target }}
 
       - name: Rename and package lite
         run: |

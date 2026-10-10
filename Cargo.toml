@@ -11,7 +11,7 @@ readme = "README.md"
 keywords = ["ai", "cli", "dev"]
 
 [features]
-default = ['git-worktree', 'mcp', 'subagents', 'archmd', 'status-signals', 'multithread', 'export', 'logging']
+default = ['git-worktree', 'mcp', 'subagents', 'archmd', 'status-signals', 'logging']
 status-signals = []
 loop = []
 export = []
