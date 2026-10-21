@@ -23,6 +23,17 @@ fn has_pending_media(_ctx: &SlashCtx<'_>) -> bool {
     false
 }
 
+/// Whether any attachment is recorded in the transcript.
+#[cfg(feature = "multimodal")]
+fn has_transcript_media(ctx: &SlashCtx<'_>) -> bool {
+    ctx.session.messages.iter().any(|m| !m.media.is_empty())
+}
+
+#[cfg(not(feature = "multimodal"))]
+fn has_transcript_media(_ctx: &SlashCtx<'_>) -> bool {
+    false
+}
+
 pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     match parts[0] {
         "/add" => handle_add(parts, ctx).await,
@@ -34,7 +45,10 @@ pub async fn handle(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
 
 async fn handle_add(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     if parts.len() < 2 {
-        if ctx.context.extra_files.is_empty() && !has_pending_media(ctx) {
+        if ctx.context.extra_files.is_empty()
+            && !has_pending_media(ctx)
+            && !has_transcript_media(ctx)
+        {
             write_ok(ctx.renderer, "no files added (use /add <path>)");
         } else {
             write_ok(ctx.renderer, "added files:");
@@ -44,27 +58,31 @@ async fn handle_add(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
             }
             #[cfg(feature = "multimodal")]
             for m in &ctx.session.pending_media {
-                let (kind, size) = match m {
-                    crate::extras::multimodal::MediaAttachment::Image { data, .. } => {
-                        ("image", data.len())
-                    }
-                    crate::extras::multimodal::MediaAttachment::Audio { data, .. } => {
-                        ("audio", data.len())
-                    }
-                    crate::extras::multimodal::MediaAttachment::Document { data, .. } => {
-                        ("document", data.len())
-                    }
-                };
+                let kind = m.kind().map(|k| k.label()).unwrap_or("media");
+                let size = std::fs::metadata(&m.path).map(|m| m.len()).unwrap_or(0);
                 write_result(
                     ctx.renderer,
-                    format!("  [{kind}] {} ({size}B)", m.path().display()),
+                    format!("  [{kind}] {} ({size}B, pending)", m.path.display()),
                 );
+            }
+            // The attachments already in the transcript: they are sent with
+            // every later turn, so they are worth showing (and dropping).
+            #[cfg(feature = "multimodal")]
+            for msg in &ctx.session.messages {
+                for m in &msg.media {
+                    let kind = m.kind().map(|k| k.label()).unwrap_or("media");
+                    write_result(
+                        ctx.renderer,
+                        format!("  [{kind}] {} (in transcript)", m.path.display()),
+                    );
+                }
             }
         }
         return Ok(());
     }
 
-    let path = resolve_path(parts[1]);
+    // The rest of the line is the path, so a path with spaces works.
+    let path = resolve_path(&parts[1..].join(" "));
 
     if !path.exists() {
         write_error(ctx.renderer, format!("file not found: {}", path.display()));
@@ -77,18 +95,22 @@ async fn handle_add(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<()
 
     #[cfg(feature = "multimodal")]
     if crate::extras::multimodal::detect_media(&path).is_some() {
-        match crate::extras::multimodal::load_attachment(&path) {
-            Ok(attachment) => {
-                let size = attachment.size();
-                let mime_str: &str = match &attachment {
-                    crate::extras::multimodal::MediaAttachment::Image { mime, .. }
-                    | crate::extras::multimodal::MediaAttachment::Audio { mime, .. }
-                    | crate::extras::multimodal::MediaAttachment::Document { mime, .. } => {
-                        mime.as_str()
-                    }
+        match crate::extras::multimodal::attach(&path) {
+            Ok(media) => {
+                let support = crate::extras::multimodal::ProviderSupport {
+                    name: ctx.client.provider_name(),
+                    audio: ctx
+                        .client
+                        .completion_model(ctx.session.model.to_string())
+                        .supports_audio(),
                 };
-                let mime_str = mime_str.to_string();
-                ctx.session.pending_media.push(attachment);
+                if let Err(e) = crate::extras::multimodal::validate_for_provider(support, &media) {
+                    write_error(ctx.renderer, format!("cannot attach: {e}"));
+                    return Ok(());
+                }
+                let size = std::fs::metadata(&media.path).map(|m| m.len()).unwrap_or(0);
+                let mime_str = media.mime.clone();
+                ctx.session.pending_media.push(media);
                 write_ok(
                     ctx.renderer,
                     format!("attached: {} ({mime_str}, {size}B)", path.display()),
@@ -126,7 +148,21 @@ async fn handle_drop(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<(
         return Ok(());
     }
 
-    let path = resolve_path(parts[1]);
+    // A bare number is an index into the pending attachments; anything else
+    // is a path, and the rest of the line belongs to it.
+    #[cfg(feature = "multimodal")]
+    if let Ok(idx) = parts[1].parse::<usize>() {
+        if idx < ctx.session.pending_media.len() {
+            let removed = ctx.session.pending_media.remove(idx);
+            write_ok(
+                ctx.renderer,
+                format!("dropped media: {}", removed.path.display()),
+            );
+            return Ok(());
+        }
+    }
+
+    let path = resolve_path(&parts[1..].join(" "));
     let canonical = path.canonicalize().unwrap_or(path);
 
     // Try extra_files first.
@@ -145,7 +181,7 @@ async fn handle_drop(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<(
             .session
             .pending_media
             .iter()
-            .position(|m| m.path().to_string_lossy() == canonical_str)
+            .position(|m| m.path.to_string_lossy() == canonical_str)
         {
             ctx.session.pending_media.remove(i);
             write_ok(
@@ -154,14 +190,16 @@ async fn handle_drop(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<(
             );
             return Ok(());
         }
-        // Also try parsing as an index into the pending_media list.
-        if let Ok(idx) = parts[1].parse::<usize>()
-            && idx < ctx.session.pending_media.len()
-        {
-            let removed = ctx.session.pending_media.remove(idx);
+        // The attachment may already be part of the conversation: drop it
+        // from the recorded messages too.
+        let dropped = ctx.session.drop_media_path(&canonical);
+        if dropped > 0 {
             write_ok(
                 ctx.renderer,
-                format!("dropped media: {}", removed.path().display()),
+                format!(
+                    "dropped media: {} ({dropped} in transcript)",
+                    canonical.display()
+                ),
             );
             return Ok(());
         }
@@ -177,7 +215,8 @@ async fn handle_drop(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<(
 async fn handle_drop_all(ctx: &mut SlashCtx<'_>) -> anyhow::Result<()> {
     let file_count = ctx.context.extra_files.len();
     #[cfg(feature = "multimodal")]
-    let media_count = ctx.session.pending_media.len();
+    // `drop_all_media` clears the transcript attachments as it counts them.
+    let media_count = ctx.session.pending_media.len() + ctx.session.drop_all_media();
     #[cfg(not(feature = "multimodal"))]
     let media_count = 0;
 

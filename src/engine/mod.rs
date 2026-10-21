@@ -228,27 +228,28 @@ impl Engine {
     async fn start_agent_run(&mut self, prompt: String) -> anyhow::Result<(String, TurnUsage)> {
         self.ensure_agent().await;
         let history = runner::convert_history(&self.session);
+        // The attachments of this turn travel with the prompt, and are
+        // recorded on the user message so later turns still see them.
         #[cfg(feature = "multimodal")]
-        let history = {
-            let media = self.session.drain_media();
-            if media.is_empty() {
-                history
-            } else {
-                let mut h = history;
-                h.extend(runner::media_to_messages(&media));
-                h
-            }
-        };
+        let media = self.session.drain_media();
+        #[cfg(not(feature = "multimodal"))]
+        let media: Vec<crate::media::MediaRef> = Vec::new();
         let agent = self.agent.clone().expect("ensure_agent built one");
         let runner = agent
             .spawn_runner(
-                prompt.clone(),
+                runner::UserPrompt {
+                    text: prompt.clone(),
+                    media: media.clone(),
+                },
                 history,
                 self.cfg.retry.clone(),
                 #[cfg(feature = "hooks")]
                 None,
             )
             .await;
+        #[cfg(feature = "multimodal")]
+        self.session.add_user_message(&prompt, media);
+        #[cfg(not(feature = "multimodal"))]
         self.session.add_message(MessageRole::User, &prompt);
         #[cfg(feature = "advisor")]
         crate::extras::advisor::set_session_messages(self.session.messages.clone());
@@ -1853,7 +1854,9 @@ impl Engine {
             "/drop-all" => {
                 let file_count = self.context.extra_files.len();
                 #[cfg(feature = "multimodal")]
-                let media_count = self.session.pending_media.len();
+                // `drop_all_media` clears the transcript attachments as it
+                // counts them.
+                let media_count = self.session.pending_media.len() + self.session.drop_all_media();
                 #[cfg(not(feature = "multimodal"))]
                 let media_count = 0;
                 if file_count == 0 && media_count == 0 {
@@ -1867,7 +1870,14 @@ impl Engine {
                 }
                 #[cfg(feature = "multimodal")]
                 self.session.pending_media.clear();
-                sink.write_ok(format!("dropped {file_count} file(s)"));
+                let mut parts = vec![];
+                if file_count > 0 {
+                    parts.push(format!("{file_count} file(s)"));
+                }
+                if media_count > 0 {
+                    parts.push(format!("{media_count} media"));
+                }
+                sink.write_ok(format!("dropped {}", parts.join(", ")));
                 Ok(SlashFlow::Done)
             }
             _ => Ok(SlashFlow::Done),
@@ -1880,7 +1890,21 @@ impl Engine {
         sink: &mut StringSink,
     ) -> anyhow::Result<SlashFlow> {
         if parts.len() < 2 {
-            if self.context.extra_files.is_empty() {
+            #[cfg(feature = "multimodal")]
+            let transcript_media = self
+                .session
+                .messages
+                .iter()
+                .map(|m| m.media.len())
+                .sum::<usize>();
+            #[cfg(not(feature = "multimodal"))]
+            let transcript_media = 0;
+            #[cfg(feature = "multimodal")]
+            let pending_media = self.session.pending_media.len();
+            #[cfg(not(feature = "multimodal"))]
+            let pending_media = 0;
+
+            if self.context.extra_files.is_empty() && pending_media == 0 && transcript_media == 0 {
                 sink.write_ok("no files added (use /add <path>)");
             } else {
                 sink.write_ok("added files:");
@@ -1888,10 +1912,30 @@ impl Engine {
                     let size = std::fs::metadata(f).map(|m| m.len()).unwrap_or(0);
                     sink.write_result(format!("  {} ({size}B)", f.display()));
                 }
+                #[cfg(feature = "multimodal")]
+                for m in &self.session.pending_media {
+                    let kind = m.kind().map(|k| k.label()).unwrap_or("media");
+                    let size = std::fs::metadata(&m.path).map(|m| m.len()).unwrap_or(0);
+                    sink.write_result(format!(
+                        "  [{kind}] {} ({size}B, pending)",
+                        m.path.display()
+                    ));
+                }
+                #[cfg(feature = "multimodal")]
+                for msg in &self.session.messages {
+                    for m in &msg.media {
+                        let kind = m.kind().map(|k| k.label()).unwrap_or("media");
+                        sink.write_result(format!(
+                            "  [{kind}] {} (in transcript)",
+                            m.path.display()
+                        ));
+                    }
+                }
             }
             return Ok(SlashFlow::Done);
         }
-        let path = Self::resolve_path(parts[1]);
+        // The rest of the line is the path, so a path with spaces works.
+        let path = Self::resolve_path(&parts[1..].join(" "));
         if !path.exists() {
             sink.write_error(format!("file not found: {}", path.display()));
             return Ok(SlashFlow::Done);
@@ -1902,11 +1946,25 @@ impl Engine {
         }
         #[cfg(feature = "multimodal")]
         if crate::extras::multimodal::detect_media(&path).is_some() {
-            match crate::extras::multimodal::load_attachment(&path) {
-                Ok(attachment) => {
-                    let size = attachment.size();
-                    self.session.pending_media.push(attachment);
-                    sink.write_ok(format!("attached: {} ({size}B)", path.display()));
+            match crate::extras::multimodal::attach(&path) {
+                Ok(media) => {
+                    let support = crate::extras::multimodal::ProviderSupport {
+                        name: self.client.provider_name(),
+                        audio: self
+                            .client
+                            .completion_model(self.session.model.to_string())
+                            .supports_audio(),
+                    };
+                    if let Err(e) =
+                        crate::extras::multimodal::validate_for_provider(support, &media)
+                    {
+                        sink.write_error(format!("cannot attach: {e}"));
+                        return Ok(SlashFlow::Done);
+                    }
+                    let size = std::fs::metadata(&media.path).map(|m| m.len()).unwrap_or(0);
+                    let mime = media.mime.clone();
+                    self.session.pending_media.push(media);
+                    sink.write_ok(format!("attached: {} ({mime}, {size}B)", path.display()));
                 }
                 Err(e) => sink.write_error(format!("failed to load media: {e}")),
             }
@@ -1934,7 +1992,17 @@ impl Engine {
             sink.write_error("usage: /drop <path-or-index>");
             return Ok(SlashFlow::Done);
         }
-        let path = Self::resolve_path(parts[1]);
+        // A bare number is an index into the pending attachments; anything
+        // else is a path, and the rest of the line belongs to it.
+        #[cfg(feature = "multimodal")]
+        if let Ok(idx) = parts[1].parse::<usize>() {
+            if idx < self.session.pending_media.len() {
+                let removed = self.session.pending_media.remove(idx);
+                sink.write_ok(format!("dropped media: {}", removed.path.display()));
+                return Ok(SlashFlow::Done);
+            }
+        }
+        let path = Self::resolve_path(&parts[1..].join(" "));
         let canonical = path.canonicalize().unwrap_or(path);
         if let Some(i) = self
             .context
@@ -1947,6 +2015,30 @@ impl Engine {
             self.rebuild_agent(&model_id).await;
             sink.write_ok(format!("dropped: {}", canonical.display()));
             return Ok(SlashFlow::Done);
+        }
+        #[cfg(feature = "multimodal")]
+        {
+            let canonical_str = canonical.to_string_lossy();
+            if let Some(i) = self
+                .session
+                .pending_media
+                .iter()
+                .position(|m| m.path.to_string_lossy() == canonical_str)
+            {
+                self.session.pending_media.remove(i);
+                sink.write_ok(format!("dropped media: {}", canonical.display()));
+                return Ok(SlashFlow::Done);
+            }
+            // The attachment may already be part of the conversation: drop it
+            // from the recorded messages too.
+            let dropped = self.session.drop_media_path(&canonical);
+            if dropped > 0 {
+                sink.write_ok(format!(
+                    "dropped media: {} ({dropped} in transcript)",
+                    canonical.display()
+                ));
+                return Ok(SlashFlow::Done);
+            }
         }
         sink.write_error(format!(
             "not in context: {} (use /add to see)",

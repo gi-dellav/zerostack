@@ -58,6 +58,7 @@ fn find_sessions_by_prefix_no_match() {
     let env = setup_test_env();
     let found = find_sessions_by_prefix("nonexistent").unwrap();
     assert!(found.is_empty());
+
     drop(env);
 }
 
@@ -554,5 +555,28 @@ fn suffix_path_is_inside_config_dir() {
     let config = crate::session::storage::config_path();
     let suffix = suffix_path();
     assert_eq!(suffix, config.join("SUFFIX.md"));
+    drop(env);
+}
+
+/// An attachment is stored as a reference, so a saved session keeps it
+/// without carrying the file's bytes.
+#[test]
+#[cfg(feature = "multimodal")]
+fn saved_session_keeps_media_references() {
+    let env = setup_test_env();
+    let mut s = Session::new("anthropic", "claude-test", 200_000, "");
+    s.add_user_message(
+        "look at this",
+        vec![crate::media::MediaRef::new(
+            Path::new("/tmp/shot.png").to_path_buf(),
+            "image/png",
+        )],
+    );
+    save_session(&s).unwrap();
+
+    let found = find_sessions_by_prefix(&s.id[..8]).unwrap();
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].messages[0].media.len(), 1);
+    assert_eq!(found[0].messages[0].media[0].mime, "image/png");
     drop(env);
 }
