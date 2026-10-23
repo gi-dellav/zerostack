@@ -219,6 +219,7 @@ Accepted top-level keys:
 | `quick_models`            | object  | Map of quick-model names to `{ "provider", "model", "reserve_tokens"?, "input_token_cost"?, "output_token_cost"?, "temperature"?, "extra_body"? }`. Can be switched with `/models <name>` or `--quick-model=<name>`. See Provider-specific request body parameters below for `extra_body`. |
 | `prompt_to_model`         | object  | Map of prompt names to quick-model names (e.g. `plan = "glm-52"`). When switching to a prompt, zerostack automatically switches to the corresponding quick model. Empty-string values are treated as "no change". See Prompt-to-model switching below. |
 | `mcp_servers`             | object  | MCP server map when compiled with the `mcp` feature. When omitted, recommended MCPs are auto-configured (see below).                                                   |
+| `enable-parallel-mcp`     | boolean | Add the anonymous Parallel Search MCP server. Default: `false`. See the setup below. |
 | `enable-exa-mcp`          | boolean | Auto-configure the Exa Web Search MCP server. Default: `true`.                                                                                                         |
 | `enable-context7-mcp`     | boolean | Auto-configure the Context7 MCP server. Default: `false`.                                                                                                              |
 | `enable-grepapp-mcp`      | boolean | Auto-configure the Grep.app MCP server. Default: `false`.                                                                                                              |
@@ -981,18 +982,42 @@ no stored token fails to connect until you log in.
 
 ### Recommended MCP servers
 
-When `mcp_servers` is not explicitly set, three recommended MCP servers are
-available. Each can be toggled with a boolean config key (all default to the
-listed API key environment variable when that variable is set):
+Recommended MCP servers can be toggled with a boolean config key. Existing
+servers with the same name take precedence when enabled. The listed environment
+variables supply API keys for servers that support them:
 
 | Key                    | Default | Description                                     | Env var              |
 | ---------------------- | ------- | ----------------------------------------------- | -------------------- |
+| `enable-parallel-mcp`  | `false` | Parallel web search and page fetching (search.parallel.ai) | None |
 | `enable-exa-mcp`       | `true`  | Exa web search (mcp.exa.ai)                     | `EXA_API_KEY`        |
 | `enable-context7-mcp`  | `false` | Context7 documentation lookup (mcp.context7.com) | `CONTEXT7_API_KEY`   |
 | `enable-grepapp-mcp`   | `false` | Grep.app semantic code search (mcp.grep.app)     | `GREP_APP_API_KEY`   |
 
 Set `enable-exa-mcp = false` to disable the Exa default without touching
-`mcp_servers`. Set `"mcp_servers": {}` to disable all MCP auto-configuration.
+`mcp_servers`.
+
+#### Parallel search and page fetching
+
+Add this top-level setting to your `config.toml` (requires the `mcp` feature,
+included in the default installation):
+
+```toml
+enable-parallel-mcp = true
+```
+
+Restart zerostack to expose `web_search` and `web_fetch` through the `Parallel`
+MCP server. Ask it to search for current Rust documentation or fetch a page URL;
+MCP calls follow your existing permission rules. The preset connects to
+`https://search.parallel.ai/mcp` without an account, API key, or OAuth login.
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+provides free search in Fast mode and page excerpts for light use, subject to
+free-tier rate limits.
+
+Parallel is disabled by default and does not change the Exa setting. To use
+Parallel alone, also set `enable-exa-mcp = false`. To turn off the generated
+Parallel preset, set `enable-parallel-mcp = false`. Explicit `mcp_servers.Parallel`
+configurations remain independent of the toggle and are preserved when saving.
+
 
 ## ACP (Agent Communication Protocol) configuration
 
