@@ -116,6 +116,38 @@ in
 pkgs.zerostack
 ```
 
+#### Home Manager
+
+NOTE: as expected with Home Manager, trying to write settings to the immutable symlinks at runtime will error such as with `/prompt autoconfig`, `/regen-prompt`,  & so forth.
+
+WARNING: if API keys appear in the TOML, they will end up in the world-readable Nix store.
+```nix
+let
+  # For demonstration purposes; prefer a ‘Nix input pinner’ in real world uses
+  # since these URLs are not stable over time
+  inputs = {
+    zerostack = builtins.fetchTarball "https://github.com/gi-dellav/zerostack/archive/refs/heads/main.tar.gz";
+  };
+in
+{
+
+  imports = [
+    (import "${inputs.zerostack}/nix/module/home-manager.nix")
+  ];
+
+  nixpkgs.overlays = [
+    (import "${inputs.zerostack}/nix/overlay")
+  ];
+
+  programs.zerostack = {
+    enable = true;
+    settings = { /* TOML in the form of Nix */ };
+    prompts = { /* keys mapping to derivation paths or Markdown strings */ };
+  };
+}
+```
+
+---
 
 Once installed, run `/prompt autoconfig` inside zerostack to explore the documentation and configure the tool interactively.
 
