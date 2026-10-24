@@ -46,11 +46,12 @@ pub(crate) async fn fetch_models_cached(
         }
         // No cache yet: serve the baked catalog for built-in providers — no network.
         if !is_custom && let Some(entries) = crate::models_catalog::catalog_entries(provider) {
-            let models: Vec<ModelEntry> = entries
+            let mut models: Vec<ModelEntry> = entries
                 .iter()
                 .filter(|m| crate::provider::is_agent_model(m))
                 .cloned()
                 .collect();
+            crate::provider::filter_minimax_choices(provider, None, &mut models);
             let arc: Arc<[ModelEntry]> = Arc::from(models.into_boxed_slice());
             MODEL_CACHE
                 .lock()
@@ -77,6 +78,11 @@ pub(crate) async fn fetch_models_cached(
         .await?;
         let mut m = m;
         m.retain(crate::provider::is_agent_model);
+        crate::provider::filter_minimax_choices(
+            provider,
+            cfg.custom_providers_map().get(provider),
+            &mut m,
+        );
         for entry in &mut m {
             if let Some(info) = pricing.get(&entry.id) {
                 entry.input_price = Some(info.input_cost);
@@ -93,6 +99,7 @@ pub(crate) async fn fetch_models_cached(
     } else {
         let mut m = client.list_models().await?;
         m.retain(crate::provider::is_agent_model);
+        crate::provider::filter_minimax_choices(provider, None, &mut m);
         m
     };
 
