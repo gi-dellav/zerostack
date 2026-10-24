@@ -167,7 +167,7 @@ conversation, so focus your question on the specific decision you need help with
 
         if let Some(max) = cfg.max_uses {
             self.uses
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
+                .try_update(Ordering::Relaxed, Ordering::Relaxed, |u| {
                     if u >= max { None } else { Some(u + 1) }
                 })
                 .map_err(|_| {

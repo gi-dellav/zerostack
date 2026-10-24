@@ -69,6 +69,7 @@ pub fn parse_jsonl_import(content: &str) -> Result<Vec<SessionMessage>> {
             content: msg.content,
             estimated_tokens: msg.estimated_tokens,
             tool: None,
+            media: Vec::new(),
         });
     }
     if messages.is_empty() {

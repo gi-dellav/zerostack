@@ -25,11 +25,11 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
     );
     write_result(
         ctx.renderer,
-        "  /drop <path>           remove file from context",
+        "  /drop <path>           remove file or attachment from context",
     );
     write_result(
         ctx.renderer,
-        "  /drop-all              remove all added files from context",
+        "  /drop-all              remove all added files and attachments",
     );
     write_result(
         ctx.renderer,

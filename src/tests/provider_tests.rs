@@ -143,6 +143,7 @@ fn serialize_single_user_message() {
         content: CompactString::new("hello"),
         estimated_tokens: 1,
         tool: None,
+        media: Vec::new(),
     }];
     let result = serialize_conversation(&msgs);
     assert!(result.contains("[User]: hello"));
@@ -156,18 +157,21 @@ fn serialize_multiple_roles() {
             content: CompactString::new("hi"),
             estimated_tokens: 1,
             tool: None,
+            media: Vec::new(),
         },
         SessionMessage {
             role: MessageRole::Assistant,
             content: CompactString::new("hey"),
             estimated_tokens: 1,
             tool: None,
+            media: Vec::new(),
         },
         SessionMessage {
             role: MessageRole::System,
             content: CompactString::new("note"),
             estimated_tokens: 1,
             tool: None,
+            media: Vec::new(),
         },
     ];
     let result = serialize_conversation(&msgs);
@@ -322,6 +326,19 @@ fn opencode_client_dispatches_per_model_transport() {
         client.completion_model("kimi-k2.6"),
         AnyModel::OpenAI(OpenAiModel::Completions(_))
     ));
+}
+
+/// Audio attachments depend on the transport, not on the model: the request
+/// format has to have a field to carry the audio in.
+#[test]
+fn audio_support_follows_the_transport() {
+    let client = create_client("opencode-zen", None, &HashMap::new(), None).unwrap();
+    // Chat completions carry audio (`input_audio`).
+    assert!(client.completion_model("kimi-k2.6").supports_audio());
+    // The Responses API has no audio content part.
+    assert!(!client.completion_model("gpt-5.5").supports_audio());
+    // The Anthropic wire format has no audio content block.
+    assert!(!client.completion_model("claude-opus-4-6").supports_audio());
 }
 
 #[test]
