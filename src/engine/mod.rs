@@ -1995,12 +1995,12 @@ impl Engine {
         // A bare number is an index into the pending attachments; anything
         // else is a path, and the rest of the line belongs to it.
         #[cfg(feature = "multimodal")]
-        if let Ok(idx) = parts[1].parse::<usize>() {
-            if idx < self.session.pending_media.len() {
-                let removed = self.session.pending_media.remove(idx);
-                sink.write_ok(format!("dropped media: {}", removed.path.display()));
-                return Ok(SlashFlow::Done);
-            }
+        if let Ok(idx) = parts[1].parse::<usize>()
+            && idx < self.session.pending_media.len()
+        {
+            let removed = self.session.pending_media.remove(idx);
+            sink.write_ok(format!("dropped media: {}", removed.path.display()));
+            return Ok(SlashFlow::Done);
         }
         let path = Self::resolve_path(&parts[1..].join(" "));
         let canonical = path.canonicalize().unwrap_or(path);

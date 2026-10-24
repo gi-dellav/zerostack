@@ -151,15 +151,15 @@ async fn handle_drop(parts: &[&str], ctx: &mut SlashCtx<'_>) -> anyhow::Result<(
     // A bare number is an index into the pending attachments; anything else
     // is a path, and the rest of the line belongs to it.
     #[cfg(feature = "multimodal")]
-    if let Ok(idx) = parts[1].parse::<usize>() {
-        if idx < ctx.session.pending_media.len() {
-            let removed = ctx.session.pending_media.remove(idx);
-            write_ok(
-                ctx.renderer,
-                format!("dropped media: {}", removed.path.display()),
-            );
-            return Ok(());
-        }
+    if let Ok(idx) = parts[1].parse::<usize>()
+        && idx < ctx.session.pending_media.len()
+    {
+        let removed = ctx.session.pending_media.remove(idx);
+        write_ok(
+            ctx.renderer,
+            format!("dropped media: {}", removed.path.display()),
+        );
+        return Ok(());
     }
 
     let path = resolve_path(&parts[1..].join(" "));
