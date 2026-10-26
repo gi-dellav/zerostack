@@ -508,9 +508,31 @@ fn warn_unknown_keys(source: &str, file: &serde_json::Value, cfg: &Config) {
     }
 }
 
+/// Anonymous Parallel search and fetch through the existing HTTP MCP transport.
+#[cfg(feature = "mcp")]
+fn parallel_mcp_config() -> McpServerConfig {
+    McpServerConfig::Url {
+        url: "https://search.parallel.ai/mcp".to_string(),
+        headers: HashMap::from([(
+            "User-Agent".to_string(),
+            format!("zerostack/{}", env!("CARGO_PKG_VERSION")),
+        )]),
+        oauth: None,
+        connect_timeout_secs: None,
+        tool_timeout_secs: None,
+        connect_retries: None,
+    }
+}
+
 #[cfg(feature = "mcp")]
 pub fn inject_mcp_defaults(cfg: &mut Config) {
     let mut servers = cfg.mcp_servers.take().unwrap_or_default();
+
+    if cfg.resolve_enable_parallel_mcp() {
+        servers
+            .entry("Parallel".to_string())
+            .or_insert_with(parallel_mcp_config);
+    }
 
     if cfg.resolve_enable_exa_mcp() {
         let mut headers = HashMap::new();
@@ -577,7 +599,18 @@ pub fn save_config(cfg: &Config) -> io::Result<()> {
     let mut cfg = cfg.clone();
     #[cfg(feature = "mcp")]
     {
+        // Only omit the generated preset. Preserve user-supplied Parallel
+        // endpoints, headers, OAuth and timeout overrides when saving.
+        let parallel_enabled = cfg.resolve_enable_parallel_mcp();
         if let Some(ref mut servers) = cfg.mcp_servers {
+            if parallel_enabled
+                && servers.get("Parallel").is_some_and(|server| {
+                    serde_json::to_value(server).ok()
+                        == serde_json::to_value(parallel_mcp_config()).ok()
+                })
+            {
+                servers.remove("Parallel");
+            }
             servers.remove("Exa Web Search");
             servers.remove("Context7");
             servers.remove("Grep.app");

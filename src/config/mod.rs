@@ -126,6 +126,12 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_all_mcp_calls: Option<bool>,
     #[cfg(feature = "mcp")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "enable-parallel-mcp"
+    )]
+    pub enable_parallel_mcp: Option<bool>,
+    #[cfg(feature = "mcp")]
     #[serde(skip_serializing_if = "Option::is_none", rename = "enable-exa-mcp")]
     pub enable_exa_mcp: Option<bool>,
     #[cfg(feature = "mcp")]
@@ -491,6 +497,11 @@ impl Config {
         } else {
             Some(val.as_str())
         }
+    }
+
+    #[cfg(feature = "mcp")]
+    pub fn resolve_enable_parallel_mcp(&self) -> bool {
+        self.enable_parallel_mcp.unwrap_or(false)
     }
 
     #[cfg(feature = "mcp")]
