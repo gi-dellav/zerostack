@@ -966,6 +966,7 @@ impl Startup {
                     content: CompactString::new(&msg),
                     estimated_tokens: Session::estimate_tokens(&msg),
                     tool: None,
+                    media: Vec::new(),
                 });
                 crate::extras::advisor::set_session_messages(msgs);
             }
