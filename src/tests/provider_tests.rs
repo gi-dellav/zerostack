@@ -425,6 +425,324 @@ async fn anthropic_custom_base_appends_v1_messages() {
     );
 }
 
+fn minimax_recipe() -> crate::config::Config {
+    let recipe = include_str!("../../docs/providers/Minimax.md");
+    let config = recipe
+        .split("```toml\n")
+        .skip(1)
+        .filter_map(|block| block.split("```").next())
+        .filter(|block| {
+            block.starts_with("[custom_providers.") || block.starts_with("[quick_models.")
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    toml::from_str(&config).unwrap()
+}
+
+#[test]
+fn minimax_picker_filters_only_known_routes_and_preserves_metadata() {
+    use crate::provider::filter_minimax_choices;
+    for (provider, old, flash, m3) in [
+        (
+            "openrouter",
+            "minimax/minimax-m2.7",
+            "minimax/minimax-m3.1-flash:free",
+            "minimax/minimax-m3",
+        ),
+        (
+            "opencode-zen",
+            "minimax-m2.5",
+            "minimax-m3.1-flash-free",
+            "minimax-m3",
+        ),
+        (
+            "opencode-go",
+            "minimax-m2.7",
+            "minimax-m3.1-flash-free",
+            "minimax-m3",
+        ),
+    ] {
+        let mut models = vec![
+            model("other-model", None),
+            model(old, None),
+            model(m3, None),
+            model(flash, None),
+        ];
+        models[2].context_length = Some(512_000);
+        models[2].input_price = Some(0.3);
+        filter_minimax_choices(provider, None, &mut models);
+        let expected = if provider == "openrouter"
+            || crate::provider::opencode_transport(provider, flash).is_some()
+        {
+            vec!["other-model", flash, m3]
+        } else {
+            vec!["other-model", m3]
+        };
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            expected
+        );
+        let current = models.iter().find(|m| m.id == m3).unwrap();
+        assert_eq!(current.context_length, Some(512_000));
+        assert_eq!(current.input_price, Some(0.3));
+        // No invented Flash entry when the gateway only lists M3.
+        let mut models = vec![model(old, None), model(m3, None)];
+        filter_minimax_choices(provider, None, &mut models);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, m3);
+    }
+    for (_, custom) in minimax_recipe().custom_providers_map() {
+        let mut models = vec![
+            model("MiniMax-M2.7", None),
+            model("MiniMax-Text-01", None),
+            model("abab6.5-chat", None),
+            model("MiniMax-M3", None),
+            model("MiniMax-M3.1-Flash", None),
+            model("speech-2.8-hd", Some("audio")),
+        ];
+        filter_minimax_choices("renamed-route", Some(&custom), &mut models);
+        assert_eq!(
+            models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+            ["MiniMax-M3.1-Flash", "MiniMax-M3", "speech-2.8-hd"]
+        );
+    }
+    let custom = cfg(None);
+    let mut models = vec![model("MiniMax-M2.7", None)];
+    filter_minimax_choices("openrouter", Some(&custom), &mut models);
+    assert_eq!(models[0].id, "MiniMax-M2.7");
+    filter_minimax_choices("ollama", None, &mut models);
+    assert_eq!(models[0].id, "MiniMax-M2.7");
+}
+
+#[tokio::test]
+async fn minimax_baked_picker_hides_legacy_without_changing_saved_selection() {
+    for provider in ["opencode-zen", "opencode-go"] {
+        let client = create_client(provider, Some("test-key"), &HashMap::new(), None).unwrap();
+        let cli = crate::cli::Cli {
+            provider: Some(provider.into()),
+            ..Default::default()
+        };
+        let config = crate::config::Config {
+            model: Some("minimax-m2.7".into()),
+            ..Default::default()
+        };
+        let choices =
+            crate::ui::slash::warm_model_cache(provider, false, &client, &cli, &config).await;
+        assert!(choices.iter().any(|id| id == "minimax-m3"));
+        assert!(
+            !choices
+                .iter()
+                .any(|id| id == "minimax-m2.7" || id == "minimax-m2.5")
+        );
+        assert_eq!(cli.resolve_model(&config), "minimax-m2.7");
+        let explicit = crate::cli::Cli {
+            model: Some("my-custom-model".into()),
+            ..cli
+        };
+        assert_eq!(explicit.resolve_model(&config), "my-custom-model");
+    }
+}
+
+/// Capture the complete serialized SDK request, including bodies split across reads.
+async fn capture_minimax_request(
+    route: &str,
+    saved_model: Option<&str>,
+    extra: Option<serde_json::Value>,
+) -> (String, serde_json::Value) {
+    use crate::agent::builder::AgentBuild;
+    use crate::provider::{AnyAgent, OpenAiAgent, build_agent};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut config = minimax_recipe();
+    let mut custom = config.custom_providers_map();
+    let route_config = custom.get_mut(route).unwrap();
+    let original = reqwest::Url::parse(&route_config.base_url).unwrap();
+    let region = if route.contains("-cn-") {
+        "api.minimaxi.com"
+    } else {
+        "api.minimax.io"
+    };
+    assert_eq!(original.host_str(), Some(region));
+    if let Some(saved) = saved_model {
+        route_config.model = Some(saved.into());
+    }
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    route_config.base_url = format!(
+        "http://{}{}",
+        listener.local_addr().unwrap(),
+        original.path()
+    );
+    config.custom_providers = Some(custom.clone());
+    config.extra_body = extra.clone();
+    let cli = crate::cli::Cli {
+        provider: Some(route.into()),
+        no_tools: true,
+        ..Default::default()
+    };
+    let model_id = cli.resolve_model(&config);
+    assert_eq!(model_id, saved_model.unwrap_or("MiniMax-M3.1-Flash"));
+
+    let server = tokio::spawn(async move {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0_u8; 4096];
+            let (head_end, content_length) = loop {
+                let count = stream.read(&mut buffer).await.unwrap();
+                assert_ne!(count, 0, "incomplete HTTP headers");
+                request.extend_from_slice(&buffer[..count]);
+                if let Some(end) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&request[..end]);
+                    let length = head
+                        .lines()
+                        .find_map(|line| {
+                            let (name, value) = line.split_once(':')?;
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().unwrap())
+                        })
+                        .expect("SDK content length");
+                    break (end + 4, length);
+                }
+            };
+            while request.len() < head_end + content_length {
+                let count = stream.read(&mut buffer).await.unwrap();
+                assert_ne!(count, 0, "incomplete HTTP body");
+                request.extend_from_slice(&buffer[..count]);
+            }
+            let line = String::from_utf8_lossy(&request[..head_end])
+                .lines()
+                .next()
+                .unwrap()
+                .to_owned();
+            let body: serde_json::Value =
+                serde_json::from_slice(&request[head_end..head_end + content_length]).unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            (line, body)
+        })
+        .await
+        .expect("HTTP request timeout")
+    });
+    let client = create_client(route, Some("test-key"), &custom, None).unwrap();
+    let context = crate::context::load_with_prompts_dirs(true, &[]);
+    let agent = build_agent(
+        client.completion_model(model_id.to_string()),
+        AgentBuild {
+            cli: &cli,
+            cfg: &config,
+            context: &context,
+            permission: None,
+            ask_tx: None,
+            sandbox: crate::sandbox::Sandbox::new(false, "bwrap"),
+            reasoning_enabled: false,
+            temperature: None,
+            extra_body: crate::config::resolve_extra_body(&config, &model_id),
+            #[cfg(feature = "mcp")]
+            mcp_manager: None,
+        },
+    )
+    .await;
+    let agent = match agent {
+        AnyAgent::OpenAI(OpenAiAgent::Completions(a)) | AnyAgent::Anthropic(a) => a,
+        _ => panic!("unexpected MiniMax transport"),
+    };
+    let prompt = rig::completion::Message::user("hello");
+    #[cfg(feature = "multimodal")]
+    let prompt = {
+        use rig::completion::message::{ImageMediaType, UserContent};
+        let rig::completion::Message::User { mut content } = prompt else {
+            unreachable!()
+        };
+        content.push(UserContent::image_base64(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII=".to_string(),
+            Some(ImageMediaType::PNG),
+            None,
+        ));
+        rig::completion::Message::User { content }
+    };
+    let history = vec![
+        rig::completion::Message::user("saved question"),
+        rig::completion::Message::assistant("saved answer"),
+    ];
+    let error = agent.prompt(prompt).history(history).await.unwrap_err();
+    let (line, body) = server.await.unwrap_or_else(|failure| {
+        panic!("{route} {model_id}: capture failed: {failure}; SDK error: {error}")
+    });
+    let serialized = body["messages"].to_string();
+    assert!(serialized.contains("saved question"));
+    assert!(serialized.contains("saved answer"));
+    #[cfg(feature = "multimodal")]
+    assert!(serialized.contains("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aD1sAAAAASUVORK5CYII="));
+    assert_eq!(body["model"], model_id.as_str());
+    let max_tokens = body
+        .get("max_tokens")
+        .or_else(|| body.get("max_completion_tokens"));
+    assert_eq!(
+        max_tokens.and_then(serde_json::Value::as_u64),
+        Some(cli.resolve_max_tokens(&config))
+    );
+    assert!(body["messages"].as_array().is_some_and(|m| !m.is_empty()));
+    for field in [
+        "thinking",
+        "service_tier",
+        "reasoning_split",
+        "reasoning_effort",
+        "output_config",
+    ] {
+        assert_eq!(
+            body.get(field),
+            extra.as_ref().and_then(|e| e.get(field)),
+            "unexpected {field}"
+        );
+    }
+    (line, body)
+}
+
+#[tokio::test]
+async fn minimax_recipe_defaults_and_saved_models_reach_http_boundary() {
+    for route in [
+        "minimax-global-openai",
+        "minimax-cn-openai",
+        "minimax-global-anthropic",
+        "minimax-cn-anthropic",
+    ] {
+        for saved in [
+            None,
+            Some("MiniMax-M3"),
+            Some("MiniMax-M2.7"),
+            Some("my-custom-model"),
+        ] {
+            let (line, _) = capture_minimax_request(route, saved, None).await;
+            let path = if route.ends_with("anthropic") {
+                "/anthropic/v1/messages"
+            } else {
+                "/v1/chat/completions"
+            };
+            assert_eq!(line, format!("POST {path} HTTP/1.1"));
+        }
+        for effort in ["low", "medium", "high", "xhigh", "max"] {
+            let extra = if route.ends_with("anthropic") {
+                serde_json::json!({"thinking": {"type": "adaptive"}, "output_config": {"effort": effort}})
+            } else {
+                serde_json::json!({"thinking": {"type": "adaptive"}, "reasoning_effort": effort})
+            };
+            capture_minimax_request(route, None, Some(extra)).await;
+        }
+        for thinking in ["adaptive", "disabled"] {
+            capture_minimax_request(
+                route,
+                Some("MiniMax-M3"),
+                Some(serde_json::json!({"thinking": {"type": thinking}})),
+            )
+            .await;
+        }
+    }
+}
+
 #[test]
 fn merge_extra_body_combines_routing_and_user_keys() {
     // OpenRouter routing (provider.order) plus a user `plugins` preset must both

@@ -467,6 +467,64 @@ pub fn is_agent_model(m: &ModelEntry) -> bool {
     !DENY.iter().any(|d| id.contains(d))
 }
 
+/// Limit ordinary MiniMax choices on known routes without changing explicit
+/// model requests, saved quick models, or the catalog's pricing/transport data.
+pub(crate) fn filter_minimax_choices(
+    provider: &str,
+    custom: Option<&CustomProviderConfig>,
+    models: &mut Vec<ModelEntry>,
+) {
+    let direct = custom.is_some_and(|c| {
+        reqwest::Url::parse(&c.base_url).ok().is_some_and(|url| {
+            matches!(url.host_str(), Some("api.minimax.io" | "api.minimaxi.com"))
+        })
+    });
+    let (prefix, flash, m3, flash_supported) = if direct {
+        ("minimax-", "minimax-m3.1-flash", "minimax-m3", true)
+    } else if custom.is_none() && provider == "openrouter" {
+        (
+            "minimax/",
+            "minimax/minimax-m3.1-flash:free",
+            "minimax/minimax-m3",
+            true,
+        )
+    } else if custom.is_none() && matches!(provider, "opencode-zen" | "opencode-go") {
+        // A live listing alone does not identify the gateway's wire protocol.
+        // Keep M3 until the generated transport map also knows Flash.
+        let flash = "minimax-m3.1-flash-free";
+        (
+            "minimax-",
+            flash,
+            "minimax-m3",
+            opencode_transport(provider, flash).is_some(),
+        )
+    } else {
+        return;
+    };
+    models.retain(|m| {
+        let id = m.id.to_ascii_lowercase();
+        let family = id
+            .strip_prefix(prefix)
+            .unwrap_or("")
+            .trim_start_matches("minimax-");
+        let text = family
+            .strip_prefix('m')
+            .is_some_and(|version| version.starts_with(|c: char| c.is_ascii_digit()))
+            || matches!(family, "01" | "text-01" | "vl-01")
+            || family.starts_with("abab")
+            || (direct && id.starts_with("abab"));
+        !text || (id == flash && flash_supported) || id == m3 || !is_agent_model(m)
+    });
+    // Put Flash before M3 without moving any other provider's choices.
+    let flash_index = models.iter().position(|m| m.id.eq_ignore_ascii_case(flash));
+    let m3_index = models.iter().position(|m| m.id.eq_ignore_ascii_case(m3));
+    if let (Some(flash_index), Some(m3_index)) = (flash_index, m3_index)
+        && flash_index > m3_index
+    {
+        models.swap(flash_index, m3_index);
+    }
+}
+
 impl AnyClient {
     /// Built-in providers: rig's per-client `list_models`.
     pub async fn list_models(&self) -> anyhow::Result<Vec<ModelEntry>> {
