@@ -534,7 +534,7 @@ pub(crate) async fn spawn_merge_agent(
         .unwrap()
         .clone()
         .spawn_runner(
-            prompt,
+            crate::agent::runner::UserPrompt::text(prompt),
             history,
             ui.cfg.retry.clone(),
             #[cfg(feature = "hooks")]
@@ -615,24 +615,22 @@ pub(crate) async fn start_main_run(
 
     ensure_agent(&mut run.agent, ui, slash.reasoning_enabled).await;
     let history = crate::agent::runner::convert_history(ui.session);
+    // The attachments of this turn travel with the prompt, and are recorded
+    // on the user message so later turns still see them.
     #[cfg(feature = "multimodal")]
-    let history = {
-        let media = ui.session.drain_media();
-        if media.is_empty() {
-            history
-        } else {
-            let mut h = history;
-            h.extend(crate::agent::runner::media_to_messages(&media));
-            h
-        }
-    };
+    let media = ui.session.drain_media();
+    #[cfg(not(feature = "multimodal"))]
+    let media: Vec<crate::media::MediaRef> = Vec::new();
     let runner = run
         .agent
         .as_ref()
         .unwrap()
         .clone()
         .spawn_runner(
-            text.to_string(),
+            crate::agent::runner::UserPrompt {
+                text: text.to_string(),
+                media: media.clone(),
+            },
             history,
             ui.cfg.retry.clone(),
             #[cfg(feature = "hooks")]
@@ -645,6 +643,9 @@ pub(crate) async fn start_main_run(
     if let Some(ss) = ui.status_signals.as_ref() {
         ss.send_start();
     }
+    #[cfg(feature = "multimodal")]
+    ui.session.add_user_message(text, media);
+    #[cfg(not(feature = "multimodal"))]
     ui.session.add_message(MessageRole::User, text);
     // Mark this message as the rollback target if the turn fails (see the
     // failed-send handling in the main event loop).
@@ -768,7 +769,7 @@ pub(crate) async fn mid_turn_compact_and_respawn(
         .unwrap()
         .clone()
         .spawn_runner(
-            MID_TURN_CONTINUE_PROMPT.to_string(),
+            crate::agent::runner::UserPrompt::text(MID_TURN_CONTINUE_PROMPT),
             history,
             ui.cfg.retry.clone(),
             #[cfg(feature = "hooks")]

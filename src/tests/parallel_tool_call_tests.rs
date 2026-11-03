@@ -182,7 +182,7 @@ async fn spawn_agent_events_pair_each_result_with_its_own_call_by_id() {
 
     let mut runner = crate::agent::runner::spawn_agent(
         agent,
-        "please echo and reverse".to_string(),
+        crate::agent::runner::UserPrompt::text("please echo and reverse"),
         Vec::new(),
         RetryConfig::default(),
         #[cfg(feature = "hooks")]

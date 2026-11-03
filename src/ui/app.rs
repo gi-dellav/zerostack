@@ -369,7 +369,7 @@ impl<'a> App<'a> {
                 .unwrap()
                 .clone()
                 .spawn_runner(
-                    trigger_msg.to_string(),
+                    crate::agent::runner::UserPrompt::text(trigger_msg),
                     history,
                     ui.cfg.retry.clone(),
                     #[cfg(feature = "hooks")]
@@ -1669,7 +1669,7 @@ impl<'a> App<'a> {
                             .unwrap()
                             .clone()
                             .spawn_runner(
-                                prompt,
+                                crate::agent::runner::UserPrompt::text(prompt),
                                 history,
                                 self.ui.cfg.retry.clone(),
                                 #[cfg(feature = "hooks")]
@@ -1696,7 +1696,7 @@ impl<'a> App<'a> {
                             .unwrap()
                             .clone()
                             .spawn_runner(
-                                msg,
+                                crate::agent::runner::UserPrompt::text(msg),
                                 history,
                                 self.ui.cfg.retry.clone(),
                                 #[cfg(feature = "hooks")]
@@ -1831,7 +1831,7 @@ impl<'a> App<'a> {
                         .unwrap()
                         .clone()
                         .spawn_runner(
-                            prompt,
+                            crate::agent::runner::UserPrompt::text(prompt),
                             Vec::new(),
                             self.ui.cfg.retry.clone(),
                             #[cfg(feature = "hooks")]
