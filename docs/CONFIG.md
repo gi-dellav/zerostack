@@ -222,6 +222,7 @@ Accepted top-level keys:
 | `enable-exa-mcp`          | boolean | Auto-configure the Exa Web Search MCP server. Default: `true`.                                                                                                         |
 | `enable-context7-mcp`     | boolean | Auto-configure the Context7 MCP server. Default: `false`.                                                                                                              |
 | `enable-grepapp-mcp`      | boolean | Auto-configure the Grep.app MCP server. Default: `false`.                                                                                                              |
+| `enable-keenable-mcp`     | boolean | Auto-configure the Keenable web search MCP server. Default: `false`.                                                                                                   |
 | `allow_all_mcp_calls`     | boolean | When `true`, permission checks are skipped for all MCP tool calls. Default: `false`.                                                                                   |
 | `acp_servers`             | object  | ACP server config map when compiled with the `acp` feature. See the ACP section below.                                                                                       |
 | `acp_host`                | string  | TCP bind host for ACP server mode (equivalent to `--acp-host`).                                                                                                              |
@@ -981,7 +982,7 @@ no stored token fails to connect until you log in.
 
 ### Recommended MCP servers
 
-When `mcp_servers` is not explicitly set, three recommended MCP servers are
+When `mcp_servers` is not explicitly set, four recommended MCP servers are
 available. Each can be toggled with a boolean config key (all default to the
 listed API key environment variable when that variable is set):
 
@@ -990,9 +991,16 @@ listed API key environment variable when that variable is set):
 | `enable-exa-mcp`       | `true`  | Exa web search (mcp.exa.ai)                     | `EXA_API_KEY`        |
 | `enable-context7-mcp`  | `false` | Context7 documentation lookup (mcp.context7.com) | `CONTEXT7_API_KEY`   |
 | `enable-grepapp-mcp`   | `false` | Grep.app semantic code search (mcp.grep.app)     | `GREP_APP_API_KEY`   |
+| `enable-keenable-mcp`  | `false` | Keenable web search and page fetch (api.keenable.ai) | `KEENABLE_API_KEY` |
 
 Set `enable-exa-mcp = false` to disable the Exa default without touching
 `mcp_servers`. Set `"mcp_servers": {}` to disable all MCP auto-configuration.
+
+`enable-keenable-mcp = true` adds a `Keenable` server
+(`https://api.keenable.ai/mcp-public`) with the `search_web_pages` and
+`fetch_page_content` tools. It works without an account or API key;
+`KEENABLE_API_KEY` only raises the rate limits. It does not change the Exa
+default, and an `mcp_servers.Keenable` entry of your own takes precedence.
 
 ## ACP (Agent Communication Protocol) configuration
 

@@ -640,3 +640,103 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
         Some(McpServerConfig::Command { .. })
     ));
 }
+
+#[cfg(feature = "mcp")]
+#[test]
+fn keenable_mcp_is_opt_in_and_keeps_exa_default() {
+    use crate::config::inject_mcp_defaults;
+
+    let mut cfg = Config::default();
+    inject_mcp_defaults(&mut cfg);
+    let servers = cfg.mcp_servers.as_ref().unwrap();
+    assert!(servers.contains_key("Exa Web Search"));
+    assert!(!servers.contains_key("Keenable"));
+
+    cfg.enable_keenable_mcp = Some(true);
+    inject_mcp_defaults(&mut cfg);
+    let servers = cfg.mcp_servers.as_ref().unwrap();
+    assert!(servers.contains_key("Exa Web Search"));
+    assert!(servers.contains_key("Keenable"));
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn keenable_mcp_config_is_keyless_unless_a_key_is_given() {
+    use crate::config::keenable_mcp_config;
+    use crate::extras::mcp::config::McpServerConfig;
+
+    let McpServerConfig::Url {
+        url,
+        headers,
+        oauth,
+        ..
+    } = keenable_mcp_config(None)
+    else {
+        panic!("Keenable must use the HTTP transport");
+    };
+    assert_eq!(url, "https://api.keenable.ai/mcp-public");
+    assert_eq!(headers.len(), 1);
+    assert_eq!(headers["X-Keenable-Title"], "zerostack");
+    assert!(oauth.is_none());
+
+    let McpServerConfig::Url { headers, .. } = keenable_mcp_config(Some("test-key".into())) else {
+        panic!("Keenable must use the HTTP transport");
+    };
+    assert_eq!(headers["X-API-Key"], "test-key");
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn keenable_mcp_preserves_user_defined_server() {
+    use crate::config::inject_mcp_defaults;
+    use crate::extras::mcp::config::McpServerConfig;
+
+    let custom: McpServerConfig =
+        toml::from_str("url = 'https://example.com/custom'\ntool_timeout_secs = 42").unwrap();
+    let mut cfg = Config {
+        mcp_servers: Some(HashMap::from([("Keenable".to_string(), custom)])),
+        ..Config::default()
+    };
+    for enabled in [true, false] {
+        cfg.enable_keenable_mcp = Some(enabled);
+        inject_mcp_defaults(&mut cfg);
+        let server = &cfg.mcp_servers.as_ref().unwrap()["Keenable"];
+        assert_eq!(server.tool_timeout().as_secs(), 42);
+        assert!(
+            matches!(server, McpServerConfig::Url { url, .. } if url == "https://example.com/custom")
+        );
+    }
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn save_config_omits_generated_keenable_preset() {
+    use crate::config::inject_mcp_defaults;
+
+    let dir = std::env::temp_dir().join(format!("zs_savecfg_keenable_{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let guard = ZS_CONFIG_DIR_GUARD.lock().unwrap();
+    unsafe { std::env::set_var("ZS_CONFIG_DIR", &dir) };
+
+    let mut cfg = Config {
+        enable_keenable_mcp: Some(true),
+        ..Config::default()
+    };
+    inject_mcp_defaults(&mut cfg);
+    assert!(cfg.mcp_servers.as_ref().unwrap().contains_key("Keenable"));
+    crate::config::save_config(&cfg).unwrap();
+
+    let content = std::fs::read_to_string(dir.join("config.toml")).unwrap();
+    let back: Config = toml::from_str(&content).unwrap();
+    assert_eq!(back.enable_keenable_mcp, Some(true));
+    assert!(
+        back.mcp_servers
+            .as_ref()
+            .is_none_or(|servers| !servers.contains_key("Keenable"))
+    );
+
+    unsafe { std::env::remove_var("ZS_CONFIG_DIR") };
+    drop(guard);
+    let _ = std::fs::remove_dir_all(&dir);
+}

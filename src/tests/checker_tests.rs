@@ -1594,6 +1594,32 @@ fn planwrite_allows_grepapp_mcp_tools() {
 }
 
 #[test]
+fn readonly_allows_keenable_mcp_tools() {
+    let mut checker = make_checker(SecurityMode::ReadOnly);
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Keenable:search_web_pages"),
+        CheckResult::Allowed,
+    ));
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Keenable:fetch_page_content"),
+        CheckResult::Allowed,
+    ));
+}
+
+#[test]
+fn planwrite_allows_keenable_mcp_tools() {
+    let mut checker = make_checker(SecurityMode::PlanWrite);
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Keenable:search_web_pages"),
+        CheckResult::Allowed,
+    ));
+    assert!(matches!(
+        checker.check("mcp_tool", "mcp_tool:Keenable:fetch_page_content"),
+        CheckResult::Allowed,
+    ));
+}
+
+#[test]
 fn readonly_case_insensitive_mcp_prefix_match() {
     let mut checker = make_checker(SecurityMode::ReadOnly);
     assert!(matches!(
