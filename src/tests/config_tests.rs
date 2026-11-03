@@ -640,3 +640,100 @@ args = ["-y", "@modelcontextprotocol/server-filesystem", "."]
         Some(McpServerConfig::Command { .. })
     ));
 }
+
+#[cfg(feature = "mcp")]
+#[test]
+fn parallel_mcp_is_opt_in_and_preserves_explicit_servers() {
+    use crate::config::inject_mcp_defaults;
+    use crate::extras::mcp::config::McpServerConfig;
+
+    let mut cfg = Config::default();
+    inject_mcp_defaults(&mut cfg);
+    let servers = cfg.mcp_servers.as_ref().unwrap();
+    assert!(servers.contains_key("Exa Web Search"));
+    assert!(!servers.contains_key("Parallel"));
+
+    cfg.enable_parallel_mcp = Some(true);
+    inject_mcp_defaults(&mut cfg);
+    let preset = cfg.mcp_servers.as_ref().unwrap().get("Parallel").unwrap();
+    let McpServerConfig::Url {
+        url,
+        headers,
+        oauth,
+        ..
+    } = preset
+    else {
+        panic!("Parallel must use HTTP");
+    };
+    assert_eq!(url, "https://search.parallel.ai/mcp");
+    assert_eq!(headers.len(), 1);
+    assert_eq!(
+        headers["User-Agent"],
+        format!("zerostack/{}", env!("CARGO_PKG_VERSION"))
+    );
+    assert!(oauth.is_none());
+
+    let custom: McpServerConfig = toml::from_str(
+        "url = 'https://example.com/custom'\ntool_timeout_secs = 42\n[headers]\nX-Custom = 'value'",
+    )
+    .unwrap();
+    cfg.mcp_servers
+        .as_mut()
+        .unwrap()
+        .insert("Parallel".into(), custom);
+    for enabled in [true, false] {
+        cfg.enable_parallel_mcp = Some(enabled);
+        inject_mcp_defaults(&mut cfg);
+        let custom = &cfg.mcp_servers.as_ref().unwrap()["Parallel"];
+        assert_eq!(custom.tool_timeout().as_secs(), 42);
+        assert!(matches!(custom, McpServerConfig::Url { url, headers, .. }
+            if url == "https://example.com/custom" && headers["X-Custom"] == "value"));
+    }
+}
+
+#[cfg(feature = "mcp")]
+#[test]
+fn parallel_mcp_save_round_trip_keeps_toggle_and_custom_configuration() {
+    use crate::config::{inject_mcp_defaults, save_config};
+    use crate::extras::mcp::config::McpServerConfig;
+
+    let guard = ZS_CONFIG_DIR_GUARD.lock().unwrap();
+    let dir = std::env::temp_dir().join(format!("zs_parallel_save_{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    unsafe { std::env::set_var("ZS_CONFIG_DIR", &dir) };
+    let mut cfg: Config = toml::from_str("enable-parallel-mcp = true").unwrap();
+    inject_mcp_defaults(&mut cfg);
+    save_config(&cfg).unwrap();
+    let mut saved: Config =
+        toml::from_str(&std::fs::read_to_string(dir.join("config.toml")).unwrap()).unwrap();
+    assert!(saved.resolve_enable_parallel_mcp());
+    assert!(!saved.mcp_servers.as_ref().unwrap().contains_key("Parallel"));
+    inject_mcp_defaults(&mut saved);
+    assert!(saved.mcp_servers.as_ref().unwrap().contains_key("Parallel"));
+
+    // A timeout override on the actual endpoint must survive a save too.
+    if let McpServerConfig::Url {
+        tool_timeout_secs, ..
+    } = saved
+        .mcp_servers
+        .as_mut()
+        .unwrap()
+        .get_mut("Parallel")
+        .unwrap()
+    {
+        *tool_timeout_secs = Some(45);
+    }
+    save_config(&saved).unwrap();
+    let saved: Config =
+        toml::from_str(&std::fs::read_to_string(dir.join("config.toml")).unwrap()).unwrap();
+    assert_eq!(
+        saved.mcp_servers.as_ref().unwrap()["Parallel"]
+            .tool_timeout()
+            .as_secs(),
+        45
+    );
+
+    unsafe { std::env::remove_var("ZS_CONFIG_DIR") };
+    drop(guard);
+    std::fs::remove_dir_all(dir).unwrap();
+}
