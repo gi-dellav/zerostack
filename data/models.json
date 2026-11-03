@@ -360,6 +360,13 @@
       "output_price": 10
     },
     {
+      "id": "gpt-6.1-terra",
+      "name": "GPT-6.1 Terra",
+      "context": 1050000,
+      "input_price": 1,
+      "output_price": 5
+    },
+    {
       "id": "gpt-daybreak-blue-latest",
       "name": "Daybreak Blue",
       "context": 1050000,
@@ -481,23 +488,9 @@
       "output_price": 120
     },
     {
-      "id": "gemini-3-pro-image-preview",
-      "name": "Nano Banana Pro",
-      "context": 131072,
-      "input_price": 2,
-      "output_price": 120
-    },
-    {
       "id": "gemini-3.1-flash-image",
       "name": "Nano Banana 2",
       "context": 131072,
-      "input_price": 0.5,
-      "output_price": 60
-    },
-    {
-      "id": "gemini-3.1-flash-image-preview",
-      "name": "Nano Banana 2",
-      "context": 65536,
       "input_price": 0.5,
       "output_price": 60
     },
@@ -981,7 +974,7 @@
     {
       "id": "meta-llama/llama-4-scout",
       "name": "Llama 4 Scout",
-      "context": 1310720
+      "context": 327680
     },
     {
       "id": "meta-llama/llama-guard-4-12b",
@@ -1144,11 +1137,6 @@
       "context": 8191
     },
     {
-      "id": "openai/gpt-4-turbo",
-      "name": "GPT-4 Turbo",
-      "context": 128000
-    },
-    {
       "id": "openai/gpt-4.1",
       "name": "GPT-4.1",
       "context": 1047576
@@ -1247,11 +1235,6 @@
       "id": "openai/gpt-5.2",
       "name": "GPT-5.2",
       "context": 400000
-    },
-    {
-      "id": "openai/gpt-5.2-chat",
-      "name": "GPT-5.2 Chat",
-      "context": 128000
     },
     {
       "id": "openai/gpt-5.2-codex",
@@ -1374,6 +1357,16 @@
       "context": 1050000
     },
     {
+      "id": "openai/gpt-6.1-terra",
+      "name": "GPT-6.1 Terra",
+      "context": 1050000
+    },
+    {
+      "id": "openai/gpt-6.1-terra-pro",
+      "name": "GPT-6.1 Terra Pro",
+      "context": 1050000
+    },
+    {
       "id": "openai/gpt-chat-latest",
       "name": "GPT Chat Latest",
       "context": 400000
@@ -1394,43 +1387,13 @@
       "context": 131072
     },
     {
-      "id": "openai/o1",
-      "name": "o1",
-      "context": 200000
-    },
-    {
-      "id": "openai/o1-pro",
-      "name": "o1-pro",
-      "context": 200000
-    },
-    {
       "id": "openai/o3",
       "name": "o3",
       "context": 200000
     },
     {
-      "id": "openai/o3-mini",
-      "name": "o3-mini",
-      "context": 200000
-    },
-    {
-      "id": "openai/o3-mini-high",
-      "name": "o3 Mini High",
-      "context": 200000
-    },
-    {
       "id": "openai/o3-pro",
       "name": "o3-pro",
-      "context": 200000
-    },
-    {
-      "id": "openai/o4-mini",
-      "name": "o4-mini",
-      "context": 200000
-    },
-    {
-      "id": "openai/o4-mini-high",
-      "name": "o4 Mini High",
       "context": 200000
     },
     {
@@ -1511,11 +1474,6 @@
     {
       "id": "qwen/qwen3-next-80b-a3b-instruct",
       "name": "Qwen3-Next 80B-A3B Instruct",
-      "context": 262144
-    },
-    {
-      "id": "qwen/qwen3-next-80b-a3b-thinking",
-      "name": "Qwen3-Next 80B-A3B (Thinking)",
       "context": 262144
     },
     {
@@ -1621,7 +1579,7 @@
     {
       "id": "qwen/qwen3.8-27b",
       "name": "Qwen3.8 27B",
-      "context": 1000000
+      "context": 1024000
     },
     {
       "id": "qwen/qwen3.8-flash",
@@ -1746,6 +1704,11 @@
     {
       "id": "z-ai/glm-5.3-flashx",
       "name": "GLM 5.3 FlashX",
+      "context": 1048576
+    },
+    {
+      "id": "z-ai/glm-5.3-flashx-legal",
+      "name": "GLM 5.3 FlashX Legal",
       "context": 1048576
     },
     {
@@ -2076,13 +2039,6 @@
       "context": 1000000,
       "input_price": 2,
       "output_price": 10
-    },
-    {
-      "id": "deepseek-v4-flash",
-      "name": "DeepSeek V4 Flash",
-      "context": 1000000,
-      "input_price": 0.14,
-      "output_price": 0.28
     },
     {
       "id": "deepseek-v4-pro",
@@ -2433,13 +2389,6 @@
       "context": 1048576,
       "input_price": 4,
       "output_price": 20
-    },
-    {
-      "id": "nemotron-3-ultra-free",
-      "name": "Nemotron 3 Ultra Free",
-      "context": 1000000,
-      "input_price": 0,
-      "output_price": 0
     },
     {
       "id": "nemotron-3.5-lightning-free",
