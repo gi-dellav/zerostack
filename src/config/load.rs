@@ -569,7 +569,40 @@ pub fn inject_mcp_defaults(cfg: &mut Config) {
         servers.remove("Grep.app");
     }
 
+    // Opt-in. A user-defined `mcp_servers.Keenable` entry takes precedence
+    // and is left alone when the toggle is off.
+    if cfg.resolve_enable_keenable_mcp() {
+        servers
+            .entry("Keenable".to_string())
+            .or_insert_with(|| keenable_mcp_config(keenable_api_key()));
+    }
+
     cfg.mcp_servers = Some(servers);
+}
+
+/// Keenable web search and page fetch over the HTTP MCP transport. Works
+/// without an account or API key; a key only raises the rate limits.
+#[cfg(feature = "mcp")]
+pub fn keenable_mcp_config(api_key: Option<String>) -> McpServerConfig {
+    let mut headers = HashMap::from([("X-Keenable-Title".to_string(), "zerostack".to_string())]);
+    if let Some(key) = api_key {
+        headers.insert("X-API-Key".to_string(), key);
+    }
+    McpServerConfig::Url {
+        url: "https://api.keenable.ai/mcp-public".to_string(),
+        headers,
+        oauth: None,
+        connect_timeout_secs: None,
+        tool_timeout_secs: None,
+        connect_retries: None,
+    }
+}
+
+#[cfg(feature = "mcp")]
+fn keenable_api_key() -> Option<String> {
+    std::env::var("KEENABLE_API_KEY")
+        .ok()
+        .filter(|key| !key.is_empty())
 }
 
 pub fn save_config(cfg: &Config) -> io::Result<()> {
@@ -577,10 +610,20 @@ pub fn save_config(cfg: &Config) -> io::Result<()> {
     let mut cfg = cfg.clone();
     #[cfg(feature = "mcp")]
     {
+        let keenable_enabled = cfg.resolve_enable_keenable_mcp();
         if let Some(ref mut servers) = cfg.mcp_servers {
             servers.remove("Exa Web Search");
             servers.remove("Context7");
             servers.remove("Grep.app");
+            // Drop only the generated Keenable preset, never a user-defined one.
+            if keenable_enabled
+                && servers.get("Keenable").is_some_and(|server| {
+                    serde_json::to_value(server).ok()
+                        == serde_json::to_value(keenable_mcp_config(keenable_api_key())).ok()
+                })
+            {
+                servers.remove("Keenable");
+            }
         }
     }
     let path = resolve_config_path();

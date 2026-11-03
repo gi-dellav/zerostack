@@ -611,4 +611,5 @@ fn is_read_equivalent_mcp(input: &str) -> bool {
     lower.starts_with("mcp_tool:exa web search:")
         || lower.starts_with("mcp_tool:context7:")
         || lower.starts_with("mcp_tool:grep.app:")
+        || lower.starts_with("mcp_tool:keenable:")
 }
