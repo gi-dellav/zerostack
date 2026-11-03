@@ -8,6 +8,14 @@ on:
 permissions:
   contents: write
 
+# `.cargo/config.toml` links x86_64-unknown-linux-gnu through mold, which the
+# hosted runners do not ship. An exported RUSTFLAGS takes precedence over the
+# config file's `target.*.rustflags`, so setting it here keeps the runner on
+# the stock linker. setup-rust-toolchain v1 exported `-D warnings` implicitly;
+# v2 no longer does, so the value is pinned here instead of inherited.
+env:
+  RUSTFLAGS: -D warnings
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
