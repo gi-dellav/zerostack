@@ -116,6 +116,34 @@ in
 pkgs.zerostack
 ```
 
+#### Home manager
+
+```nix
+let
+  # For demonstration purposes; prefer a ‘Nix input pinner’ in real world uses
+  # since these URLs are not stable over time
+  inputs = {
+    zerostack = builtins.fetchTarball "https://github.com/gi-dellav/zerostack/archive/refs/heads/main.tar.gz";
+  };
+in
+{
+
+  imports = [
+    (import "${inputs.zerostack}/nix/module/home-manager.nix")
+  ];
+
+  nixpkgs.overlays = [
+    (import "${inputs.zerostack}/nix/overlay")
+  ];
+
+  programs.zerostack = {
+    enable = true;
+    settings = { /* TOML in the form of Nix */ };
+    prompts = { /* keys mapping to derivation paths or Markdown strings */ };
+  };
+}
+```
+
 
 Once installed, run `/prompt autoconfig` inside zerostack to explore the documentation and configure the tool interactively.
 
