@@ -38,6 +38,7 @@ zerostack --provider openai --model gpt-4o
 - [Cheaper Inference](providers/CheaperInference.md)
 - [MiniMax](providers/Minimax.md)
 - [OpenCode Zen / Go](providers/OpencodeZenGo.md)
+- [OpenLLM](providers/OpenLLM.md)
 - [Opper](providers/Opper.md)
 
 ## Custom Providers
