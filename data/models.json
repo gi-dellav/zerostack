@@ -892,6 +892,16 @@
       "context": 65536
     },
     {
+      "id": "google/gemini-omni-1.1-flash",
+      "name": "Gemini Omni 1.1 Flash",
+      "context": 131072
+    },
+    {
+      "id": "google/gemini-omni-1.2-flash",
+      "name": "Gemini Omni 1.2 Flash",
+      "context": 131072
+    },
+    {
       "id": "google/gemma-2-27b-it",
       "name": "Gemma 2 27B",
       "context": 8192
@@ -1738,8 +1748,15 @@
       "output_price": 0.5
     },
     {
+      "id": "crouton-alpha-free",
+      "name": "Crouton Alpha Free",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
       "id": "deepseek-v4-pro",
-      "name": "DeepSeek V4 Pro (New)",
+      "name": "DeepSeek V4 Pro",
       "context": 1000000,
       "input_price": 0.66,
       "output_price": 1.98
@@ -1801,6 +1818,13 @@
       "output_price": 0.58
     },
     {
+      "id": "hy4",
+      "name": "Hy4",
+      "context": 1048576,
+      "input_price": 0.834,
+      "output_price": 2.501
+    },
+    {
       "id": "hy4-preview",
       "name": "Hy4 preview",
       "context": 1024000,
@@ -1841,6 +1865,13 @@
       "context": 1000000,
       "input_price": 0.3,
       "output_price": 1.2
+    },
+    {
+      "id": "longcat-2.5-free",
+      "name": "LongCat 2.5 Free",
+      "context": 1000000,
+      "input_price": 0,
+      "output_price": 0
     },
     {
       "id": "mimo-v2.5",
@@ -2039,6 +2070,13 @@
       "context": 1000000,
       "input_price": 2,
       "output_price": 10
+    },
+    {
+      "id": "crouton-alpha-free",
+      "name": "Crouton Alpha Free",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
     },
     {
       "id": "deepseek-v4-pro",
@@ -2307,6 +2345,20 @@
       "output_price": 2
     },
     {
+      "id": "iceman-free",
+      "name": "Iceman Free",
+      "context": 262144,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
+      "id": "inkling-2-small-free",
+      "name": "Inkling 2 Small Free",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
       "id": "kimi-k2.5",
       "name": "Kimi K2.5",
       "context": 262144,
@@ -2333,6 +2385,13 @@
       "context": 1048576,
       "input_price": 3,
       "output_price": 15
+    },
+    {
+      "id": "longcat-2.5-free",
+      "name": "LongCat 2.5 Free",
+      "context": 1000000,
+      "input_price": 0,
+      "output_price": 0
     },
     {
       "id": "mimo-v2.6-flash-free",
