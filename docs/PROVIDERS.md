@@ -39,6 +39,7 @@ zerostack --provider openai --model gpt-4o
 - [MiniMax](providers/Minimax.md)
 - [OpenCode Zen / Go](providers/OpencodeZenGo.md)
 - [Opper](providers/Opper.md)
+- [Standard Compute](providers/StandardCompute.md)
 
 ## Custom Providers
 
