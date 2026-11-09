@@ -40,6 +40,7 @@ zerostack --provider openai --model gpt-4o
 - [OpenCode Zen / Go](providers/OpencodeZenGo.md)
 - [OpenLLM](providers/OpenLLM.md)
 - [Opper](providers/Opper.md)
+- [Standard Compute](providers/StandardCompute.md)
 
 ## Custom Providers
 
