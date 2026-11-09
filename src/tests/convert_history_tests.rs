@@ -62,3 +62,30 @@ fn empty_session_gives_empty_vec() {
 
     assert_eq!(history, Vec::<Message>::new());
 }
+
+/// An attachment stays part of the conversation: the history of a later turn
+/// carries the image again, in the same user message as the text.
+#[test]
+#[cfg(feature = "multimodal")]
+fn user_message_with_media_keeps_the_attachment_in_the_history() {
+    use rig::completion::message::UserContent;
+
+    let path =
+        std::env::temp_dir().join(format!("zerostack_test_history_{}.png", std::process::id()));
+    std::fs::write(&path, b"fake png").unwrap();
+    let media = crate::extras::multimodal::attach(&path).unwrap();
+
+    let mut session = sample_session();
+    session.add_user_message("look at this", vec![media]);
+
+    let history = convert_history(&session);
+    let _ = std::fs::remove_file(&path);
+
+    assert_eq!(history.len(), 1);
+    let Message::User { content } = &history[0] else {
+        panic!("expected a user message, got {:?}", history[0]);
+    };
+    assert_eq!(content.len(), 2);
+    assert!(matches!(content[0], UserContent::Text(_)));
+    assert!(matches!(content[1], UserContent::Image(_)));
+}

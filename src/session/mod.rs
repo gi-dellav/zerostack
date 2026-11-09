@@ -29,6 +29,11 @@ pub struct SessionMessage {
     pub estimated_tokens: u64,
     #[serde(default)]
     pub tool: Option<ToolRecord>,
+    /// Media the user attached to this message. Only references are stored:
+    /// the bytes are read from disk when the transcript is turned into a
+    /// provider request. Empty for every message that carries no attachment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub media: Vec<crate::media::MediaRef>,
 }
 
 /// Structured, machine-readable counterpart to a `ToolCall`/`ToolResult`
@@ -169,7 +174,7 @@ pub struct Session {
     pub prompt: Option<PromptRef>,
     #[cfg(feature = "multimodal")]
     #[serde(skip)]
-    pub pending_media: Vec<crate::extras::multimodal::MediaAttachment>,
+    pub pending_media: Vec<crate::media::MediaRef>,
     /// Display preference (set from config at startup, not persisted): show the
     /// session cost in the status bar even when it is $0.0000.
     #[serde(skip)]
@@ -415,12 +420,23 @@ impl Session {
         content: &str,
         tool: Option<ToolRecord>,
     ) {
+        self.add_message_with_media(role, content, tool, Vec::new());
+    }
+
+    fn add_message_with_media(
+        &mut self,
+        role: MessageRole,
+        content: &str,
+        tool: Option<ToolRecord>,
+        media: Vec<crate::media::MediaRef>,
+    ) {
         let tokens = Self::estimate_tokens(content);
         self.messages.push(SessionMessage {
             role,
             content: CompactString::new(content),
             estimated_tokens: tokens,
             tool,
+            media,
         });
         self.total_estimated_tokens = self.total_estimated_tokens.saturating_add(tokens);
         self.updated_at = CompactString::new(chrono::Utc::now().to_rfc3339());
@@ -525,8 +541,41 @@ impl Session {
     }
 
     #[cfg(feature = "multimodal")]
-    pub fn drain_media(&mut self) -> Vec<crate::extras::multimodal::MediaAttachment> {
+    pub fn drain_media(&mut self) -> Vec<crate::media::MediaRef> {
         std::mem::take(&mut self.pending_media)
+    }
+
+    /// Record a user message together with the media it carries, so the
+    /// attachment stays part of the conversation in later turns.
+    #[cfg(feature = "multimodal")]
+    pub fn add_user_message(&mut self, content: &str, media: Vec<crate::media::MediaRef>) {
+        self.add_message_with_media(MessageRole::User, content, None, media);
+    }
+
+    /// Remove every attachment recorded on any message and report how many
+    /// were dropped.
+    #[cfg(feature = "multimodal")]
+    pub fn drop_all_media(&mut self) -> usize {
+        let mut count = 0;
+        for msg in &mut self.messages {
+            count += msg.media.len();
+            msg.media.clear();
+        }
+        count
+    }
+
+    /// Remove the attachments recorded under `path` from every message and
+    /// report how many were dropped.
+    #[cfg(feature = "multimodal")]
+    pub fn drop_media_path(&mut self, path: &std::path::Path) -> usize {
+        let target = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+        let mut count = 0;
+        for msg in &mut self.messages {
+            let before = msg.media.len();
+            msg.media.retain(|m| m.path != target);
+            count += before - msg.media.len();
+        }
+        count
     }
 
     /// The true prompt size occupying the context window, normalizing across
@@ -733,6 +782,7 @@ impl Session {
             content: CompactString::from(summary.clone()),
             estimated_tokens: summary_tokens,
             tool: None,
+            media: Vec::new(),
         };
 
         // Remove summarized messages and insert summary

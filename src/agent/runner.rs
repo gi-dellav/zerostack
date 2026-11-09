@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use compact_str::CompactString;
 use futures::StreamExt;
 use rig::agent::{Agent, MultiTurnStreamItem, StreamingResult};
-#[cfg(feature = "multimodal")]
-use rig::completion::message::{AudioMediaType, DocumentMediaType, ImageMediaType};
+use rig::completion::message::UserContent;
 use rig::completion::{Message, Usage};
 use rig::message::ToolResultContent;
 use rig::streaming::{Item, StreamEvent, StreamedUserContent};
@@ -30,16 +29,54 @@ pub struct BtwRunner {
     pub abort_handle: tokio::task::AbortHandle,
 }
 
+/// A user prompt together with the media attached to it.
+///
+/// The text and the attachments travel as ONE user message: providers that
+/// require alternating user/assistant roles (Anthropic rejects two user
+/// turns in a row) reject a prompt that arrives as a separate message.
+#[derive(Debug, Clone, Default)]
+pub struct UserPrompt {
+    pub text: String,
+    // Without the `multimodal` feature nothing ever attaches media.
+    #[cfg_attr(not(feature = "multimodal"), allow(dead_code))]
+    pub media: Vec<crate::media::MediaRef>,
+}
+
+impl UserPrompt {
+    pub fn text(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            media: Vec::new(),
+        }
+    }
+
+    /// The rig message for this prompt: the text, then every attachment.
+    pub fn to_message(&self) -> Message {
+        #[cfg(feature = "multimodal")]
+        {
+            let mut content = vec![UserContent::text(self.text.clone())];
+            content.extend(crate::extras::multimodal::user_contents(&self.media));
+            Message::User { content }
+        }
+        #[cfg(not(feature = "multimodal"))]
+        {
+            Message::User {
+                content: vec![UserContent::text(self.text.clone())],
+            }
+        }
+    }
+}
+
 /// Start one streamed run of `agent` for `prompt` over `history`, retrying a
 /// retryable first-item failure per `retry_config`.
 async fn start_stream(
     agent: &Agent,
-    prompt: String,
+    prompt: UserPrompt,
     history: Vec<Message>,
     retry_config: &RetryConfig,
 ) -> Result<StreamingResult, anyhow::Error> {
     retry::retry_stream_chat(retry_config, || {
-        let p = prompt.clone();
+        let p = prompt.to_message();
         let h = history.clone();
         async move { agent.prompt(p).history(h).stream() }
     })
@@ -60,18 +97,19 @@ pub fn spawn_btw(
     retry_config: RetryConfig,
 ) -> BtwRunner {
     let join = tokio::spawn(async move {
-        let mut stream = match start_stream(&agent, prompt, history, &retry_config).await {
-            Ok(s) => s,
-            Err(e) => {
-                let _ = event_tx
-                    .send(BtwEvent::Error {
-                        id,
-                        message: CompactString::new(e.to_string()),
-                    })
-                    .await;
-                return;
-            }
-        };
+        let mut stream =
+            match start_stream(&agent, UserPrompt::text(prompt), history, &retry_config).await {
+                Ok(s) => s,
+                Err(e) => {
+                    let _ = event_tx
+                        .send(BtwEvent::Error {
+                            id,
+                            message: CompactString::new(e.to_string()),
+                        })
+                        .await;
+                    return;
+                }
+            };
 
         let mut acc = String::new();
 
@@ -155,7 +193,23 @@ pub fn convert_history(session: &Session) -> Vec<Message> {
 
     for msg in &session.messages[first_kept..] {
         match msg.role {
-            MessageRole::User => messages.push(Message::user(msg.content.to_string())),
+            MessageRole::User => {
+                // A user message that carried attachments keeps them: the
+                // media is read from disk and travels with the text, so the
+                // model still sees the image in later turns.
+                #[cfg(feature = "multimodal")]
+                if !msg.media.is_empty() {
+                    messages.push(
+                        UserPrompt {
+                            text: msg.content.to_string(),
+                            media: msg.media.clone(),
+                        }
+                        .to_message(),
+                    );
+                    continue;
+                }
+                messages.push(Message::user(msg.content.to_string()));
+            }
             MessageRole::Assistant => messages.push(Message::assistant(msg.content.to_string())),
             // Convert non-user transcript records to Assistant for the
             // same reason as the summary above: the templates that reject
@@ -177,79 +231,6 @@ pub fn convert_history(session: &Session) -> Vec<Message> {
     }
 
     messages
-}
-
-#[cfg(feature = "multimodal")]
-pub fn media_to_messages(media: &[crate::extras::multimodal::MediaAttachment]) -> Vec<Message> {
-    use rig::completion::message::UserContent;
-
-    media
-        .iter()
-        .map(|m| match m {
-            crate::extras::multimodal::MediaAttachment::Image { data, mime, .. } => Message::User {
-                content: vec![UserContent::image_raw(
-                    data.clone(),
-                    Some(image_media_type(mime)),
-                    None,
-                )],
-            },
-            crate::extras::multimodal::MediaAttachment::Audio { data, mime, .. } => Message::User {
-                content: vec![UserContent::audio_raw(
-                    data.clone(),
-                    Some(audio_media_type(mime)),
-                )],
-            },
-            crate::extras::multimodal::MediaAttachment::Document { data, mime, .. } => {
-                Message::User {
-                    content: vec![UserContent::document_raw(
-                        data.clone(),
-                        Some(document_media_type(mime)),
-                    )],
-                }
-            }
-        })
-        .collect()
-}
-
-#[cfg(feature = "multimodal")]
-fn image_media_type(mime: &str) -> ImageMediaType {
-    match mime {
-        "image/png" => ImageMediaType::PNG,
-        "image/jpeg" => ImageMediaType::JPEG,
-        "image/gif" => ImageMediaType::GIF,
-        "image/webp" => ImageMediaType::WEBP,
-        other => {
-            tracing::warn!("unknown image mime type: {other}, defaulting to PNG");
-            ImageMediaType::PNG
-        }
-    }
-}
-
-#[cfg(feature = "multimodal")]
-fn audio_media_type(mime: &str) -> AudioMediaType {
-    match mime {
-        "audio/mpeg" => AudioMediaType::MP3,
-        "audio/wav" => AudioMediaType::WAV,
-        "audio/ogg" => AudioMediaType::OGG,
-        "audio/flac" => AudioMediaType::FLAC,
-        "audio/mp4" => AudioMediaType::M4A,
-        "audio/aac" => AudioMediaType::AAC,
-        other => {
-            tracing::warn!("unknown audio mime type: {other}, defaulting to MP3");
-            AudioMediaType::MP3
-        }
-    }
-}
-
-#[cfg(feature = "multimodal")]
-fn document_media_type(mime: &str) -> DocumentMediaType {
-    match mime {
-        "application/pdf" => DocumentMediaType::PDF,
-        other => {
-            tracing::warn!("unknown document mime type: {other}, defaulting to PDF");
-            DocumentMediaType::PDF
-        }
-    }
 }
 
 /// Builds the forked context for a `/btw` side question: the committed
@@ -276,7 +257,7 @@ only if the user's question is about what the main assistant is doing.)",
 
 pub fn spawn_agent(
     agent: Agent,
-    prompt: String,
+    prompt: UserPrompt,
     history: Vec<Message>,
     retry_config: RetryConfig,
     // `--loop` iteration/active state, for the `Stop` hook envelope's
@@ -292,8 +273,9 @@ pub fn spawn_agent(
 
     let join = tokio::spawn(async move {
         tracing::debug!(
-            "spawn_agent: prompt_len={}, history_len={}, max_attempts={}",
-            prompt.len(),
+            "spawn_agent: prompt_len={}, media={}, history_len={}, max_attempts={}",
+            prompt.text.len(),
+            prompt.media.len(),
             history.len(),
             retry_config.max_attempts,
         );
@@ -462,7 +444,10 @@ pub fn spawn_agent(
                         tracing::info!(
                             "hooks: Stop hook forced continuation ({consecutive_stop_blocks}/{MAX_STOP_BLOCKS}): {reason}"
                         );
-                        current_prompt = reason;
+                        // The hook's continuation is a plain instruction. The
+                        // attachments of the original turn are already part
+                        // of the committed conversation.
+                        current_prompt = UserPrompt::text(reason);
                         continue;
                     }
                     tracing::warn!(
@@ -547,7 +532,7 @@ pub async fn run_print(
         continue_turn = false;
         let mut stream = start_stream(
             agent,
-            current_prompt.clone(),
+            UserPrompt::text(current_prompt.clone()),
             conversation.clone(),
             retry_config,
         )

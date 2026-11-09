@@ -11,6 +11,7 @@ mod event;
 mod extras;
 mod fs;
 mod logging;
+mod media;
 mod models_catalog;
 mod permission;
 mod pricing;

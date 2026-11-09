@@ -782,6 +782,26 @@ impl AnyModel {
             AnyModel::Ollama(m) => m.clone(),
         }
     }
+
+    /// Whether the transport this model speaks can carry an audio
+    /// attachment.
+    ///
+    /// The answer follows the request format, not the brand: rig's
+    /// Anthropic and Ollama clients reject audio content outright, its
+    /// OpenAI Responses client has no audio content part, and its Chat
+    /// Completions and Gemini clients accept one. A model that can hear is
+    /// still unreachable when the transport has no field to carry the
+    /// audio in.
+    pub fn supports_audio(&self) -> bool {
+        match self {
+            AnyModel::OpenRouter(_) => true,
+            AnyModel::OpenAI(OpenAiModel::Completions(_)) => true,
+            AnyModel::OpenAI(OpenAiModel::Responses(_)) => false,
+            AnyModel::Anthropic(_) => false,
+            AnyModel::Gemini(_) => true,
+            AnyModel::Ollama(_) => false,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -960,7 +980,7 @@ impl AnyAgent {
     /// (a hook can rewrite it).
     pub async fn spawn_runner(
         self,
-        prompt: String,
+        prompt: runner::UserPrompt,
         history: Vec<Message>,
         retry_config: RetryConfig,
         // `--loop` iteration/active state; see `runner::spawn_agent`. `None`
@@ -968,11 +988,19 @@ impl AnyAgent {
         #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
     ) -> AgentRunner {
         #[cfg(feature = "hooks")]
-        let prompt = match crate::extras::hooks::dispatch_user_prompt_submit(prompt).await {
-            crate::extras::hooks::PromptGate::Blocked(feedback) => {
-                return spawn_blocked_runner(feedback);
+        let prompt = {
+            // The hook gate sees the text only: attachments are not something
+            // it can rewrite.
+            let mut prompt = prompt;
+            match crate::extras::hooks::dispatch_user_prompt_submit(prompt.text).await {
+                crate::extras::hooks::PromptGate::Blocked(feedback) => {
+                    return spawn_blocked_runner(feedback);
+                }
+                crate::extras::hooks::PromptGate::Proceed(text) => {
+                    prompt.text = text;
+                    prompt
+                }
             }
-            crate::extras::hooks::PromptGate::Proceed(prompt) => prompt,
         };
         match self {
             AnyAgent::OpenRouter(a) => runner::spawn_agent(

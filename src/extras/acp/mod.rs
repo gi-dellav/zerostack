@@ -324,7 +324,7 @@ async fn run_prompt(
 
     let runner = agent
         .spawn_runner(
-            prompt_text.to_string(),
+            crate::agent::runner::UserPrompt::text(prompt_text.to_string()),
             vec![],
             crate::retry::RetryConfig::default(),
             #[cfg(feature = "hooks")]

@@ -547,7 +547,7 @@ async fn handle_agent_done(
                 .unwrap()
                 .clone()
                 .spawn_runner(
-                    prompt,
+                    crate::agent::runner::UserPrompt::text(prompt),
                     Vec::new(),
                     ui.cfg.retry.clone(),
                     #[cfg(feature = "hooks")]
