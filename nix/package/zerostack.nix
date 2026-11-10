@@ -1,5 +1,6 @@
 { lib
 , rustPlatform
+, aws-lc
 , binutils
 , mold
 , openssl
@@ -26,6 +27,7 @@ rustPlatform.buildRustPackage {
   ];
 
   buildInputs = [
+    aws-lc
     openssl
   ];
 
