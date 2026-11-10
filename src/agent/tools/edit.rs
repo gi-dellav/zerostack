@@ -2,8 +2,8 @@ use rig::tool::Tool;
 
 use crate::agent::tools::crc::crc32_hex;
 use crate::agent::tools::{
-    AskSender, EditArgs, EditBlock, EditOp, PermCheck, ToolError, check_perm_path, edit_system,
-    levenshtein_similarity, normalize_whitespace,
+    AskSender, EditArgs, EditBlock, EditOp, NormalizedText, PermCheck, ToolError, check_perm_path,
+    edit_system, levenshtein_similarity, normalize_whitespace,
 };
 use crate::config::types::EditSystem;
 #[cfg(feature = "lsp")]
@@ -109,63 +109,6 @@ enum MatchResult {
     NotFound,
 }
 
-fn compute_byte_range(content: &str, norm_pos: usize, norm_len: usize) -> (usize, usize) {
-    let content_norm = normalize_whitespace(content);
-    let norm_end = (norm_pos + norm_len).min(content_norm.len());
-
-    let mut orig_pos = 0usize;
-    let mut norm_rem = 0usize;
-    let mut byte_start = None;
-
-    while orig_pos < content.len() && norm_rem < norm_end {
-        if norm_rem >= content_norm.len() {
-            break;
-        }
-
-        let b = content.as_bytes()[orig_pos];
-
-        // Tab -> space expansion: 1 tab byte maps to 4 spaces in normalized
-        if b == b'\t' {
-            let tab_spaces = 4usize;
-            if norm_rem < norm_pos {
-                orig_pos += 1;
-                norm_rem = (norm_rem + tab_spaces).min(content_norm.len());
-                continue;
-            }
-            if byte_start.is_none() {
-                byte_start = Some(orig_pos);
-            }
-            orig_pos += 1;
-            norm_rem = (norm_rem + tab_spaces).min(content_norm.len());
-            continue;
-        }
-
-        if norm_rem < norm_pos {
-            orig_pos += 1;
-            norm_rem += 1;
-            continue;
-        }
-
-        if byte_start.is_none() {
-            byte_start = Some(orig_pos);
-        }
-
-        // CRLF edge case: original \r\n maps to a single \n in normalized
-        if b == b'\r' && norm_rem < content_norm.len() && content_norm.as_bytes()[norm_rem] == b'\n'
-        {
-            orig_pos += 1;
-            continue;
-        }
-
-        orig_pos += 1;
-        norm_rem += 1;
-    }
-
-    // Fallback: no match region found — return zero-length range at end of file
-    let start = byte_start.unwrap_or(content.len());
-    (start, orig_pos)
-}
-
 fn find_best_match(content: &str, search: &str) -> MatchResult {
     // Step 1: exact match in original content
     if let Some(pos) = content.find(search) {
@@ -173,11 +116,14 @@ fn find_best_match(content: &str, search: &str) -> MatchResult {
     }
 
     // Step 2: normalized match in full text
-    let content_norm = normalize_whitespace(content);
+    let content_norm = NormalizedText::new(content);
     let search_norm = normalize_whitespace(search);
-    if let Some(norm_pos) = content_norm.find(&search_norm) {
-        let (byte_start, byte_end) = compute_byte_range(content, norm_pos, search_norm.len());
-        return MatchResult::Normalized(byte_start, byte_end);
+    if let Some(norm_pos) = content_norm.text.find(&search_norm) {
+        if let Some((byte_start, byte_end)) =
+            content_norm.original_range(norm_pos, search_norm.len())
+        {
+            return MatchResult::Normalized(byte_start, byte_end);
+        }
     }
 
     // Step 3: fuzzy line-level matching
@@ -303,10 +249,17 @@ async fn handle_similarity(
                 });
             }
             MatchResult::Normalized(start, end) => {
+                let mut replace = blk.replace.clone();
+                if end > start
+                    && content.as_bytes().get(end - 1) == Some(&b'\n')
+                    && !replace.ends_with('\n')
+                {
+                    replace.push('\n');
+                }
                 resolved.push(ResolvedSim {
                     byte_start: start,
                     byte_end: end,
-                    replace: blk.replace.clone(),
+                    replace,
                     note: "matched after whitespace normalization".to_string(),
                 });
             }

@@ -218,6 +218,113 @@ async fn test_sim_preserves_crlf_line_endings() {
     );
 }
 
+#[tokio::test]
+async fn test_sim_normalized_match_does_not_corrupt_preceding_lines() {
+    let _edit_guard = serialize_edit_system(EditSystem::Similarity);
+    let tmp = TempFile::new("normalized_trimmed.txt");
+    let original = "# Release notes  \nVersion: 1.4  \nAuthor: dana  \n\nStatus: draft  \nOwner: bob\nReviewed: no\n";
+    std::fs::write(tmp.path(), original).unwrap();
+    let tool = edit::EditTool::new(None, None);
+    let result = tool
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: Some(
+                    "<<<<<<< SEARCH\nStatus: draft\nOwner: bob\n=======\nStatus: final\nOwner: alice\n>>>>>>> REPLACE"
+                        .into(),
+                ),
+                file_crc: None,
+                edits: None,
+            },
+        )
+        .await
+        .unwrap();
+
+    assert!(result.contains("Applied 1 edit(s)"));
+    assert!(result.contains("matched after whitespace normalization"));
+    let content = std::fs::read_to_string(tmp.path()).unwrap();
+    assert_eq!(
+        content,
+        "# Release notes  \nVersion: 1.4  \nAuthor: dana  \n\nStatus: final\nOwner: alice\nReviewed: no\n"
+    );
+}
+
+#[tokio::test]
+async fn test_sim_normalized_match_after_collapsed_blank_lines() {
+    let _edit_guard = serialize_edit_system(EditSystem::Similarity);
+    let tmp = TempFile::new("normalized_blanks.txt");
+    let original = "before\n\n\n\ntarget\nnext\n";
+    std::fs::write(tmp.path(), original).unwrap();
+    let tool = edit::EditTool::new(None, None);
+    tool.call(
+        &mut rig::tool::ToolContext::new(),
+        EditArgs {
+            path: tmp.path().into(),
+            block: Some("<<<<<<< SEARCH\ntarget\n=======\nTARGET\n>>>>>>> REPLACE".into()),
+            file_crc: None,
+            edits: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let content = std::fs::read_to_string(tmp.path()).unwrap();
+    assert_eq!(content, "before\n\n\n\nTARGET\nnext\n");
+}
+
+#[tokio::test]
+async fn test_sim_normalized_match_preserves_newline() {
+    let _edit_guard = serialize_edit_system(EditSystem::Similarity);
+    let tmp = TempFile::new("normalized_newline.txt");
+    let original = "before\nStatus: draft  \nOwner: bob  \nnext\n";
+    std::fs::write(tmp.path(), original).unwrap();
+    let tool = edit::EditTool::new(None, None);
+    tool.call(
+        &mut rig::tool::ToolContext::new(),
+        EditArgs {
+            path: tmp.path().into(),
+            block: Some(
+                "<<<<<<< SEARCH\nStatus: draft\nOwner: bob\n=======\nStatus: final\nOwner: alice\n>>>>>>> REPLACE"
+                    .into(),
+            ),
+            file_crc: None,
+            edits: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let content = std::fs::read_to_string(tmp.path()).unwrap();
+    assert_eq!(content, "before\nStatus: final\nOwner: alice\nnext\n");
+}
+
+#[tokio::test]
+async fn test_sim_normalized_match_after_tabs() {
+    let _edit_guard = serialize_edit_system(EditSystem::Similarity);
+    let tmp = TempFile::new("normalized_tabs.txt");
+    let original = "\tHeader\nStatus: draft  \nOwner: bob\n";
+    std::fs::write(tmp.path(), original).unwrap();
+    let tool = edit::EditTool::new(None, None);
+    tool.call(
+        &mut rig::tool::ToolContext::new(),
+        EditArgs {
+            path: tmp.path().into(),
+            block: Some(
+                "<<<<<<< SEARCH\nStatus: draft\nOwner: bob\n=======\nStatus: final\nOwner: alice\n>>>>>>> REPLACE"
+                    .into(),
+            ),
+            file_crc: None,
+            edits: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let content = std::fs::read_to_string(tmp.path()).unwrap();
+    assert_eq!(content, "\tHeader\nStatus: final\nOwner: alice\n");
+}
+
 // ── Hashedit (V2) tests ─────────────────────────────────────────────────
 
 fn make_tagged_line(line_num: usize, content: &str) -> String {
