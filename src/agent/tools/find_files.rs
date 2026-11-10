@@ -1,6 +1,6 @@
 use ignore::WalkBuilder;
 use regex::Regex;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 
 use crate::agent::tools::{
     AskSender, FindFilesArgs, PermCheck, ToolError, check_perm, is_skip_dir,
@@ -50,7 +50,11 @@ impl Tool for FindFilesTool {
         })
     }
 
-    async fn call(&self, args: FindFilesArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: FindFilesArgs,
+    ) -> Result<String, ToolError> {
         tracing::debug!(
             "tool find_files start: pattern={}, path={}",
             args.pattern,

@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 use regex::RegexBuilder;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use serde::Deserialize;
 
 use crate::agent::tools::{ToolError, check_perm};
@@ -1033,7 +1033,11 @@ Prefer long_term for things that should always be remembered."
         })
     }
 
-    async fn call(&self, args: MemoryWriteArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: MemoryWriteArgs,
+    ) -> Result<String, ToolError> {
         tracing::debug!(
             "tool memory_write: target={}, bytes={}",
             args.target,
@@ -1112,7 +1116,11 @@ append or overwrite; use this to surgically fix or remove existing content."
         })
     }
 
-    async fn call(&self, args: MemoryEditArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: MemoryEditArgs,
+    ) -> Result<String, ToolError> {
         tracing::debug!(
             "tool memory_edit: target={}, has_old={}",
             args.target,
@@ -1177,7 +1185,11 @@ daily (name=YYYY-MM-DD, omit for today), note (name=<stem>), or list (enumerate 
         })
     }
 
-    async fn call(&self, args: MemoryReadArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: MemoryReadArgs,
+    ) -> Result<String, ToolError> {
         tracing::debug!(
             "tool memory_read: source={}, name={:?}",
             args.source,
@@ -1258,7 +1270,11 @@ up with memory_read. Use to recall older context that is not auto-injected. If a
         })
     }
 
-    async fn call(&self, args: MemorySearchArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: MemorySearchArgs,
+    ) -> Result<String, ToolError> {
         tracing::debug!("tool memory_search: '{}'", args.query);
         check_perm(&self.permission, &self.ask_tx, Self::NAME, &args.query).await?;
         let results = Mem::open().search(&args.query);

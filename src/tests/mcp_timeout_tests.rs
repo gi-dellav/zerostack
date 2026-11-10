@@ -185,7 +185,7 @@ async fn tool_call_on_dead_server_reports_reconnect_failure() {
         None,
         None,
     );
-    let err = match tool.execute(serde_json::json!({})).await {
+    let err = match tool.run(serde_json::json!({})).await {
         Ok(out) => panic!("call on dead server must fail, got: {out:?}"),
         Err(e) => e,
     };

@@ -12,7 +12,7 @@ use crate::permission::{PermissionConfigs, SecurityMode};
 /// Echoes its arguments back as text, mirroring the old `ToolDyn` test double.
 fn echo_tool() -> DynamicTool {
     DynamicTool::new(
-        "echo_tool",
+        rig::message::ToolName::new("echo_tool").expect("test tool name is non-empty"),
         String::new(),
         serde_json::json!({}),
         |args: serde_json::Value| {
@@ -32,7 +32,7 @@ impl PermCheckingTool {
     fn build(self) -> DynamicTool {
         let permission = self.permission;
         DynamicTool::new(
-            "bash",
+            rig::message::ToolName::new("bash").expect("test tool name is non-empty"),
             String::new(),
             serde_json::json!({}),
             move |args: serde_json::Value| {
@@ -65,7 +65,7 @@ impl JsonCommandPermCheckingTool {
     fn build(self) -> DynamicTool {
         let permission = self.permission;
         DynamicTool::new(
-            "bash",
+            rig::message::ToolName::new("bash").expect("test tool name is non-empty"),
             String::new(),
             serde_json::json!({}),
             move |args: serde_json::Value| {
@@ -85,7 +85,7 @@ impl JsonCommandPermCheckingTool {
 
 fn always_fails_tool() -> DynamicTool {
     DynamicTool::new(
-        "always_fails_tool",
+        rig::message::ToolName::new("always_fails_tool").expect("test tool name is non-empty"),
         String::new(),
         serde_json::json!({}),
         |_args: serde_json::Value| {
@@ -148,7 +148,7 @@ async fn deny_blocks_the_call_with_guard_rail_message() {
     let wrapped = wrap_all(tools, dispatcher, permission());
 
     let err = wrapped[0]
-        .execute(serde_json::json!({}))
+        .run(serde_json::json!({}))
         .await
         .expect_err("expected the call to be blocked");
     assert!(
@@ -163,10 +163,7 @@ async fn no_matching_hook_passes_through_to_inner_tool() {
     let tools = vec![echo_tool()];
     let wrapped = wrap_all(tools, dispatcher, permission());
 
-    let out = wrapped[0]
-        .execute(serde_json::json!({"a": 1}))
-        .await
-        .unwrap();
+    let out = wrapped[0].run(serde_json::json!({"a": 1})).await.unwrap();
     assert_eq!(out.render(), r#"{"a":1}"#);
 }
 
@@ -183,7 +180,7 @@ async fn post_tool_use_failure_observes_but_cannot_change_the_outcome() {
     let wrapped = wrap_all(tools, dispatcher, permission());
 
     let err = wrapped[0]
-        .execute(serde_json::json!({}))
+        .run(serde_json::json!({}))
         .await
         .expect_err("inner tool always fails");
     assert!(err.to_string().contains("inner tool blew up"));
@@ -204,7 +201,7 @@ async fn pre_tool_use_updated_input_is_applied_before_the_inner_call() {
     let wrapped = wrap_all(tools, dispatcher, permission());
 
     let out = wrapped[0]
-        .execute(serde_json::json!({"command": "original"}))
+        .run(serde_json::json!({"command": "original"}))
         .await
         .unwrap();
     assert_eq!(out.render(), r#"{"command":"rewritten"}"#);
@@ -244,7 +241,7 @@ async fn pre_tool_use_rewrite_cannot_bypass_a_permission_deny_rule() {
     let wrapped = wrap_all(tools, dispatcher, perm);
 
     let err = wrapped[0]
-        .execute(serde_json::json!({"command": "echo harmless"}))
+        .run(serde_json::json!({"command": "echo harmless"}))
         .await
         .expect_err("rewritten command matches a deny rule and must be blocked");
     assert!(
@@ -263,7 +260,7 @@ async fn post_tool_use_rewrites_the_model_visible_result() {
     let wrapped = wrap_all(tools, dispatcher, permission());
 
     let out = wrapped[0]
-        .execute(serde_json::json!({"secret": "abc"}))
+        .run(serde_json::json!({"secret": "abc"}))
         .await
         .unwrap();
     assert_eq!(out.render(), "[redacted]");
@@ -275,10 +272,7 @@ async fn post_tool_use_no_decision_leaves_result_unchanged() {
     let tools = vec![echo_tool()];
     let wrapped = wrap_all(tools, dispatcher, permission());
 
-    let out = wrapped[0]
-        .execute(serde_json::json!({"a": 1}))
-        .await
-        .unwrap();
+    let out = wrapped[0].run(serde_json::json!({"a": 1})).await.unwrap();
     assert_eq!(out.render(), r#"{"a":1}"#);
 }
 
@@ -302,7 +296,7 @@ async fn ask_verdict_escalates_to_deny_when_no_ask_tx_is_available() {
     let wrapped = wrap_all(tools, dispatcher, perm);
 
     let err = wrapped[0]
-        .execute(serde_json::json!("ls -la"))
+        .run(serde_json::json!("ls -la"))
         .await
         .expect_err("ask with no ask_tx must escalate to deny");
     assert!(
@@ -329,10 +323,7 @@ async fn allow_verdict_suppresses_the_prompt_for_the_inner_tools_own_check() {
     ];
     let wrapped = wrap_all(tools, dispatcher, perm);
 
-    let out = wrapped[0]
-        .execute(serde_json::json!("ls -la"))
-        .await
-        .unwrap();
+    let out = wrapped[0].run(serde_json::json!("ls -la")).await.unwrap();
     assert_eq!(out.render(), "\"ls -la\"");
 }
 

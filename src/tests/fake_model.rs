@@ -75,7 +75,11 @@ pub fn history_at(model: &FakeModel, turn: usize) -> Vec<Message> {
             requests.len()
         )
     });
-    let mut messages: Vec<Message> = request.chat_history.clone().into_iter().collect();
+    let mut messages: Vec<Message> = request
+        .chat_history
+        .iter()
+        .map(|message| (**message).clone())
+        .collect();
     messages.pop();
     messages
 }

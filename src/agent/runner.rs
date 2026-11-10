@@ -6,7 +6,7 @@ use rig::agent::{Agent, MultiTurnStreamItem, StreamingResult};
 use rig::completion::message::UserContent;
 use rig::completion::{Message, Usage};
 use rig::message::ToolResultContent;
-use rig::streaming::{Item, StreamEvent, StreamedUserContent};
+use rig::streaming::{Item, StreamEvent};
 use tokio::sync::mpsc;
 
 use crate::event::{AgentEvent, BtwEvent};
@@ -121,7 +121,7 @@ pub fn spawn_btw(
                 }))) => acc.push_str(&text),
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     let usage = res.usage();
-                    let response_text = res.output;
+                    let response_text = res.output();
                     let response = if response_text.is_empty() {
                         CompactString::from(acc.as_str())
                     } else {
@@ -337,23 +337,22 @@ pub fn spawn_agent(
                     Ok(MultiTurnStreamItem::ToolCall { tool_call }) => {
                         let call_id = tool_call.id.to_string();
                         let tool_name = tool_call.function.name.to_string();
+                        let args = serde_json::Value::Object(tool_call.function.arguments);
                         tracing::debug!(
                             "agent tool start: name={}, args_len={}",
                             tool_name,
-                            tool_call.function.arguments.to_string().len(),
+                            args.to_string().len(),
                         );
                         pending_tool_names.insert(call_id.clone(), tool_name.clone());
                         let _ = event_tx
                             .send(AgentEvent::ToolCall {
                                 call_id: CompactString::from(call_id),
                                 name: CompactString::from(tool_name),
-                                args: tool_call.function.arguments,
+                                args,
                             })
                             .await;
                     }
-                    Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
-                        tool_result,
-                    })) => {
+                    Ok(MultiTurnStreamItem::ToolResult { tool_result }) => {
                         let call_id = tool_result.call.to_string();
                         let tool_name = CompactString::new(
                             pending_tool_names
@@ -423,12 +422,12 @@ pub fn spawn_agent(
                 return;
             };
 
-            if let Some(messages) = &res.messages {
-                conversation.extend(messages.iter().cloned());
+            if !res.messages.is_empty() {
+                conversation.extend(res.messages.iter().cloned());
             }
             let usage = res.usage();
 
-            if !res.output.is_empty() {
+            if !res.output().is_empty() {
                 #[cfg(feature = "hooks")]
                 if let crate::extras::hooks::StopGate::Continue { reason } =
                     crate::extras::hooks::dispatch_stop(
@@ -456,7 +455,7 @@ pub fn spawn_agent(
                 }
                 let _ = event_tx
                     .send(AgentEvent::Done {
-                        response: CompactString::from(res.output),
+                        response: CompactString::from(res.output()),
                         input_tokens: usage.input_tokens.unwrap_or(0),
                         output_tokens: usage.output_tokens.unwrap_or(0),
                         cached_input_tokens: usage.cached_input_tokens.unwrap_or(0),
@@ -576,7 +575,7 @@ pub async fn run_print(
                 Ok(MultiTurnStreamItem::ToolCall { tool_call }) => {
                     let call_id = tool_call.id.to_string();
                     let name = tool_call.function.name.to_string();
-                    let args = tool_call.function.arguments.clone();
+                    let args = serde_json::Value::Object(tool_call.function.arguments.clone());
                     if pure_stdout {
                         let summary = format_tool_args_summary(&args);
                         println!("\n◈ {} {}", name, summary);
@@ -584,9 +583,7 @@ pub async fn run_print(
                     }
                     pending_calls.insert(call_id, (name, args));
                 }
-                Ok(MultiTurnStreamItem::StreamUserItem(StreamedUserContent::ToolResult {
-                    tool_result,
-                })) => {
+                Ok(MultiTurnStreamItem::ToolResult { tool_result }) => {
                     let call_id = tool_result.call.to_string();
                     let (name, args) = pending_calls.remove(&call_id).unwrap_or_else(|| {
                         tracing::warn!(
@@ -630,8 +627,8 @@ pub async fn run_print(
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     usage = res.usage();
-                    if let Some(messages) = &res.messages {
-                        conversation.extend(messages.iter().cloned());
+                    if !res.messages.is_empty() {
+                        conversation.extend(res.messages.iter().cloned());
                     }
                     #[cfg(feature = "hooks")]
                     if let crate::extras::hooks::StopGate::Continue { reason } =
@@ -802,13 +799,13 @@ pub async fn run_subagent(
                     let _ = tx
                         .send(AgentEvent::SubagentToolCall {
                             name: CompactString::from(tool_call.function.name.to_string()),
-                            args: tool_call.function.arguments,
+                            args: serde_json::Value::Object(tool_call.function.arguments),
                         })
                         .await;
                 }
             }
             Ok(MultiTurnStreamItem::FinalResponse(res)) => {
-                full_response = res.output.to_string();
+                full_response = res.output().to_string();
                 break;
             }
             Ok(_) => {}

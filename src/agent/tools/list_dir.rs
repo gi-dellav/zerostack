@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use ignore::WalkBuilder;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 
 use crate::agent::tools::{
     AskSender, ListDirArgs, PermCheck, ToolError, check_perm_path, is_skip_dir,
@@ -74,7 +74,11 @@ impl Tool for ListDirTool {
         })
     }
 
-    async fn call(&self, args: ListDirArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: ListDirArgs,
+    ) -> Result<String, ToolError> {
         let path = crate::fs::expand_tilde(args.path.as_deref().unwrap_or("."));
         tracing::debug!("tool list_dir start: path={}", path);
         let coaching = check_perm_path(&self.permission, &self.ask_tx, "list_dir", &path).await?;

@@ -4,10 +4,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use agent_client_protocol::on_receive_request;
-use agent_client_protocol::schema::v1::*;
-use agent_client_protocol::{
-    Agent, ByteStreams, Client, ConnectTo, ConnectionTo, Responder, Role, Stdio,
-};
+use agent_client_protocol::v1::schema::*;
+use agent_client_protocol::v1::{ConnectionTo, Responder};
+use agent_client_protocol::{Agent, ByteStreams, Client, ConnectTo, Role, Stdio};
 use compact_str::CompactString;
 use tokio::sync::Mutex;
 
@@ -64,19 +63,19 @@ impl<Counterpart: Role> ConnectTo<Counterpart> for TcpTransport {
 
         let addr = format!("{}:{}", self.host, self.port);
         let listener = TcpListener::bind(&addr).map_err(|e| {
-            agent_client_protocol::util::internal_error(format!("TCP bind {}: {}", addr, e))
+            agent_client_protocol::Error::internal_error().data(format!("TCP bind {}: {}", addr, e))
         })?;
 
         tracing::info!("ACP TCP listening on {}", addr);
 
         let (stream, peer_addr) = listener.accept().map_err(|e| {
-            agent_client_protocol::util::internal_error(format!("TCP accept: {}", e))
+            agent_client_protocol::Error::internal_error().data(format!("TCP accept: {}", e))
         })?;
 
         tracing::info!("ACP client connected from {}", peer_addr);
 
         let read_half = stream.try_clone().map_err(|e| {
-            agent_client_protocol::util::internal_error(format!("TCP clone: {}", e))
+            agent_client_protocol::Error::internal_error().data(format!("TCP clone: {}", e))
         })?;
         let write_half = stream;
 
@@ -109,7 +108,7 @@ pub async fn serve(cli: Cli, cfg: Config, context: ContextFiles) -> anyhow::Resu
         sessions: Mutex::new(HashMap::new()),
     });
 
-    let builder = Agent.builder().name("zerostack");
+    let builder = Agent.v1().name("zerostack");
 
     let builder = builder
         .on_receive_request(

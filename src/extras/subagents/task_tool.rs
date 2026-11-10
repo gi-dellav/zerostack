@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 use futures::future::join_all;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use serde::Deserialize;
 
 use crate::agent::tools::{ToolError, check_perm};
@@ -72,7 +72,11 @@ editing in a known location, grepping for a literal you will act on immediately.
         })
     }
 
-    async fn call(&self, args: TaskArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: TaskArgs,
+    ) -> Result<String, ToolError> {
         if args.prompts.is_empty() {
             return Err(ToolError::Msg("task: prompts must not be empty".into()));
         }

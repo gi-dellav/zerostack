@@ -299,8 +299,8 @@ impl OpencodeClient {
 /// OpenRouter's Anthropic direct route; the Bedrock and Vertex routes silently
 /// drop them. So for Claude models we force `provider.order = ["Anthropic"]`
 /// (keeping `allow_fallbacks: true` so the request still succeeds if Anthropic
-/// is momentarily unavailable). Every other OpenRouter model caches
-/// automatically and is left untouched.
+/// is momentarily unavailable) and request short-lived prompt caching. Every
+/// other OpenRouter model caches automatically and is left untouched.
 ///
 /// OpenRouter namespaces Claude under `anthropic/`, optionally with a leading
 /// `~` marking a floating "-latest" alias (e.g. `~anthropic/claude-sonnet-latest`).
@@ -309,7 +309,8 @@ pub(crate) fn openrouter_anthropic_routing(model_id: &str) -> Option<serde_json:
     let slug = model_id.strip_prefix('~').unwrap_or(model_id);
     slug.starts_with("anthropic/").then(|| {
         serde_json::json!({
-            "provider": { "order": ["Anthropic"], "allow_fallbacks": true }
+            "provider": { "order": ["Anthropic"], "allow_fallbacks": true },
+            "cache_control": { "type": "ephemeral" }
         })
     })
 }
@@ -353,10 +354,7 @@ impl AnyClient {
         match self {
             AnyClient::OpenRouter(c) => {
                 let extra = openrouter_anthropic_routing(&name);
-                let mut wire_model = c.completion(name);
-                if extra.is_some() {
-                    wire_model.wire = wire_model.wire.with_prompt_caching();
-                }
+                let wire_model = c.completion(name);
                 AnyModel::OpenRouter(OpenRouterModel {
                     model: wire_model.erase(),
                     extra,
@@ -784,7 +782,7 @@ async fn run_summarizer(model: DynModel<Completion>, prompt: String) -> anyhow::
                 StreamEvent::Text { text, .. },
             ))) => response.push_str(&text),
             Ok(rig::agent::MultiTurnStreamItem::FinalResponse(res)) => {
-                response = res.output.to_string();
+                response = res.output().to_string();
                 break;
             }
             Err(e) => return Err(anyhow::anyhow!("Compression failed: {}", e)),

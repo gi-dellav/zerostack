@@ -265,7 +265,7 @@ fn image_content(bytes: &[u8], mime: &str) -> UserContent {
         data: DocumentSourceKind::Base64(BASE64.encode(bytes)),
         media_type: ImageMediaType::from_mime_type(mime),
         detail: None,
-        additional_params: None,
+        native: None,
     })
 }
 
@@ -274,7 +274,6 @@ fn audio_content(bytes: &[u8], mime: &str) -> UserContent {
     UserContent::Audio(Audio {
         data: DocumentSourceKind::Base64(BASE64.encode(bytes)),
         media_type: audio_media_type(mime),
-        additional_params: None,
     })
 }
 

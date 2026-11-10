@@ -13,7 +13,7 @@
 //! runs never listened on that channel at all.
 
 use rig::agent::AgentBuilder;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use serde::Deserialize;
 
 use crate::agent::runner::{PrintOutcome, run_print};
@@ -52,7 +52,11 @@ impl Tool for FakeTaskTool {
         })
     }
 
-    async fn call(&self, args: TaskArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: TaskArgs,
+    ) -> Result<String, ToolError> {
         let tx = crate::extras::subagents::clone_subagent_event_tx()
             .expect("run_print must publish a subagent event sender for the turn");
         for prompt in &args.prompts {

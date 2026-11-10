@@ -13,7 +13,7 @@
 //! then `add_message(Assistant)`.
 
 use rig::agent::AgentBuilder;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use serde::Deserialize;
 
 use crate::agent::runner::{PrintOutcome, run_print};
@@ -54,7 +54,11 @@ impl Tool for EchoTool {
         })
     }
 
-    async fn call(&self, args: EchoArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: EchoArgs,
+    ) -> Result<String, ToolError> {
         Ok(format!("echoed: {}", args.text))
     }
 }

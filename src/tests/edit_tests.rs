@@ -7,7 +7,7 @@ use crate::agent::tools::crc::crc32_hex;
 use crate::agent::tools::set_edit_system;
 use crate::agent::tools::{EditArgs, EditOp, edit};
 use crate::config::types::EditSystem;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 
 /// The edit system is a process-global, and `cargo test` runs tests in parallel,
 /// so a `Similarity` test could otherwise have the global flipped to `Hashedit`
@@ -53,12 +53,15 @@ async fn test_sim_rejects_no_blocks() {
     std::fs::write(tmp.path(), "hello world\n").unwrap();
     let tool = edit::EditTool::new(None, None);
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: Some("no blocks here".into()),
-            file_crc: None,
-            edits: None,
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: Some("no blocks here".into()),
+                file_crc: None,
+                edits: None,
+            },
+        )
         .await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
@@ -72,12 +75,15 @@ async fn test_sim_rejects_empty_search() {
     std::fs::write(tmp.path(), "hello world\n").unwrap();
     let tool = edit::EditTool::new(None, None);
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: Some("<<<<<<< SEARCH\n=======\nreplacement\n>>>>>>> REPLACE".into()),
-            file_crc: None,
-            edits: None,
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: Some("<<<<<<< SEARCH\n=======\nreplacement\n>>>>>>> REPLACE".into()),
+                file_crc: None,
+                edits: None,
+            },
+        )
         .await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
@@ -91,7 +97,7 @@ async fn test_sim_search_not_found() {
     std::fs::write(tmp.path(), "hello world\n").unwrap();
     let tool = edit::EditTool::new(None, None);
     let result = tool
-        .call(EditArgs {
+        .call(&mut rig::tool::ToolContext::new(), EditArgs {
             path: tmp.path().into(),
             block: Some(
                 "<<<<<<< SEARCH\nthis does not exist in file\n=======\nreplacement\n>>>>>>> REPLACE"
@@ -113,12 +119,15 @@ async fn test_sim_single_block_replacement() {
     std::fs::write(tmp.path(), "before after done\n").unwrap();
     let tool = edit::EditTool::new(None, None);
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: Some("<<<<<<< SEARCH\nafter\n=======\nmiddle\n>>>>>>> REPLACE".into()),
-            file_crc: None,
-            edits: None,
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: Some("<<<<<<< SEARCH\nafter\n=======\nmiddle\n>>>>>>> REPLACE".into()),
+                file_crc: None,
+                edits: None,
+            },
+        )
         .await
         .unwrap();
     let content = std::fs::read_to_string(tmp.path()).unwrap();
@@ -133,10 +142,12 @@ async fn test_sim_multi_block_atomic() {
     std::fs::write(tmp.path(), "aaa\nbbb\nccc\n").unwrap();
     let tool = edit::EditTool::new(None, None);
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: Some(
-                "\
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: Some(
+                    "\
 <<<<<<< SEARCH
 aaa
 =======
@@ -148,11 +159,12 @@ ccc
 =======
 CCC
 >>>>>>> REPLACE"
-                    .into(),
-            ),
-            file_crc: None,
-            edits: None,
-        })
+                        .into(),
+                ),
+                file_crc: None,
+                edits: None,
+            },
+        )
         .await
         .unwrap();
     let content = std::fs::read_to_string(tmp.path()).unwrap();
@@ -167,12 +179,15 @@ async fn test_sim_multi_match_returns_error() {
     std::fs::write(tmp.path(), "hello world, hello there\n").unwrap();
     let tool = edit::EditTool::new(None, None);
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: Some("<<<<<<< SEARCH\nhello\n=======\nbye\n>>>>>>> REPLACE".into()),
-            file_crc: None,
-            edits: None,
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: Some("<<<<<<< SEARCH\nhello\n=======\nbye\n>>>>>>> REPLACE".into()),
+                file_crc: None,
+                edits: None,
+            },
+        )
         .await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
@@ -185,12 +200,15 @@ async fn test_sim_preserves_crlf_line_endings() {
     let tmp = TempFile::new("crlf2.txt");
     std::fs::write(tmp.path(), "line1\r\nline2\r\nline3\r\n").unwrap();
     let tool = edit::EditTool::new(None, None);
-    tool.call(EditArgs {
-        path: tmp.path().into(),
-        block: Some("<<<<<<< SEARCH\nline2\n=======\nmodified\n>>>>>>> REPLACE".into()),
-        file_crc: None,
-        edits: None,
-    })
+    tool.call(
+        &mut rig::tool::ToolContext::new(),
+        EditArgs {
+            path: tmp.path().into(),
+            block: Some("<<<<<<< SEARCH\nline2\n=======\nmodified\n>>>>>>> REPLACE".into()),
+            file_crc: None,
+            edits: None,
+        },
+    )
     .await
     .unwrap();
     let raw = std::fs::read(tmp.path()).unwrap();
@@ -218,16 +236,19 @@ async fn test_hash_single_line_edit() {
     let tool = edit::EditTool::new(None, None);
     let tagged = make_tagged_line(4, "fn main() {");
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: None,
-            file_crc: Some(file_crc),
-            edits: Some(vec![EditOp {
-                line: Some(tagged),
-                lines: None,
-                text: "fn run() {".into(),
-            }]),
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: None,
+                file_crc: Some(file_crc),
+                edits: Some(vec![EditOp {
+                    line: Some(tagged),
+                    lines: None,
+                    text: "fn run() {".into(),
+                }]),
+            },
+        )
         .await
         .unwrap();
 
@@ -253,16 +274,19 @@ async fn test_hash_range_edit() {
     let l3 = make_tagged_line(3, "line3");
     let l4 = make_tagged_line(4, "line4");
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: None,
-            file_crc: Some(file_crc),
-            edits: Some(vec![EditOp {
-                line: None,
-                lines: Some(format!("{}\n{}\n{}", l2, l3, l4)),
-                text: "CHANGED_A\nCHANGED_B".into(),
-            }]),
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: None,
+                file_crc: Some(file_crc),
+                edits: Some(vec![EditOp {
+                    line: None,
+                    lines: Some(format!("{}\n{}\n{}", l2, l3, l4)),
+                    text: "CHANGED_A\nCHANGED_B".into(),
+                }]),
+            },
+        )
         .await
         .unwrap();
 
@@ -281,16 +305,19 @@ async fn test_hash_delete_via_empty_text() {
 
     let tool = edit::EditTool::new(None, None);
     let tagged = make_tagged_line(2, "remove me");
-    tool.call(EditArgs {
-        path: tmp.path().into(),
-        block: None,
-        file_crc: Some(file_crc),
-        edits: Some(vec![EditOp {
-            line: Some(tagged),
-            lines: None,
-            text: String::new(),
-        }]),
-    })
+    tool.call(
+        &mut rig::tool::ToolContext::new(),
+        EditArgs {
+            path: tmp.path().into(),
+            block: None,
+            file_crc: Some(file_crc),
+            edits: Some(vec![EditOp {
+                line: Some(tagged),
+                lines: None,
+                text: String::new(),
+            }]),
+        },
+    )
     .await
     .unwrap();
 
@@ -307,16 +334,19 @@ async fn test_hash_file_crc_mismatch() {
     let tool = edit::EditTool::new(None, None);
     let tagged = make_tagged_line(1, "hello world");
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: None,
-            file_crc: Some("deadbeef".into()),
-            edits: Some(vec![EditOp {
-                line: Some(tagged),
-                lines: None,
-                text: "bye".into(),
-            }]),
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: None,
+                file_crc: Some("deadbeef".into()),
+                edits: Some(vec![EditOp {
+                    line: Some(tagged),
+                    lines: None,
+                    text: "bye".into(),
+                }]),
+            },
+        )
         .await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
@@ -335,16 +365,19 @@ async fn test_hash_tag_mismatch() {
     // Tag is for "different content" not for "hello world"
     let bad_tag = crc32_hex(b"different content");
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: None,
-            file_crc: Some(file_crc),
-            edits: Some(vec![EditOp {
-                line: Some(format!("   1|{} hello world", bad_tag)),
-                lines: None,
-                text: "bye".into(),
-            }]),
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: None,
+                file_crc: Some(file_crc),
+                edits: Some(vec![EditOp {
+                    line: Some(format!("   1|{} hello world", bad_tag)),
+                    lines: None,
+                    text: "bye".into(),
+                }]),
+            },
+        )
         .await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
@@ -361,16 +394,19 @@ async fn test_hash_invalid_tag_format() {
 
     let tool = edit::EditTool::new(None, None);
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: None,
-            file_crc: Some(file_crc),
-            edits: Some(vec![EditOp {
-                line: Some("not a valid tagged line".into()),
-                lines: None,
-                text: "bye".into(),
-            }]),
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: None,
+                file_crc: Some(file_crc),
+                edits: Some(vec![EditOp {
+                    line: Some("not a valid tagged line".into()),
+                    lines: None,
+                    text: "bye".into(),
+                }]),
+            },
+        )
         .await;
     assert!(result.is_err());
     let msg = result.unwrap_err().to_string();
@@ -389,16 +425,19 @@ async fn test_hash_crlf_preserved() {
 
     let tool = edit::EditTool::new(None, None);
     let tagged = make_tagged_line(2, "line2");
-    tool.call(EditArgs {
-        path: tmp.path().into(),
-        block: None,
-        file_crc: Some(file_crc),
-        edits: Some(vec![EditOp {
-            line: Some(tagged),
-            lines: None,
-            text: "modified".into(),
-        }]),
-    })
+    tool.call(
+        &mut rig::tool::ToolContext::new(),
+        EditArgs {
+            path: tmp.path().into(),
+            block: None,
+            file_crc: Some(file_crc),
+            edits: Some(vec![EditOp {
+                line: Some(tagged),
+                lines: None,
+                text: "modified".into(),
+            }]),
+        },
+    )
     .await
     .unwrap();
 
@@ -421,23 +460,26 @@ async fn test_hash_multi_edit_atomic() {
     let l1 = make_tagged_line(1, "aaa");
     let l4 = make_tagged_line(4, "ddd");
     let result = tool
-        .call(EditArgs {
-            path: tmp.path().into(),
-            block: None,
-            file_crc: Some(file_crc),
-            edits: Some(vec![
-                EditOp {
-                    line: Some(l1),
-                    lines: None,
-                    text: "AAA".into(),
-                },
-                EditOp {
-                    line: Some(l4),
-                    lines: None,
-                    text: "DDD".into(),
-                },
-            ]),
-        })
+        .call(
+            &mut rig::tool::ToolContext::new(),
+            EditArgs {
+                path: tmp.path().into(),
+                block: None,
+                file_crc: Some(file_crc),
+                edits: Some(vec![
+                    EditOp {
+                        line: Some(l1),
+                        lines: None,
+                        text: "AAA".into(),
+                    },
+                    EditOp {
+                        line: Some(l4),
+                        lines: None,
+                        text: "DDD".into(),
+                    },
+                ]),
+            },
+        )
         .await
         .unwrap();
 

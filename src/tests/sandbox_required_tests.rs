@@ -7,7 +7,7 @@ use crate::config::Config;
 use crate::permission::checker::{PermCheck, PermissionChecker};
 use crate::permission::{PermissionConfigs, SecurityMode};
 use crate::sandbox::Sandbox;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 
 fn missing_backend(backend: &str) -> Sandbox {
     Sandbox::new(true, backend)
@@ -148,7 +148,7 @@ fn echo_args() -> BashArgs {
 #[tokio::test]
 async fn test_bash_tool_surfaces_refusal_to_the_model() {
     let err = bash_tool(missing_backend("bwrap"), None)
-        .call(echo_args())
+        .call(&mut rig::tool::ToolContext::new(), echo_args())
         .await
         .unwrap_err();
     let msg = err.to_string();
@@ -173,7 +173,7 @@ async fn test_bash_tool_refuses_before_checking_permissions() {
         None,
     )));
     let denied = bash_tool(Sandbox::new(false, "bwrap"), Some(permission.clone()))
-        .call(echo_args())
+        .call(&mut rig::tool::ToolContext::new(), echo_args())
         .await
         .unwrap_err()
         .to_string();
@@ -183,7 +183,7 @@ async fn test_bash_tool_refuses_before_checking_permissions() {
     );
 
     let msg = bash_tool(missing_backend("bwrap"), Some(permission))
-        .call(echo_args())
+        .call(&mut rig::tool::ToolContext::new(), echo_args())
         .await
         .unwrap_err()
         .to_string();

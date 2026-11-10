@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use rig::DynModel;
 use rig::operation::Completion;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use serde::Deserialize;
 use tokio::sync::oneshot;
 
@@ -156,7 +156,11 @@ conversation, so focus your question on the specific decision you need help with
         })
     }
 
-    async fn call(&self, args: AdvisorArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: AdvisorArgs,
+    ) -> Result<String, ToolError> {
         if args.question.is_empty() {
             return Err(ToolError::Msg("advisor: question must not be empty".into()));
         }
@@ -345,7 +349,7 @@ async fn advisor_call(model: DynModel<Completion>, prompt: String) -> anyhow::Re
     while let Some(item) = stream.next().await {
         match item {
             Ok(rig::agent::MultiTurnStreamItem::FinalResponse(res)) => {
-                response = res.output.to_string();
+                response = res.output().to_string();
                 break;
             }
             Err(e) => return Err(anyhow::anyhow!("Advisor call failed: {e}")),

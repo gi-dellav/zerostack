@@ -121,8 +121,8 @@ async fn headless_ask_denies_instead_of_hanging() {
     // closed rather than silently succeeding or hanging.
     let second_call_history: Vec<Message> = model.requests()[1]
         .chat_history
-        .clone()
-        .into_iter()
+        .iter()
+        .map(|message| (**message).clone())
         .collect();
     let saw_denial = second_call_history.iter().any(|message| match message {
         Message::User { content } => content.iter().any(|item| match item {

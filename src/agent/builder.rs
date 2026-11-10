@@ -4,7 +4,7 @@ use std::sync::Arc;
 use rig::DynModel;
 use rig::agent::{Agent, AgentBuilder};
 use rig::operation::Completion;
-use rig::tool::{DynamicTool, IntoToolOutput, PortableTool, ToolContext, ToolExecutionError};
+use rig::tool::{DynamicTool, IntoToolOutput, Tool, ToolContext, ToolExecutionError, tool_name};
 use smallvec::SmallVec;
 
 use crate::agent::prompt::{SYSTEM_PROMPT, TODO_TOOLS_PROMPT};
@@ -23,17 +23,16 @@ use crate::sandbox::Sandbox;
 /// can be filtered and hook-wrapped uniformly.
 pub(crate) fn dynamic_tool<T>(tool: T) -> DynamicTool
 where
-    T: PortableTool + 'static,
+    T: Tool + 'static,
 {
-    let name = T::NAME.to_string();
-    let description = PortableTool::description(&tool);
-    let parameters = PortableTool::parameters(&tool);
+    let description = Tool::description(&tool);
+    let parameters = Tool::parameters(&tool);
     let tool = Arc::new(tool);
     DynamicTool::new_with_context(
-        name,
+        tool_name::<T>(),
         description,
         parameters,
-        move |_context: &mut ToolContext, args: serde_json::Value| {
+        move |context: &mut ToolContext, args: serde_json::Value| {
             let tool = Arc::clone(&tool);
             Box::pin(async move {
                 let parsed: T::Args = serde_json::from_value(args).map_err(|error| {
@@ -42,7 +41,7 @@ where
                     ))
                     .with_source(error)
                 })?;
-                match PortableTool::call(&*tool, parsed).await {
+                match Tool::call(&*tool, context, parsed).await {
                     Ok(output) => output.into_tool_output(),
                     Err(error) => {
                         // `ToolExecutionError::from_error` redacts the
@@ -50,7 +49,7 @@ where
                         // their error text being shown to the model (permission
                         // denials, edit mismatches, size limits), so surface it.
                         let message = error.to_string();
-                        let mapped = PortableTool::map_error(&*tool, error);
+                        let mapped = Tool::map_error(&*tool, error);
                         Err(mapped.with_model_output(rig::tool::ToolOutput::text(message)))
                     }
                 }
@@ -221,7 +220,7 @@ pub(crate) fn filter_tools_by_allowlist(
         // Also list available tools when filtering leaves empty, to help typo discovery.
         let filtered: Vec<_> = tools
             .iter()
-            .filter(|t| allowed.contains(t.name()))
+            .filter(|t| allowed.contains(t.name().as_str()))
             .collect();
         if filtered.is_empty() {
             tracing::warn!(
@@ -234,7 +233,7 @@ pub(crate) fn filter_tools_by_allowlist(
     let allowed_ref: HashSet<&str> = allowed.iter().map(|s| s.as_str()).collect();
     let filtered: Vec<DynamicTool> = tools
         .into_iter()
-        .filter(|t| allowed_ref.contains(t.name()))
+        .filter(|t| allowed_ref.contains(t.name().as_str()))
         .collect();
     if filtered.is_empty() && !allowed_ref.is_empty() {
         eprintln!(
@@ -607,7 +606,7 @@ pub fn build_btw_agent_inner(model: DynModel<Completion>, build: AgentBuild<'_>)
             .collect();
         if !cleaned.is_empty() {
             let allowed: std::collections::HashSet<String> = cleaned.into_iter().collect();
-            read_tools.retain(|t| allowed.contains(t.name()));
+            read_tools.retain(|t| allowed.contains(t.name().as_str()));
         }
     }
 

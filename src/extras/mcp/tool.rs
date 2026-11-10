@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use compact_str::CompactString;
-use rig::message::{MimeType, ToolResultContent};
+use rig::message::{MimeType, ToolName, ToolResultContent};
 use rig::tool::{DynamicTool, ToolContext, ToolExecutionError, ToolOutput};
 use rmcp::model::{
     CallToolRequest, CallToolRequestParams, ClientRequest, ContentBlock, JsonObject, ServerResult,
@@ -91,7 +91,8 @@ pub(crate) fn mcp_dynamic_tool(
     permission: Option<PermCheck>,
     ask_tx: Option<AskSender>,
 ) -> DynamicTool {
-    let name = definition.name.to_string();
+    let name =
+        ToolName::new(definition.name.to_string()).expect("MCP tool names are validated non-empty");
     let description = definition
         .description
         .clone()

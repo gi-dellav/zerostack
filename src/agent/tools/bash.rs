@@ -1,4 +1,4 @@
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use tokio::time::{Duration, timeout};
 
 use crate::agent::tools::{AskSender, BashArgs, PermCheck, ToolError, check_perm};
@@ -190,7 +190,11 @@ impl Tool for BashTool {
         })
     }
 
-    async fn call(&self, args: BashArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: BashArgs,
+    ) -> Result<String, ToolError> {
         let commands = split_bash_commands(&args.command);
         tracing::debug!(
             "tool bash start: cmd_len={}, timeout={:?}, num_commands={}",

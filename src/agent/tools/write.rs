@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 
 use crate::agent::tools::{AskSender, PermCheck, ToolError, WriteArgs, check_perm_path};
 #[cfg(feature = "lsp")]
@@ -62,7 +62,11 @@ impl Tool for WriteTool {
         })
     }
 
-    async fn call(&self, args: WriteArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: WriteArgs,
+    ) -> Result<String, ToolError> {
         let expanded = crate::fs::expand_tilde(&args.path);
         tracing::debug!(
             "tool write start: path={}, content_len={}",

@@ -53,7 +53,7 @@ impl HookedTool {
     /// Wrap `inner` as a `DynamicTool` that runs the hook guard rail and then
     /// executes the inner tool inline with the same [`ToolContext`].
     fn into_dynamic(self) -> DynamicTool {
-        let name = self.inner.name().to_string();
+        let name = self.inner.name().clone();
         let definition = self.inner.definition();
         let description = definition.description.clone();
         let parameters = definition.parameters.clone();
@@ -79,7 +79,7 @@ impl HookedTool {
                     // context (a `current_dir` syscall + permission lock) and
                     // run the inner tool directly.
                     if !this.dispatcher.has_tool_hooks() {
-                        return this.inner.execute_with(context, args).await;
+                        return this.inner.run_with(context, args).await;
                     }
                     let tool_name = this.inner.name().to_string();
                     let ctx = this.build_ctx();
@@ -135,7 +135,7 @@ impl HookedTool {
                     // result.
                     let call_args = pre.updated_input.unwrap_or(args);
 
-                    let result = this.inner.execute_with(context, call_args).await;
+                    let result = this.inner.run_with(context, call_args).await;
 
                     match &result {
                         Ok(output) => {

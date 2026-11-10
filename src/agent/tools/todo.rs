@@ -1,5 +1,5 @@
 use compact_str::CompactString;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use serde::{Deserialize, Serialize};
 
 use crate::agent::tools::{AskSender, PermCheck, ToolError, check_perm};
@@ -62,7 +62,11 @@ impl Tool for WriteTodoList {
         })
     }
 
-    async fn call(&self, args: TodoWriteArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: TodoWriteArgs,
+    ) -> Result<String, ToolError> {
         tracing::debug!("tool todo_write start: items={}", args.todos.len());
         let coaching = check_perm(&self.permission, &self.ask_tx, "todo_write", "").await?;
 

@@ -231,8 +231,10 @@ fn prompt_without_media_is_a_single_text_block() {
 /// an OpenAI-shaped request carries on the wire.
 #[test]
 fn prompt_image_converts_to_the_openai_wire_form() {
-    use rig::completion::Message;
-    use rig::providers::openai::completion::UserContent as OpenAiUserContent;
+    use rig::completion::CompletionRequest;
+    use rig::providers::openai::OpenAIConfig;
+    use rig::providers::openai::wire::Chat;
+    use rig::wire::{Body, Mode, Wire};
 
     let bytes = b"fake png bytes";
     let path = scratch("wire_image.png", bytes);
@@ -242,25 +244,22 @@ fn prompt_image_converts_to_the_openai_wire_form() {
         text: "look at this".to_string(),
         media: vec![media],
     };
-    let Message::User { content } = prompt.to_message() else {
-        panic!("expected a user message");
-    };
-
-    let converted: Vec<OpenAiUserContent> = content
-        .into_iter()
-        .map(|c| c.try_into().expect("the provider must accept the content"))
-        .collect();
+    let request = CompletionRequest::new(prompt.to_message());
+    let wire = Chat::new(OpenAIConfig::new("test-key"), "gpt-4o");
+    let encoded = wire
+        .encode(request, Mode::Unary)
+        .expect("the provider must accept the content");
     let _ = std::fs::remove_file(&path);
 
-    assert_eq!(converted.len(), 2);
-    let OpenAiUserContent::Image { image_url } = &converted[1] else {
-        panic!("expected an image part, got {:?}", converted[1]);
+    let Body::Bytes(body) = encoded.request.body() else {
+        panic!("expected a JSON request body");
     };
-    assert!(
-        image_url.url.starts_with("data:image/png;base64,"),
-        "got {}",
-        image_url.url
-    );
+    let body: serde_json::Value = serde_json::from_slice(body).expect("request body must be JSON");
+    let url = body
+        .pointer("/messages/0/content/1/image_url/url")
+        .and_then(|value| value.as_str())
+        .expect("expected an image part on the wire");
+    assert!(url.starts_with("data:image/png;base64,"), "got {url}");
 }
 
 #[test]

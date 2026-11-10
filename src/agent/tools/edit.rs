@@ -1,4 +1,4 @@
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 
 use crate::agent::tools::crc::crc32_hex;
 use crate::agent::tools::{
@@ -553,7 +553,11 @@ impl Tool for EditTool {
         }
     }
 
-    async fn call(&self, args: EditArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: EditArgs,
+    ) -> Result<String, ToolError> {
         let path = crate::fs::expand_tilde(&args.path);
         let es = edit_system();
         tracing::debug!(

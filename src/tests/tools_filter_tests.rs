@@ -4,7 +4,7 @@ use crate::agent::builder::filter_tools_by_allowlist;
 
 fn named_tool(name: &'static str) -> DynamicTool {
     DynamicTool::new(
-        name,
+        rig::message::ToolName::new(name).expect("test tool name is non-empty"),
         String::new(),
         serde_json::json!({}),
         move |_args: serde_json::Value| {

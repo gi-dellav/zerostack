@@ -18,7 +18,7 @@
 //! invalid tool call, and zerostack installs no rig hooks).
 
 use rig::agent::AgentBuilder;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use serde::Deserialize;
 
 use crate::agent::runner::run_print;
@@ -72,7 +72,11 @@ impl Tool for EchoTool {
         })
     }
 
-    async fn call(&self, args: TextArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: TextArgs,
+    ) -> Result<String, ToolError> {
         Ok(format!("echoed: {}", args.text))
     }
 }
@@ -98,7 +102,11 @@ impl Tool for ReverseTool {
         })
     }
 
-    async fn call(&self, args: TextArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: TextArgs,
+    ) -> Result<String, ToolError> {
         Ok(args.text.chars().rev().collect())
     }
 }

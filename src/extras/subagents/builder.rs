@@ -79,7 +79,7 @@ fn build_explore_agent_inner(
             .collect();
         if !cleaned.is_empty() {
             let allowed: std::collections::HashSet<String> = cleaned.into_iter().collect();
-            tools.retain(|t| allowed.contains(t.name()));
+            tools.retain(|t| allowed.contains(t.name().as_str()));
         }
     }
 

@@ -1,6 +1,6 @@
 use ignore::WalkBuilder;
 use regex::Regex;
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 
 use crate::agent::tools::{AskSender, GrepArgs, PermCheck, ToolError, check_perm, is_skip_dir};
 
@@ -76,7 +76,11 @@ impl Tool for GrepTool {
         })
     }
 
-    async fn call(&self, args: GrepArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: GrepArgs,
+    ) -> Result<String, ToolError> {
         tracing::debug!(
             "tool grep start: pattern={}, path={}, include={:?}",
             args.pattern,

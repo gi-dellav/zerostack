@@ -6,7 +6,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use rig::tool::PortableTool as Tool;
+use rig::tool::Tool;
 use serde::Deserialize;
 
 use crate::agent::tools::ToolError;
@@ -52,7 +52,11 @@ impl Tool for LspTool {
         })
     }
 
-    async fn call(&self, args: LspArgs) -> Result<String, ToolError> {
+    async fn call(
+        &self,
+        _context: &mut rig::tool::ToolContext,
+        args: LspArgs,
+    ) -> Result<String, ToolError> {
         match args.path {
             Some(path) => {
                 let expanded = crate::fs::expand_tilde(&path);
