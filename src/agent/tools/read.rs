@@ -1,6 +1,6 @@
 use rig::tool::Tool;
 
-use crate::agent::tools::crc::crc32_hex;
+use crate::agent::tools::crc::{crc32, crc32_hex};
 use crate::agent::tools::{
     AskSender, PermCheck, ReadArgs, ToolError, check_perm_path, edit_system,
 };
@@ -79,11 +79,6 @@ impl Tool for ReadTool {
         );
         let coaching = check_perm_path(&self.permission, &self.ask_tx, "read", &path).await?;
 
-        if let Some(msg) = crate::agent::tools::track_read(&path, offset, limit) {
-            tracing::debug!("tool read blocked (repeated): path={}", path);
-            return Err(ToolError::Msg(msg));
-        }
-
         let metadata = tokio::fs::metadata(&path).await?;
         let file_size = metadata.len();
         if file_size > self.max_text_file_size {
@@ -99,6 +94,12 @@ impl Tool for ReadTool {
             )));
         }
         let content = tokio::fs::read_to_string(&path).await?;
+        if let Some(msg) =
+            crate::agent::tools::track_read(&path, offset, limit, crc32(content.as_bytes()))
+        {
+            tracing::debug!("tool read blocked (repeated): path={}", path);
+            return Err(ToolError::Msg(msg));
+        }
         let total_lines = content.lines().count();
 
         let (start, end) = read_bounds(offset, limit, total_lines);

@@ -200,6 +200,7 @@ pub struct Config {
     #[cfg(feature = "subagents")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub task_max_turns: Option<usize>,
+    /// Block repeated reads of the same unchanged file section. Default: false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deny_repeated_reads: Option<bool>,
     /// Show the session cost in the status bar even when it is $0.0000 (e.g. when
@@ -478,6 +479,10 @@ impl Config {
 
     pub fn resolve_show_cost_always(&self) -> bool {
         self.show_cost_always.unwrap_or(false)
+    }
+
+    pub fn resolve_deny_repeated_reads(&self) -> bool {
+        self.deny_repeated_reads.unwrap_or(false)
     }
 
     /// Look up the quick-model name associated with a prompt in

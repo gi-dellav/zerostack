@@ -30,7 +30,7 @@ pub fn edit_system() -> EditSystem {
     *EDIT_SYSTEM.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-static DENY_REPEATED_READS: Mutex<bool> = Mutex::new(true);
+static DENY_REPEATED_READS: Mutex<bool> = Mutex::new(false);
 
 pub(crate) fn set_deny_repeated_reads(v: bool) {
     *DENY_REPEATED_READS
@@ -44,15 +44,35 @@ pub(crate) fn deny_repeated_reads() -> bool {
         .unwrap_or_else(|e| e.into_inner())
 }
 
-static READ_TRACKER: Mutex<Vec<(String, usize, usize)>> = Mutex::new(Vec::new());
+struct ReadRecord {
+    path: String,
+    offset: usize,
+    limit: usize,
+    fingerprint: u32,
+}
 
-pub(crate) fn track_read(path: &str, offset: usize, limit: usize) -> Option<String> {
+static READ_TRACKER: Mutex<Vec<ReadRecord>> = Mutex::new(Vec::new());
+
+pub(crate) fn track_read(
+    path: &str,
+    offset: usize,
+    limit: usize,
+    fingerprint: u32,
+) -> Option<String> {
     if !deny_repeated_reads() {
         return None;
     }
     let mut tracker = READ_TRACKER.lock().unwrap_or_else(|e| e.into_inner());
-    let key = (path.to_string(), offset, limit);
-    if tracker.contains(&key) {
+    if tracker
+        .iter()
+        .any(|r| r.path == path && r.fingerprint != fingerprint)
+    {
+        tracker.retain(|r| r.path != path);
+    }
+    if tracker
+        .iter()
+        .any(|r| r.path == path && r.offset == offset && r.limit == limit)
+    {
         let end = (offset + limit).saturating_sub(1);
         Some(format!(
             "read blocked: {path} (lines {}-{}) was already read and has not been modified since. Use the previous result or read a different section.",
@@ -60,14 +80,19 @@ pub(crate) fn track_read(path: &str, offset: usize, limit: usize) -> Option<Stri
             if end > 0 { end } else { offset + 1 }
         ))
     } else {
-        tracker.push(key);
+        tracker.push(ReadRecord {
+            path: path.to_string(),
+            offset,
+            limit,
+            fingerprint,
+        });
         None
     }
 }
 
 pub(crate) fn untrack_read_path(path: &str) {
     let mut tracker = READ_TRACKER.lock().unwrap_or_else(|e| e.into_inner());
-    tracker.retain(|(p, _, _)| p != path);
+    tracker.retain(|r| r.path != path);
 }
 
 pub use bash::BashTool;

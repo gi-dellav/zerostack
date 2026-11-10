@@ -114,6 +114,26 @@ fn compact_enabled_default_false() {
 }
 
 #[test]
+fn deny_repeated_reads_defaults_off() {
+    assert!(!Config::default().resolve_deny_repeated_reads());
+}
+
+#[test]
+fn deny_repeated_reads_reads_config_value() {
+    let cfg = Config {
+        deny_repeated_reads: Some(true),
+        ..Config::default()
+    };
+    assert!(cfg.resolve_deny_repeated_reads());
+
+    let cfg = Config {
+        deny_repeated_reads: Some(false),
+        ..Config::default()
+    };
+    assert!(!cfg.resolve_deny_repeated_reads());
+}
+
+#[test]
 fn show_reasoning_defaults_off() {
     assert!(!Config::default().resolve_show_reasoning());
 }

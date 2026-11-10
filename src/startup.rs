@@ -502,7 +502,7 @@ impl Startup {
         }
         let edit_system = self.cli.resolve_edit_system(&self.cfg);
         tools::set_edit_system(edit_system);
-        tools::set_deny_repeated_reads(self.cfg.deny_repeated_reads.unwrap_or(true));
+        tools::set_deny_repeated_reads(self.cfg.resolve_deny_repeated_reads());
 
         #[cfg(feature = "status-signals")]
         {
