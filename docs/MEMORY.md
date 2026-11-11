@@ -8,7 +8,7 @@ description: "Persistent markdown memory in zerostack: global notes, project scr
 
 The Memory system provides persistent, file-based storage that lets the agent recall information across sessions. It lives behind the `memory` Cargo feature flag and is **not** enabled by default (enable with `--features memory`).
 
-Memory is plain Markdown on disk — no database, no indexing service. All storage lives under the agent config directory (`<config_dir>/agent/memory/`).
+Memory is plain Markdown on disk — no database, no indexing service. All storage lives under the agent config directory (`<config_dir>/agent/memory/`), where `<config_dir>` is `$ZS_CONFIG_DIR` when set, otherwise `$XDG_DATA_HOME/zerostack/` (default `~/.local/share/zerostack/`).
 
 ---
 

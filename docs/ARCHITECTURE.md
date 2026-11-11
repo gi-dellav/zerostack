@@ -52,7 +52,7 @@ making the agent's first responses more accurate.
 zerostack loads `ARCHITECTURE.md` files using the same recursive upward search
 as `AGENTS.md`:
 
-1. **Global**: `~/.local/share/zerostack/agent/ARCHITECTURE.md` (XDG data dir)
+1. **Global**: `$XDG_DATA_HOME/zerostack/agent/ARCHITECTURE.md` (defaults to `~/.local/share/zerostack/agent/ARCHITECTURE.md`)
 2. **Project**: `ARCHITECTURE.md` in the current working directory and all
    parent directories up to the filesystem root
 

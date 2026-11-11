@@ -56,7 +56,7 @@ You can just set the matching env var with :
 | Gemini     | `GEMINI_API_KEY`      |
 | Ollama     | (none — local)        |
 
-Then, you can change your configuration file (`~/.local/share/zerostack/config.toml` on Linux/WSL or `~/Library/Application Support/zerostack/` on macOS, unless overridden by `$ZS_CONFIG_DIR` or an existing `~/.config/zerostack/` file — see [CONFIG.md](CONFIG.md) for the full precedence) by adding `provider = [provider_name]` in order to change your default provider.
+Then, you can change your configuration file (`$XDG_DATA_HOME/zerostack/config.toml`, which defaults to `~/.local/share/zerostack/config.toml`, on Linux/WSL, or `~/Library/Application Support/zerostack/` on macOS, unless overridden by `$ZS_CONFIG_DIR` or an existing `$XDG_CONFIG_HOME/zerostack/` file, which defaults to `~/.config/zerostack/` — see [CONFIG.md](CONFIG.md) for the full precedence) by adding `provider = [provider_name]` in order to change your default provider.
 
 If you are using a provider that's not your default one, use the `--provider` CLI flag:
 

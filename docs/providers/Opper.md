@@ -20,7 +20,7 @@ export OPPER_API_KEY="your-api-key"
 
 ## Provider Routes
 
-Add the routes you need to `~/.config/zerostack/config.toml`:
+Add the routes you need to `$XDG_CONFIG_HOME/zerostack/config.toml` (defaults to `~/.config/zerostack/config.toml`):
 
 ```toml
 [custom_providers.opper]

@@ -5,7 +5,7 @@ Help the user configure zerostack by reading documentation and editing the confi
 ## Process
 
 1. **Read documentation** — read `docs/CONFIG.md` to understand available options, types, defaults, constraints.
-2. **Read current config** — determine which config file exists by checking in order: `$ZS_CONFIG_DIR/config.toml`, `~/.config/zerostack/config.toml`, `~/.local/share/zerostack/config.toml` (and `.yaml`/`.yml`/`.json` variants). Read full contents.
+2. **Read current config** — determine which config file exists by checking in order: `$ZS_CONFIG_DIR/config.toml`, `$XDG_CONFIG_HOME/zerostack/config.toml` (default `~/.config/zerostack/config.toml`), `$XDG_DATA_HOME/zerostack/config.toml` (default `~/.local/share/zerostack/config.toml`) (and `.yaml`/`.yml`/`.json` variants). Read full contents.
 3. **Survey the user** — ask what they want to configure (provider, model, permissions, colors, custom providers). Present relevant options as multiple-choice where possible.
 4. **Show proposed change** — display exact diff. Ask for explicit approval before writing.
 5. **Apply the change** — use `edit` for targeted modifications or `write` for full file. Preserve existing format (YAML/TOML) and all unchanged settings.
@@ -104,7 +104,7 @@ Alternative (fully hermetic, skill text inline, no file access):
 SKILL="$(cat "<skill-path>/SKILL.md")" && zerostack -p --no-tools --load-prompt write-prompt "Convert this skill to a zerostack prompt body following Skill-to-Prompt Conversion. Print ONLY the final prompt markdown to stdout. Do not write files. Skill: $SKILL" > "/tmp/<skill-name>-draft.md" && cat "/tmp/<skill-name>-draft.md"
 ```
 
-Bad: `zerostack "convert this skill"` (no `-p`, hangs), `zerostack -p --yolo --load-prompt write-prompt "improve it"` (untrusted input + yolo; vague, no output contract), letting the subprocess write to `~/.local/share/zerostack/prompts/` directly (bypasses your approval step).
+Bad: `zerostack "convert this skill"` (no `-p`, hangs), `zerostack -p --yolo --load-prompt write-prompt "improve it"` (untrusted input + yolo; vague, no output contract), letting the subprocess write to `$XDG_DATA_HOME/zerostack/prompts/` directly (bypasses your approval step).
 
 - Rules:
   - Quote paths with spaces. Chain dependent steps with `&&`, not `;` or newlines.
@@ -114,7 +114,7 @@ Bad: `zerostack "convert this skill"` (no `-p`, hangs), `zerostack -p --yolo --l
   - If a subprocess fails, read its output, fix the instruction, retry. After 2 failed retries on the same skill, flag it to the user.
 - After the subprocess returns: enforce zerostack conventions yourself — `%%mode=` on line 1, `## Process` section, Safety / Anti-Repetition / Tool Usage / Error Recovery footer. Strip frontmatter, trigger syntax, role conditionals, tool wrappers.
 - `%%mode=` heuristic: read-only skill → `readonly`; write + ask → `guarded`/`standard`; destructive/bash-heavy → `standard` + `deny` rules. Never default to `yolo`.
-- Write target (global always): `~/.local/share/zerostack/prompts/<skill-name>.md` or `$ZS_DATA_DIR/prompts/<skill-name>.md`. Do not default to project-local `prompts/` or `.zerostack/prompts/`.
+- Write target (global always): `$XDG_DATA_HOME/zerostack/prompts/<skill-name>.md` (default `~/.local/share/zerostack/prompts/<skill-name>.md`) or `$ZS_DATA_DIR/prompts/<skill-name>.md`. Do not default to project-local `prompts/` or `.zerostack/prompts/`.
 
 ### Step 3: Map Dependencies to Config
 
@@ -126,7 +126,7 @@ Read `docs/CONFIG.md` for types/defaults before proposing. Mapping table:
 - **Model preferences** → create `quick_models.<name>` + `[prompt_to_model]` entry (`<skill-name> = "<quick-model>"`). Do not overwrite bare `model`/`provider`. Empty string means "no change".
 - **Prompt activation** → `default_prompt` key or instruct the user on `/prompt <name>`.
 - **Subagent model** (if the skill triggers exploration) → `subagent_model` / `subagent_provider`.
-- **Skill hooks (`hooks.json`)** → `settings.json` (`~/.config/zerostack/settings.json` global trusted, `.zerostack/settings.json` project untrusted, hash-confirmed). Note `disableAllHooks` / `--no-hooks` escape hatch. Requires `hooks` feature.
+- **Skill hooks (`hooks.json`)** → `settings.json` (`$XDG_CONFIG_HOME/zerostack/settings.json`, default `~/.config/zerostack/settings.json`, global trusted; `.zerostack/settings.json` project untrusted, hash-confirmed). Note `disableAllHooks` / `--no-hooks` escape hatch. Requires `hooks` feature.
 
 ### Step 4: Present and Apply
 

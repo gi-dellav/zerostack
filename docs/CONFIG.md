@@ -8,13 +8,14 @@ zerostack reads an optional config file. It supports TOML, YAML and JSON
 formats. The file is resolved by priority:
 
 - If `ZS_CONFIG_DIR` is set: `$ZS_CONFIG_DIR/config.toml` (preferred), `config.yaml`/`config.yml`, or `config.json`
-- Otherwise: `~/.config/zerostack/config.toml` (preferred), `config.yaml`/`.yml`, or `config.json`
-- Otherwise: `~/.local/share/zerostack/config.toml` (preferred), `config.yaml`/`.yml`, or `config.json`
+- Otherwise: `$XDG_CONFIG_HOME/zerostack/config.toml` (preferred), `config.yaml`/`.yml`, or `config.json`
+- Otherwise: `$XDG_DATA_HOME/zerostack/config.toml` (preferred), `config.yaml`/`.yml`, or `config.json`
 
-If a `config.toml` exists at a higher priority, it is used. If none exists
-at any priority, a default `config.toml` is created in the lowest-priority
-directory (`~/.local/share/zerostack/`). On macOS the XDG config path above
-resolves to `~/Library/Application Support/zerostack/`.
+When unset, `$XDG_CONFIG_HOME` defaults to `~/.config` and `$XDG_DATA_HOME`
+to `~/.local/share`. If a `config.toml` exists at a higher priority, it is
+used. If none exists at any priority, a default `config.toml` is created in
+the lowest-priority directory (`$XDG_DATA_HOME/zerostack/`). On macOS both
+XDG paths resolve to `~/Library/Application Support/zerostack/`.
 
 **Project-local override**: if `.zerostack/config.toml` exists in the
 current working directory, it is merged over the global config at startup.
@@ -42,7 +43,7 @@ overriding earlier ones for same-named files:
 
 **Prompts** (priority low to high):
 1. Embedded at compile time
-2. `~/.local/share/zerostack/prompts/` (global, user-level)
+2. `$XDG_DATA_HOME/zerostack/prompts/` (global, user-level; `~/.local/share/zerostack/prompts/` by default)
 3. `prompts/` (project-local, relative to CWD)
 4. `.zerostack/prompts/` (project-level config)
 5. `--prompts-dir <path>` / `ZS_PROMPTS_DIR` (CLI, highest priority; repeatable, last wins)
@@ -55,12 +56,13 @@ so the env's last entry wins overall.
 
 **Themes** (priority low to high):
 1. Embedded at compile time
-2. `~/.local/share/zerostack/themes/` (global, user-level)
+2. `$XDG_DATA_HOME/zerostack/themes/` (global, user-level; `~/.local/share/zerostack/themes/` by default)
 3. `themes/` (project-local, relative to CWD)
 
 If `ZS_CONFIG_DIR` is set, it overrides the data directory for the config file
-location only (prompts and themes still use `ZS_DATA_DIR` / the default data
-dir). Set `ZS_CONFIG_DIR` when you want the config in a separate path from the
+and config-adjacent files (`SUFFIX.md`, global `AGENTS.md`/`ARCHITECTURE.md`,
+and memory); prompts and themes still use `ZS_DATA_DIR` / the default data
+dir. Set `ZS_CONFIG_DIR` when you want the config in a separate path from the
 data files.
 
 All config keys are optional. CLI flags and their environment-backed values
@@ -242,15 +244,15 @@ masked):
 | `~/.gnupg` | GPG keyrings and the gpg-agent SSH socket |
 | `~/.kube` | Kubernetes cluster credentials |
 | `~/.docker` | Docker registry auth tokens |
-| `~/.config/gh` | GitHub CLI OAuth token |
-| `~/.config/gcloud` | Google Cloud credentials |
-| `~/.config/op` | 1Password CLI session state |
-| `~/.config/sops/age` | sops/age decryption keys |
+| `$XDG_CONFIG_HOME/gh` | GitHub CLI OAuth token |
+| `$XDG_CONFIG_HOME/gcloud` | Google Cloud credentials |
+| `$XDG_CONFIG_HOME/op` | 1Password CLI session state |
+| `$XDG_CONFIG_HOME/sops/age` | sops/age decryption keys |
 
-The last four are relative to the XDG config base: when `$XDG_CONFIG_HOME` is
-set to an absolute path, they are `$XDG_CONFIG_HOME/gh`, `.../gcloud`,
-`.../op` and `.../sops/age` instead, since that is where those tools read
-their credentials.
+The last four are relative to the XDG config base, which defaults to
+`~/.config` when `$XDG_CONFIG_HOME` is unset. A relative `$XDG_CONFIG_HOME`
+is invalid per the XDG spec and is ignored, since that is where those tools
+read their credentials.
 
 The tmpfs is a normal writable filesystem, not a read-only view: a command
 that writes into a masked directory (`ssh-keygen -f ~/.ssh/id_x`,
@@ -350,10 +352,12 @@ this key; see `SECURITY.md`.
 ## System Prompt Suffix (`SUFFIX.md`)
 
 You can append custom text to **every** system prompt by creating a
-`SUFFIX.md` file in the config directory (same location as `config.toml`):
+`SUFFIX.md` file in the data directory (`$XDG_DATA_HOME/zerostack/`, which
+defaults to `~/.local/share/zerostack/`), or in `$ZS_CONFIG_DIR` when that is
+set:
 
-- Linux: `~/.config/zerostack/SUFFIX.md` (or `$ZS_CONFIG_DIR/SUFFIX.md`)
-- macOS: `~/Library/Application Support/zerostack/SUFFIX.md`
+- Linux: `$XDG_DATA_HOME/zerostack/SUFFIX.md` (default `~/.local/share/zerostack/SUFFIX.md`; or `$ZS_CONFIG_DIR/SUFFIX.md`)
+- macOS: `~/Library/Application Support/zerostack/SUFFIX.md` (or `$ZS_CONFIG_DIR/SUFFIX.md`)
 
 If the file exists and contains non-whitespace content, its contents are
 appended at the very end of the system prompt preamble — **after** AGENTS.md,
@@ -396,7 +400,7 @@ to three locations, loaded and merged in this order:
 
 | Location | Trust |
 | -------- | ----- |
-| `~/.config/zerostack/settings.json` (global; on macOS `~/Library/Application Support/zerostack/settings.json`; on Windows `%APPDATA%\zerostack\settings.json`, experimental) | Trusted by default |
+| `$XDG_CONFIG_HOME/zerostack/settings.json` (global; defaults to `~/.config/zerostack/settings.json`; on macOS `~/Library/Application Support/zerostack/settings.json`; on Windows `%APPDATA%\zerostack\settings.json`, experimental) | Trusted by default |
 | `.zerostack/settings.json` (project, relative to CWD) | **Not** trusted by default — see Trust model below |
 | `/etc/zerostack/managed-settings.json` (Linux) / `/Library/Application Support/zerostack/managed-settings.json` (macOS) / `C:\ProgramData\zerostack\managed-settings.json` (Windows, experimental) — admin-controlled | Always trusted; unaffected by `disableAllHooks` |
 
@@ -1387,7 +1391,7 @@ zerostack -v
 ```
 
 Enables full trace-level logging to a timestamped log file under
-`~/.local/share/zerostack/logs/` (or `$ZS_DATA_DIR/logs/`). The log file is
+`$XDG_DATA_HOME/zerostack/logs/` (default `~/.local/share/zerostack/logs/`, or `$ZS_DATA_DIR/logs/`). The log file is
 named `zerostack-YYYY-MM-DD_HH-MM-SS_<pid>.log`. A new file is created per
 instance — previous runs are never overwritten.
 

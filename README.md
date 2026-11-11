@@ -259,7 +259,8 @@ Built-in prompts:
 | **`write-text`**      | Technical-writing mode — drafts and reviews unambiguous text in Simplified Technical English |
 
 You can also create custom prompts by placing markdown files in
-`$XDG_CONFIG_HOME/zerostack/prompts/` and referencing them by name.
+`$XDG_DATA_HOME/zerostack/prompts/` (defaults to
+`~/.local/share/zerostack/prompts/`) and referencing them by name.
 
 Additionally, the agent automatically loads `AGENTS.md` or `CLAUDE.md` from the
 project root or any ancestor directory, injecting their contents into the
@@ -551,7 +552,7 @@ zerostack --acp --acp-host 0.0.0.0 --acp-port 7243
 
 ### ACP config
 
-In `~/.local/share/zerostack/config.yaml`:
+In `$XDG_DATA_HOME/zerostack/config.yaml` (defaults to `~/.local/share/zerostack/config.yaml`):
 
 ```yaml
 acp_servers:
@@ -572,7 +573,7 @@ and API key env vars apply). Without it, zerostack cannot process prompts.
 - Ollama
 
 Custom providers can be configured with any base URL and API key environment
-variable in `~/.local/share/zerostack/config.yaml`.
+variable in `$XDG_DATA_HOME/zerostack/config.yaml` (defaults to `~/.local/share/zerostack/config.yaml`).
 
 ## License
 
