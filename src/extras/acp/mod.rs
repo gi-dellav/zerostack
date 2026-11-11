@@ -8,6 +8,7 @@ use agent_client_protocol::v1::schema::*;
 use agent_client_protocol::v1::{ConnectionTo, Responder};
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectTo, Role, Stdio};
 use compact_str::CompactString;
+use rig::completion::Message;
 use tokio::sync::Mutex;
 
 use crate::cli::Cli;
@@ -22,7 +23,24 @@ use crate::sandbox::{SandboxSettings, SandboxSetup};
 const AGENT_VERSION: &str = "1.0.5";
 
 struct SessionState {
-    messages: Vec<(String, String)>,
+    messages: Vec<Message>,
+}
+
+impl SessionState {
+    /// Return the conversation so far and record `prompt` as this turn's user
+    /// message. The snapshot excludes the new prompt because the runner sends
+    /// it separately, as a prompt rather than history.
+    fn begin_turn(&mut self, prompt: &str) -> Vec<Message> {
+        let history = self.messages.clone();
+        self.messages.push(Message::user(prompt.to_string()));
+        history
+    }
+
+    fn record_assistant_response(&mut self, response: &str) {
+        if !response.is_empty() {
+            self.messages.push(Message::assistant(response.to_string()));
+        }
+    }
 }
 
 struct AcpState {
@@ -235,18 +253,20 @@ async fn handle_prompt(
         .collect::<Vec<_>>()
         .join("\n");
 
-    // Append user message to session history
-    {
+    // Snapshot the prior turns for the runner, then record this prompt. The
+    // prompt itself travels separately, so it must not also be in `history`
+    // (providers reject two consecutive user messages).
+    let history = {
         let mut sessions = state.sessions.lock().await;
-        if let Some(sess) = sessions.get_mut(&session_id) {
-            sess.messages
-                .push(("user".to_string(), prompt_text.clone()));
+        match sessions.get_mut(&session_id) {
+            Some(sess) => sess.begin_turn(&prompt_text),
+            None => Vec::new(),
         }
-    }
+    };
 
     cx.spawn({
         let cx = cx.clone();
-        async move { run_prompt(&state, &prompt_text, session_id, responder, cx).await }
+        async move { run_prompt(&state, &prompt_text, history, session_id, responder, cx).await }
     })
 }
 
@@ -255,6 +275,7 @@ async fn handle_prompt(
 async fn run_prompt(
     state: &AcpState,
     prompt_text: &str,
+    history: Vec<Message>,
     session_id: SessionId,
     responder: Responder<PromptResponse>,
     cx: ConnectionTo<Client>,
@@ -292,15 +313,6 @@ async fn run_prompt(
     // them once for this session.
     let sandbox = sandbox_setup(state).sandbox;
 
-    // Track session history for future context persistence
-    let _extra_messages = {
-        let sessions = state.sessions.lock().await;
-        sessions
-            .get(&session_id)
-            .map(|s| s.messages.clone())
-            .unwrap_or_default()
-    };
-
     let temperature = crate::config::resolve_temperature(&state.cli, &state.cfg, &model_str);
     let extra_body = crate::config::resolve_extra_body(&state.cfg, &model_str);
     let agent = crate::provider::build_agent(
@@ -324,7 +336,7 @@ async fn run_prompt(
     let runner = agent
         .spawn_runner(
             crate::agent::runner::UserPrompt::text(prompt_text.to_string()),
-            vec![],
+            history,
             crate::retry::RetryConfig::default(),
             #[cfg(feature = "hooks")]
             None,
@@ -450,7 +462,8 @@ async fn run_prompt(
                 // Mid-stream provider usage; ACP has no status bar to update, so
                 // there is nothing to surface for this event.
             }
-            AgentEvent::Done { .. } => {
+            AgentEvent::Done { response, .. } => {
+                final_response = response.to_string();
                 break;
             }
             AgentEvent::Error(err) => {
@@ -475,8 +488,7 @@ async fn run_prompt(
     if !final_response.is_empty() {
         let mut sessions = state.sessions.lock().await;
         if let Some(sess) = sessions.get_mut(&session_id) {
-            sess.messages
-                .push(("assistant".to_string(), final_response));
+            sess.record_assistant_response(&final_response);
         }
     }
 
@@ -541,5 +553,50 @@ pub(crate) fn resolve_acp_mode(cli: &Cli, cfg: &Config) -> SecurityMode {
         }
     } else {
         SecurityMode::Standard
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn later_turns_receive_the_earlier_conversation() {
+        let mut session = SessionState {
+            messages: Vec::new(),
+        };
+
+        assert!(session.begin_turn("Step 1").is_empty());
+        session.record_assistant_response("acknowledged");
+
+        let history = session.begin_turn("Step 2");
+        assert_eq!(
+            history,
+            vec![Message::user("Step 1"), Message::assistant("acknowledged"),]
+        );
+        session.record_assistant_response("created utils.py");
+
+        let history = session.begin_turn("Step 3");
+        assert_eq!(
+            history,
+            vec![
+                Message::user("Step 1"),
+                Message::assistant("acknowledged"),
+                Message::user("Step 2"),
+                Message::assistant("created utils.py"),
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_assistant_response_is_not_recorded() {
+        let mut session = SessionState {
+            messages: Vec::new(),
+        };
+
+        session.begin_turn("hello");
+        session.record_assistant_response("");
+
+        assert_eq!(session.begin_turn("second"), vec![Message::user("hello")]);
     }
 }
