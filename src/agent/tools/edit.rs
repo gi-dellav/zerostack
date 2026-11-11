@@ -118,12 +118,11 @@ fn find_best_match(content: &str, search: &str) -> MatchResult {
     // Step 2: normalized match in full text
     let content_norm = NormalizedText::new(content);
     let search_norm = normalize_whitespace(search);
-    if let Some(norm_pos) = content_norm.text.find(&search_norm) {
-        if let Some((byte_start, byte_end)) =
+    if let Some(norm_pos) = content_norm.text.find(&search_norm)
+        && let Some((byte_start, byte_end)) =
             content_norm.original_range(norm_pos, search_norm.len())
-        {
-            return MatchResult::Normalized(byte_start, byte_end);
-        }
+    {
+        return MatchResult::Normalized(byte_start, byte_end);
     }
 
     // Step 3: fuzzy line-level matching
