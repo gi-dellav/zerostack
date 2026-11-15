@@ -403,6 +403,7 @@ impl Engine {
             crate::pricing::billable_input_tokens(
                 self.cfg
                     .is_anthropic_native(&self.session.provider, &self.session.model),
+                &self.session.model,
                 usage.input_tokens,
                 usage.cached_input_tokens,
                 usage.cache_creation_input_tokens,
@@ -467,6 +468,7 @@ impl Engine {
             crate::pricing::billable_input_tokens(
                 self.cfg
                     .is_anthropic_native(&self.session.provider, &self.session.model),
+                &self.session.model,
                 input_tokens,
                 cached_input_tokens,
                 cache_creation_input_tokens,

@@ -1951,6 +1951,7 @@ impl<'a> App<'a> {
                         self.ui
                             .cfg
                             .is_anthropic_native(&self.ui.session.provider, &self.ui.session.model),
+                        &self.ui.session.model,
                         input_tokens,
                         cached_input_tokens,
                         cache_creation_input_tokens,
