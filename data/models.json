@@ -15,6 +15,13 @@
       "output_price": 50
     },
     {
+      "id": "claude-fable-5-2",
+      "name": "Claude Fable 5.2",
+      "context": 1000000,
+      "input_price": 8,
+      "output_price": 40
+    },
+    {
       "id": "claude-haiku-4-5",
       "name": "Claude Haiku 4.5 (latest)",
       "context": 200000,
@@ -427,14 +434,14 @@
     {
       "id": "deep-research-max-preview-04-2026",
       "name": "Deep Research Max Preview (Apr-21-2026)",
-      "context": 131072,
+      "context": 1048576,
       "input_price": 2,
       "output_price": 12
     },
     {
       "id": "deep-research-preview-04-2026",
       "name": "Deep Research Preview (Apr-21-2026)",
-      "context": 131072,
+      "context": 1048576,
       "input_price": 2,
       "output_price": 12
     },
@@ -457,7 +464,7 @@
       "name": "Nano Banana",
       "context": 32768,
       "input_price": 0.3,
-      "output_price": 30
+      "output_price": 2.5
     },
     {
       "id": "gemini-2.5-flash-lite",
@@ -485,14 +492,14 @@
       "name": "Nano Banana Pro",
       "context": 65536,
       "input_price": 2,
-      "output_price": 120
+      "output_price": 12
     },
     {
       "id": "gemini-3.1-flash-image",
       "name": "Nano Banana 2",
       "context": 131072,
       "input_price": 0.5,
-      "output_price": 60
+      "output_price": 3
     },
     {
       "id": "gemini-3.1-flash-lite",
@@ -506,7 +513,7 @@
       "name": "Nano Banana 2 Lite",
       "context": 65536,
       "input_price": 0.25,
-      "output_price": 30
+      "output_price": 1.5
     },
     {
       "id": "gemini-3.1-flash-lite-preview",
@@ -586,6 +593,20 @@
       "output_price": 10
     },
     {
+      "id": "gemini-4-carbon",
+      "name": "Gemini 4 Carbon",
+      "context": 1048576,
+      "input_price": 2,
+      "output_price": 10
+    },
+    {
+      "id": "gemini-4-hydrogen",
+      "name": "Gemini 4 Hydrogen",
+      "context": 1048576,
+      "input_price": 1.5,
+      "output_price": 7.5
+    },
+    {
       "id": "gemini-flash-latest",
       "name": "Gemini Flash Latest",
       "context": 1048576,
@@ -610,15 +631,15 @@
       "id": "gemma-4-26b-a4b-it",
       "name": "Gemma 4 26B A4B IT",
       "context": 262144,
-      "input_price": null,
-      "output_price": null
+      "input_price": 0,
+      "output_price": 0
     },
     {
       "id": "gemma-4-31b-it",
       "name": "Gemma 4 31B IT",
       "context": 262144,
-      "input_price": null,
-      "output_price": null
+      "input_price": 0,
+      "output_price": 0
     },
     {
       "id": "lyria-3-clip-preview",
@@ -644,6 +665,11 @@
     {
       "id": "anthropic/claude-fable-5.1",
       "name": "Claude Fable 5.1",
+      "context": 1000000
+    },
+    {
+      "id": "anthropic/claude-fable-5.2",
+      "name": "Claude Fable 5.2",
       "context": 1000000
     },
     {
@@ -884,6 +910,16 @@
     {
       "id": "google/gemini-4-argon",
       "name": "Gemini 4 Argon",
+      "context": 1048576
+    },
+    {
+      "id": "google/gemini-4-carbon",
+      "name": "Gemini 4 Carbon",
+      "context": 1048576
+    },
+    {
+      "id": "google/gemini-4-hydrogen",
+      "name": "Gemini 4 Hydrogen",
       "context": 1048576
     },
     {
@@ -1412,11 +1448,6 @@
       "context": 32768
     },
     {
-      "id": "qwen/qwen-2.5-7b-instruct",
-      "name": "Qwen2.5 7B Instruct",
-      "context": 32768
-    },
-    {
       "id": "qwen/qwen-2.5-coder-32b-instruct",
       "name": "Qwen2.5-Coder-32B-Instruct",
       "context": 32768
@@ -1494,11 +1525,6 @@
     {
       "id": "qwen/qwen3-vl-30b-a3b-instruct",
       "name": "Qwen3 VL 30B A3B Instruct",
-      "context": 262144
-    },
-    {
-      "id": "qwen/qwen3-vl-30b-a3b-thinking",
-      "name": "Qwen3 VL 30B A3B Thinking",
       "context": 262144
     },
     {
@@ -1609,6 +1635,11 @@
     {
       "id": "qwen/qwen3.8-omni-flash",
       "name": "Qwen3.8 Omni Flash",
+      "context": 1000000
+    },
+    {
+      "id": "qwen/qwen4-max",
+      "name": "Qwen4 Max",
       "context": 1000000
     },
     {
@@ -1748,13 +1779,6 @@
       "output_price": 0.5
     },
     {
-      "id": "crouton-alpha-free",
-      "name": "Crouton Alpha Free",
-      "context": 1048576,
-      "input_price": 0,
-      "output_price": 0
-    },
-    {
       "id": "deepseek-v4-pro",
       "name": "DeepSeek V4 Pro",
       "context": 1000000,
@@ -1763,7 +1787,7 @@
     },
     {
       "id": "deepseek-v4.1-flash",
-      "name": "DeepSeek V4.1 Flash",
+      "name": "DeepSeek V4.1 Flash 1017",
       "context": 1000000,
       "input_price": 0.15,
       "output_price": 0.6
@@ -1823,6 +1847,13 @@
       "context": 1048576,
       "input_price": 0.834,
       "output_price": 2.501
+    },
+    {
+      "id": "hy4-flash-free",
+      "name": "Hy4 flash Free",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
     },
     {
       "id": "hy4-preview",
@@ -1951,6 +1982,13 @@
       "output_price": 6
     },
     {
+      "id": "qwen4-max",
+      "name": "Qwen4 Max",
+      "context": 1000000,
+      "input_price": 1.5,
+      "output_price": 4.5
+    },
+    {
       "id": "step-5-preview",
       "name": "Step 5 Preview",
       "context": 1000000,
@@ -1986,6 +2024,13 @@
       "context": 1000000,
       "input_price": 10,
       "output_price": 50
+    },
+    {
+      "id": "claude-fable-5-2",
+      "name": "Claude Fable 5.2",
+      "context": 1000000,
+      "input_price": 8,
+      "output_price": 40
     },
     {
       "id": "claude-haiku-4-5",
@@ -2072,13 +2117,6 @@
       "output_price": 10
     },
     {
-      "id": "crouton-alpha-free",
-      "name": "Crouton Alpha Free",
-      "context": 1048576,
-      "input_price": 0,
-      "output_price": 0
-    },
-    {
       "id": "deepseek-v4-pro",
       "name": "DeepSeek V4 Pro",
       "context": 1000000,
@@ -2087,7 +2125,7 @@
     },
     {
       "id": "deepseek-v4.1-flash",
-      "name": "DeepSeek V4.1 Flash",
+      "name": "DeepSeek V4.1 Flash 1017",
       "context": 1000000,
       "input_price": 0.3,
       "output_price": 1.2
@@ -2345,6 +2383,13 @@
       "output_price": 2
     },
     {
+      "id": "hy4-flash-free",
+      "name": "Hy4 flash Free",
+      "context": 1048576,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
       "id": "iceman-free",
       "name": "Iceman Free",
       "context": 262144,
@@ -2422,11 +2467,25 @@
       "output_price": 1.2
     },
     {
+      "id": "minimax-m3.1-flash-free",
+      "name": "MiniMax M3.1 Flash Free",
+      "context": 1000000,
+      "input_price": 0,
+      "output_price": 0
+    },
+    {
       "id": "mistral-large-4",
       "name": "Mistral Large 4",
       "context": 524288,
       "input_price": 0.68,
       "output_price": 2.09
+    },
+    {
+      "id": "muse-ember-1.0",
+      "name": "Muse Ember 1.0",
+      "context": 1048576,
+      "input_price": 0.1,
+      "output_price": 0.5
     },
     {
       "id": "muse-spark-1.2",
