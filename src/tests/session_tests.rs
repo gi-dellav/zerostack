@@ -106,20 +106,55 @@ fn billable_input_tokens_native_prices_cache_tiers() {
     use crate::pricing::billable_input_tokens;
     // Cost sibling of real_input_tokens: Anthropic bills cache writes at 1.25×
     // and cache reads at 0.10× the base input rate, on top of raw input_tokens.
+    // A model id outside the llm-prices table takes these fallback multipliers.
+    let m = "custom-anthropic-model";
     // write only: 100 + 6000*1.25 = 7600
-    assert_eq!(billable_input_tokens(true, 100, 0, 6000), 7600);
+    assert_eq!(billable_input_tokens(true, m, 100, 0, 6000), 7600);
     // read only: 100 + 7000*0.10 = 800
-    assert_eq!(billable_input_tokens(true, 100, 7000, 0), 800);
+    assert_eq!(billable_input_tokens(true, m, 100, 7000, 0), 800);
     // both, with rounding: 4 + 6003*0.10 + 6089*1.25 = 4 + 600.3 + 7611.25 = 8215.55 -> 8216
-    assert_eq!(billable_input_tokens(true, 4, 6003, 6089), 8216);
+    assert_eq!(billable_input_tokens(true, m, 4, 6003, 6089), 8216);
 }
 
 #[test]
 fn billable_input_tokens_non_native_uses_input_only() {
     use crate::pricing::billable_input_tokens;
     // Non-Anthropic providers have no separate cache tiers to price — input_tokens
-    // is already the full billable amount, so the cache fields are ignored.
-    assert_eq!(billable_input_tokens(false, 7000, 5600, 4000), 7000);
+    // is already the full billable amount, so for a model without a known
+    // cache-read rate the cache fields are ignored.
+    assert_eq!(
+        billable_input_tokens(false, "custom-local-model", 7000, 5600, 4000),
+        7000
+    );
+}
+
+#[cfg(feature = "llm-prices")]
+#[test]
+fn billable_input_tokens_uses_per_model_cache_rates() {
+    use crate::pricing::billable_input_tokens;
+    // claude-opus-5-5: input $4, cache read $0.20 (0.05×), 5m write $5 (1.25×).
+    assert_eq!(
+        billable_input_tokens(true, "claude-opus-5-5", 100, 7000, 0),
+        450
+    );
+    assert_eq!(
+        billable_input_tokens(true, "claude-opus-5-5", 100, 0, 6000),
+        7600
+    );
+    // Older Anthropic models keep the 0.10× read rate.
+    assert_eq!(
+        billable_input_tokens(true, "claude-sonnet-4-5", 100, 7000, 0),
+        800
+    );
+    // OpenAI folds cached tokens into input_tokens; gpt-5 bills them at 0.10×:
+    // (7000 - 5600) + 5600*0.10 = 1960. Cache-creation is not reported there.
+    assert_eq!(billable_input_tokens(false, "gpt-5", 7000, 5600, 0), 1960);
+    assert_eq!(
+        billable_input_tokens(false, "openai/gpt-5", 7000, 5600, 0),
+        1960
+    );
+    // A cached count above input_tokens is clamped instead of underflowing.
+    assert_eq!(billable_input_tokens(false, "gpt-5", 100, 500, 0), 10);
 }
 
 // Helper: a session with `n` ASCII messages of `len` chars each, so every

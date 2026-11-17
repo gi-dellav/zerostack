@@ -274,6 +274,7 @@ pub async fn handle_agent_event(
                 crate::pricing::billable_input_tokens(
                     ui.cfg
                         .is_anthropic_native(&ui.session.provider, &ui.session.model),
+                    &ui.session.model,
                     input_tokens,
                     cached_input_tokens,
                     cache_creation_input_tokens,
@@ -402,6 +403,7 @@ async fn handle_agent_done(
         crate::pricing::billable_input_tokens(
             ui.cfg
                 .is_anthropic_native(&ui.session.provider, &ui.session.model),
+            &ui.session.model,
             usage.input_tokens,
             usage.cached_input_tokens,
             usage.cache_creation_input_tokens,

@@ -1025,6 +1025,7 @@ impl Startup {
                     crate::pricing::billable_input_tokens(
                         self.cfg
                             .is_anthropic_native(&session.provider, &session.model),
+                        &session.model,
                         input_tokens,
                         cached_input_tokens,
                         cache_creation_input_tokens,
