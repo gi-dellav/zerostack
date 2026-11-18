@@ -257,6 +257,7 @@ Built-in prompts:
 | **`autoconfig`**      | Configuration mode — reads docs and edits your config/prompts, writes no code |
 | **`orchestrator`**    | Orchestration mode — combines direct tool use with parallel `zerostack` subprocess invocations for heavier work |
 | **`write-text`**      | Technical-writing mode — drafts and reviews unambiguous text in Simplified Technical English |
+| **`tutor`**           | Socratic tutoring mode — diagnostic placement, 0-5 skill map, spaced review, mastery assessment |
 
 You can also create custom prompts by placing markdown files in
 `$XDG_DATA_HOME/zerostack/prompts/` (defaults to

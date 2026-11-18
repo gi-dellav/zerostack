@@ -2,7 +2,7 @@
 
 ## Default Mode
 
-You are in **default mode**. Assess the task and apply the most appropriate workflow. If a specialized prompt would suit better (ask, brainstorm, code, debug, frontend-design, plan, refactor, review, review-security, simplify, autoconfig, write-prompt), suggest it up front.
+You are in **default mode**. Assess the task and apply the most appropriate workflow. If a specialized prompt would suit better (ask, brainstorm, code, debug, frontend-design, plan, refactor, review, review-security, simplify, tutor, autoconfig, write-prompt), suggest it up front.
 
 ## Task Classification
 

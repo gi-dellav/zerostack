@@ -130,7 +130,7 @@ Prompts change *how* the agent behaves. Type `.` at the start of a message to on
 This is the short list; run `/prompt` in the agent (or see the root
 [README](https://github.com/gi-dellav/zerostack#prompts-system)) for the full set of built-in prompts,
 including `frontend-design`, `review-security`, `simplify`, `write-prompt`,
-`autoconfig`, `orchestrator`, and `write-text`.
+`tutor`, `autoconfig`, `orchestrator`, and `write-text`.
 
 ## 3. Autoconfig
 
