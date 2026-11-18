@@ -72,6 +72,8 @@ mod models_catalog_tests;
 #[cfg(all(test, feature = "multimodal"))]
 mod multimodal_tests;
 #[cfg(test)]
+mod no_system_prompt_tests;
+#[cfg(test)]
 mod normalize_tests;
 #[cfg(test)]
 mod parallel_tool_call_tests;

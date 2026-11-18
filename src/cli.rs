@@ -19,6 +19,13 @@ pub struct Cli {
     #[arg(long = "load-prompt", help = "Load a named prompt (same as /prompt)")]
     pub load_prompt: Option<String>,
 
+    #[arg(
+        long = "no-system-prompt",
+        conflicts_with = "load_prompt",
+        help = "Skip loading the system prompt (code.md, ask.md, ...) into the context"
+    )]
+    pub no_system_prompt: bool,
+
     #[cfg(feature = "mcp")]
     #[arg(
         long = "custom-mcp",

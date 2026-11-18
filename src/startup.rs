@@ -719,8 +719,13 @@ impl Startup {
             self.context.architecture = crate::context::load_architecture();
         }
 
-        // Default prompt resolution (after prompts may have been regenerated)
-        {
+        // Default prompt resolution (after prompts may have been regenerated).
+        // `--no-system-prompt` leaves the context without an active prompt.
+        if self.cli.no_system_prompt {
+            self.context.current_prompt = None;
+            self.context.current_prompt_name = None;
+            self.session.prompt = None;
+        } else {
             let default_prompt = self.cfg.default_prompt.as_deref().unwrap_or("code");
             if let Some(content) = self.context.prompts.get(default_prompt) {
                 let (mode_directive, clean_content) = crate::permission::parse_prompt_mode(content);
@@ -764,7 +769,9 @@ impl Startup {
         }
 
         // --load-prompt overrides the default prompt
-        if let Some(ref name) = self.cli.load_prompt {
+        if !self.cli.no_system_prompt
+            && let Some(ref name) = self.cli.load_prompt
+        {
             if let Some(content) = self.context.prompts.get(name) {
                 let (mode_directive, clean_content) = crate::permission::parse_prompt_mode(content);
                 let mut prompt_text = if mode_directive.is_some() {

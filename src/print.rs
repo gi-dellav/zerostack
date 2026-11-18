@@ -242,6 +242,7 @@ pub(crate) fn print_config(cli: &cli::Cli, cfg: &config::Config) {
             ("no-tools", no_tools.to_string()),
             ("tools", tools_allowlist),
             ("no-context-files", no_context_files.to_string()),
+            ("no-system-prompt", cli.no_system_prompt.to_string()),
             ("compact", compact.to_string()),
         ],
     );
