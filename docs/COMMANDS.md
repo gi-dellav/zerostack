@@ -276,6 +276,8 @@ message, and after the response restores the previous prompt and
 | `Alt+P` | Open the prompt switcher (fuzzy filter, `Enter` applies immediately via `/prompt <name>`, including `%%mode=` and `[prompt_to_model]`). |
 | `Tab` | Insert two spaces. |
 | `@` at word start | Open the file picker. |
+| `@..` | Open the file picker in the parent directory (files and directories). |
+| `@~` | Open the file picker in the home directory. |
 | `Up / Down` | Navigate command history. |
 | `PageUp / PageDown` | Scroll viewport. |
 | `Home / End` | Scroll to top / bottom. |

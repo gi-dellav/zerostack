@@ -281,6 +281,14 @@ pub fn handle(_parts: &[&str], ctx: &mut SlashCtx<'_>) {
     );
     write_result(
         ctx.renderer,
+        "  @..                    file picker in the parent directory",
+    );
+    write_result(
+        ctx.renderer,
+        "  @~                     file picker in the home directory",
+    );
+    write_result(
+        ctx.renderer,
         "  mouse drag             select text (copies to clipboard on release)",
     );
     write_result(

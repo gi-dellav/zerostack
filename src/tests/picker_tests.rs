@@ -510,3 +510,106 @@ fn test_walk_files_streaming_emit_false_stops_early() {
         );
     });
 }
+
+#[test]
+fn test_file_picker_dotdot_switches_to_parent_directory() {
+    with_temp_dir(|parent| {
+        fs::write(parent.join("note.txt"), b"x").unwrap();
+        fs::create_dir(parent.join("sub")).unwrap();
+        fs::write(parent.join("sub").join("nested.txt"), b"x").unwrap();
+
+        let mut picker = FilePicker::new();
+        picker.test_set_parent(Some(parent.to_path_buf()));
+        picker.activate();
+        picker.char_input('.');
+        picker.char_input('.');
+
+        assert_eq!(picker.query, "..");
+        assert!(
+            picker.matches.iter().any(|p| p == Path::new("../note.txt")),
+            "parent scope should include parent files, got: {:?}",
+            picker.matches
+        );
+        assert!(
+            picker
+                .matches
+                .iter()
+                .any(|p| p == Path::new("../sub/nested.txt")),
+            "parent scope should include nested parent files, got: {:?}",
+            picker.matches
+        );
+
+        picker.char_input('n');
+        assert_eq!(picker.query, "..n");
+        assert!(
+            picker
+                .matches
+                .iter()
+                .all(|p| p.to_string_lossy().contains('n')),
+            "query text after .. should filter within the parent walk"
+        );
+
+        picker.backspace();
+        picker.backspace();
+        picker.backspace();
+        assert_eq!(picker.query, "");
+        assert!(
+            picker
+                .matches
+                .iter()
+                .all(|p| !p.to_string_lossy().starts_with("../")),
+            "clearing .. should return to the project scope"
+        );
+    });
+}
+
+#[test]
+fn test_file_picker_tilde_switches_to_home() {
+    with_temp_dir(|home| {
+        fs::write(home.join("note.txt"), b"x").unwrap();
+        fs::create_dir(home.join("sub")).unwrap();
+        fs::write(home.join("sub").join("nested.txt"), b"x").unwrap();
+
+        let mut picker = FilePicker::new();
+        picker.test_set_home(Some(home.to_path_buf()));
+        picker.activate();
+        picker.char_input('~');
+
+        assert_eq!(picker.query, "~");
+        assert!(
+            picker.matches.iter().any(|p| p == Path::new("~/note.txt")),
+            "home scope should include home files, got: {:?}",
+            picker.matches
+        );
+        assert!(
+            picker
+                .matches
+                .iter()
+                .any(|p| p == Path::new("~/sub/nested.txt")),
+            "home scope should include nested home files, got: {:?}",
+            picker.matches
+        );
+
+        picker.char_input('n');
+        assert_eq!(picker.query, "~n");
+        assert!(
+            picker
+                .matches
+                .iter()
+                .all(|p| p.to_string_lossy().contains('n')),
+            "query text after ~ should filter within the home walk"
+        );
+        assert_eq!(picker.selected_path(), Some(&PathBuf::from("~/note.txt")));
+
+        picker.backspace();
+        picker.backspace();
+        assert_eq!(picker.query, "");
+        assert!(
+            picker
+                .matches
+                .iter()
+                .all(|p| !p.to_string_lossy().starts_with("~/")),
+            "clearing ~ should return to the project scope"
+        );
+    });
+}

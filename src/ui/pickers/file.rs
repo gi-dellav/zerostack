@@ -17,6 +17,41 @@ const WALK_BATCH_SIZE: usize = 25;
 /// Hard cap on walked paths, same bound the picker always had.
 const MAX_WALK_FILES: usize = 200;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Scope {
+    Project,
+    Parent,
+    Home,
+}
+
+impl Scope {
+    fn from_query(query: &str) -> Self {
+        if query.starts_with("..") {
+            Scope::Parent
+        } else if query.starts_with('~') {
+            Scope::Home
+        } else {
+            Scope::Project
+        }
+    }
+
+    fn display_path(self, rel: &Path) -> PathBuf {
+        match self {
+            Scope::Project => rel.to_path_buf(),
+            Scope::Parent => PathBuf::from(format!("../{}", rel.to_string_lossy())),
+            Scope::Home => PathBuf::from(format!("~/{}", rel.to_string_lossy())),
+        }
+    }
+
+    fn needle(self, query: &str) -> &str {
+        match self {
+            Scope::Project => query,
+            Scope::Parent => query.strip_prefix("..").unwrap_or(query),
+            Scope::Home => query.strip_prefix('~').unwrap_or(query),
+        }
+    }
+}
+
 pub struct FilePicker {
     pub active: bool,
     pub query: String,
@@ -28,6 +63,9 @@ pub struct FilePicker {
     loading: bool,
     walk_rx: Option<mpsc::Receiver<Vec<PathBuf>>>,
     walk_cancel: Arc<AtomicBool>,
+    scope: Scope,
+    home: Option<PathBuf>,
+    parent: Option<PathBuf>,
 }
 
 impl FilePicker {
@@ -43,6 +81,11 @@ impl FilePicker {
             loading: false,
             walk_rx: None,
             walk_cancel: Arc::new(AtomicBool::new(false)),
+            scope: Scope::Project,
+            home: dirs::home_dir(),
+            parent: std::env::current_dir()
+                .ok()
+                .map(|cwd| cwd.parent().map(Path::to_path_buf).unwrap_or(cwd)),
         }
     }
 
@@ -55,17 +98,29 @@ impl FilePicker {
     }
 
     pub fn activate(&mut self) {
-        // Cancel any walk still running from a previous activation before
-        // arming a fresh flag for the new one.
-        self.walk_cancel.store(true, Ordering::Relaxed);
-        self.walk_rx = None;
-
         self.active = true;
         self.query.clear();
         self.cursor = 0;
+        self.start_walk(Scope::Project);
+    }
+
+    fn start_walk(&mut self, scope: Scope) {
+        self.walk_cancel.store(true, Ordering::Relaxed);
+        self.walk_rx = None;
+        self.loading = false;
+        self.file_cache.clear();
         self.matches.clear();
         self.selected = 0;
-        self.file_cache.clear();
+        self.scope = scope;
+
+        let root = match scope {
+            Scope::Project => Some(PathBuf::from(".")),
+            Scope::Parent => self.parent.clone(),
+            Scope::Home => self.home.clone(),
+        };
+        let Some(root) = root else {
+            return;
+        };
 
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             self.loading = true;
@@ -74,16 +129,21 @@ impl FilePicker {
             let (tx, rx) = mpsc::channel();
             self.walk_rx = Some(rx);
             handle.spawn_blocking(move || {
-                walk_files_streaming(".", &cancel, |batch| tx.send(batch).is_ok());
+                walk_files_streaming(&root.to_string_lossy(), &cancel, |batch| {
+                    let batch = batch
+                        .into_iter()
+                        .map(|rel| scope.display_path(&rel))
+                        .collect();
+                    tx.send(batch).is_ok()
+                });
             });
         } else {
-            self.load_files_sync();
+            self.file_cache = walk_files(&root.to_string_lossy())
+                .iter()
+                .map(|rel| scope.display_path(rel))
+                .collect();
+            self.filter();
         }
-    }
-
-    fn load_files_sync(&mut self) {
-        self.file_cache = walk_files(".");
-        self.filter();
     }
 
     pub fn deactivate(&mut self) {
@@ -137,6 +197,7 @@ impl FilePicker {
             .unwrap_or(self.query.len());
         self.query.insert(byte_pos, c);
         self.cursor += 1;
+        self.sync_scope();
         // Filter even while the walk is streaming so matches update live.
         self.filter();
     }
@@ -151,7 +212,15 @@ impl FilePicker {
                 .map(|(i, _)| i)
                 .unwrap_or(self.query.len());
             self.query.remove(byte_pos);
+            self.sync_scope();
             self.filter();
+        }
+    }
+
+    fn sync_scope(&mut self) {
+        let scope = Scope::from_query(&self.query);
+        if scope != self.scope {
+            self.start_walk(scope);
         }
     }
 
@@ -160,13 +229,13 @@ impl FilePicker {
             self.matches.clear();
             return;
         }
-        let query_lower = self.query.to_lowercase();
+        let needle = self.scope.needle(&self.query).to_lowercase();
         self.matches = self
             .file_cache
             .iter()
             .filter(|p| {
                 let lower = p.to_string_lossy().to_lowercase();
-                lower.contains(&query_lower)
+                lower.contains(&needle)
             })
             .take(50)
             .cloned()
@@ -194,10 +263,40 @@ impl FilePicker {
         self.matches.get(self.selected)
     }
 
+    fn is_directory(&self, path: &Path) -> bool {
+        match self.scope {
+            Scope::Parent => {
+                let resolved = path
+                    .strip_prefix("..")
+                    .ok()
+                    .and_then(|rest| self.parent.as_ref().map(|parent| parent.join(rest)));
+                resolved.is_some_and(|p| p.is_dir())
+            }
+            Scope::Home => {
+                let resolved = path
+                    .strip_prefix("~")
+                    .ok()
+                    .and_then(|rest| self.home.as_ref().map(|home| home.join(rest)));
+                resolved.is_some_and(|p| p.is_dir())
+            }
+            _ => path.is_dir(),
+        }
+    }
+
     #[cfg(test)]
     pub fn test_set_cache(&mut self, files: Vec<PathBuf>) {
         self.file_cache = files;
         self.loading = false;
+    }
+
+    #[cfg(test)]
+    pub fn test_set_home(&mut self, home: Option<PathBuf>) {
+        self.home = home;
+    }
+
+    #[cfg(test)]
+    pub fn test_set_parent(&mut self, parent: Option<PathBuf>) {
+        self.parent = parent;
     }
 
     pub fn draw(&mut self) -> std::io::Result<()> {
@@ -260,7 +359,7 @@ impl FilePicker {
 
             let path = &self.matches[i];
             let mut display = path.to_string_lossy().to_string();
-            if Path::new(&path).is_dir() {
+            if self.is_directory(path) && !display.ends_with('/') {
                 display.push('/');
             }
             let truncated: String = display
