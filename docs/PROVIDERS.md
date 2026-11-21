@@ -34,6 +34,7 @@ zerostack --provider openai --model gpt-4o
 
 ## Provider Recipes
 
+- [AIGROW](providers/AIGROW.md)
 - [API Route](providers/ApiRoute.md)
 - [Cheaper Inference](providers/CheaperInference.md)
 - [HopBase](providers/HopBase.md)
