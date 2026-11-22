@@ -526,6 +526,13 @@ clean boundary, compacts, and resumes the same task on the compacted history.
   reasonable starting value; it leaves headroom below the
   context window while still keeping the live prompt small enough to avoid the
   attention degradation ("context rot") that large, full context windows suffer.
+- **Headless `-p` too.** The interactive TUI and headless `-p` runs both honor
+  the threshold. In `-p` the step that crossed it finishes its tool calls, the
+  history is compacted, and the run resumes the same task. A headless run never
+  stops on context pressure: if a compaction can't bring the prompt under the
+  threshold, it keeps going over the ceiling and retries with a smaller kept
+  tail. Resumes are capped by `--max-agent-turns` (`max_agent_turns`, default 200). `--loop` iterations
+  are not affected.
 
 ```toml
 compact_enabled = true            # master switch (default true)

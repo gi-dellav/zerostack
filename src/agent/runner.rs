@@ -490,6 +490,8 @@ pub fn spawn_agent(
 /// Headless (`-p`, `--loop`) counterpart to [`spawn_agent`]. Drives rig's own
 /// multi-turn loop and prints tokens as they stream. A `Stop` hook forces one
 /// more turn by starting a fresh run over the committed transcript.
+// The binary goes through `run_print_with_ceiling`; tests drive this wrapper.
+#[cfg_attr(not(test), allow(dead_code))]
 pub async fn run_print(
     agent: &Agent,
     prompt: &str,
@@ -500,6 +502,68 @@ pub async fn run_print(
     history: Vec<Message>,
     #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
 ) -> anyhow::Result<PrintOutcome> {
+    run_print_with_ceiling(
+        agent,
+        prompt,
+        pure_stdout,
+        retry_config,
+        history,
+        #[cfg(feature = "hooks")]
+        loop_info,
+        None,
+    )
+    .await
+}
+
+/// Mid-turn compaction settings for a headless run: the `-p` counterpart of
+/// the TUI's `CompletionCall` pressure check (`App`, `mid_turn_compact_threshold`).
+#[derive(Clone, Copy, Debug)]
+pub struct MidTurnCeiling {
+    pub context_window: u64,
+    pub threshold: f64,
+    pub anthropic_native: bool,
+    /// Set right after a compaction. If the next provider call is still over
+    /// the threshold, compacting again cannot help (mirrors the TUI's
+    /// `awaiting_compaction_relief`); any call under it clears the flag.
+    pub awaiting_relief: bool,
+    /// Calls allowed over the threshold before the run stops again. Set to 1
+    /// when compaction cannot help, so the respawned run always makes progress.
+    pub grace_calls: u32,
+}
+
+/// Why a headless run stopped early: the completion that crossed the ceiling
+/// returned tool calls, they all ran, and the run stopped before the next
+/// request, so no finished work is thrown away.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MidTurnStop {
+    /// Prompt pressure crossed the threshold: compact and resume.
+    Compact { prompt_tokens: u64 },
+    /// Still over the threshold right after a compaction: compacting again
+    /// now would not help, so the caller lets a call through instead.
+    Exhausted { prompt_tokens: u64 },
+}
+
+/// [`run_print`] with an optional mid-turn ceiling. When the real
+/// provider-reported prompt of a call crosses `ceiling.threshold *
+/// ceiling.context_window` and that completion asked for tools, the run stops
+/// once those tools have returned and [`PrintOutcome::mid_turn_stop`] says
+/// why; the caller compacts and resumes.
+pub async fn run_print_with_ceiling(
+    agent: &Agent,
+    prompt: &str,
+    pure_stdout: bool,
+    retry_config: &RetryConfig,
+    history: Vec<Message>,
+    #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
+    mut ceiling: Option<MidTurnCeiling>,
+) -> anyhow::Result<PrintOutcome> {
+    let mut mid_turn_stop: Option<MidTurnStop> = None;
+    // Set at an over-threshold completion; becomes `mid_turn_stop` once that
+    // completion's tool calls have all returned.
+    let mut stop_after_tools: Option<MidTurnStop> = None;
+    // Per-call usage, summed: the run's usage when it stops before rig's
+    // `FinalResponse` (which is what normally carries the totals).
+    let mut calls_usage = Usage::default();
     let mut conversation = history;
     #[cfg_attr(not(feature = "hooks"), allow(unused_mut))]
     let mut current_prompt = prompt.to_string();
@@ -624,6 +688,12 @@ pub async fn run_print(
                         #[cfg(feature = "subagents")]
                         subagent_calls: std::mem::take(&mut pending_subagent_calls),
                     });
+                    if stop_after_tools.is_some() && pending_calls.is_empty() {
+                        // Every call of the over-threshold completion has its
+                        // result: stop before rig sends the next request.
+                        mid_turn_stop = stop_after_tools.take();
+                        break;
+                    }
                 }
                 Ok(MultiTurnStreamItem::FinalResponse(res)) => {
                     usage = res.usage();
@@ -655,11 +725,48 @@ pub async fn run_print(
                     }
                     break;
                 }
+                Ok(MultiTurnStreamItem::CompletionCall(call)) => {
+                    calls_usage += call.usage;
+                    if let Some(c) = ceiling.as_mut()
+                        && c.context_window > 0
+                    {
+                        let prompt_tokens = Session::real_input_tokens(
+                            c.anthropic_native,
+                            call.usage.input_tokens.unwrap_or(0),
+                            call.usage.cached_input_tokens.unwrap_or(0),
+                            call.usage.cache_creation_input_tokens.unwrap_or(0),
+                        );
+                        let over = prompt_tokens as f64 / c.context_window as f64 > c.threshold;
+                        if over && c.grace_calls > 0 {
+                            // Let this call through (compaction could not help
+                            // yet); the next crossing compacts again.
+                            c.grace_calls -= 1;
+                        } else if over {
+                            // rig reports a completion's usage when its reply
+                            // ends, before that turn's tool calls surface. Keep
+                            // the work: let those tools run, then stop after the
+                            // last result, before the next request goes out. If
+                            // the reply had no tool calls it was the final
+                            // answer and the run simply finishes.
+                            stop_after_tools = Some(if c.awaiting_relief {
+                                MidTurnStop::Exhausted { prompt_tokens }
+                            } else {
+                                MidTurnStop::Compact { prompt_tokens }
+                            });
+                        }
+                        c.awaiting_relief = false;
+                    }
+                }
                 Ok(_) => {}
                 Err(e) => {
                     return Err(anyhow::anyhow!("{e}"));
                 }
             }
+        }
+
+        if mid_turn_stop.is_some() {
+            usage = calls_usage;
+            break;
         }
 
         #[cfg(feature = "hooks")]
@@ -675,6 +782,7 @@ pub async fn run_print(
         response: full_response,
         usage,
         tool_interactions: recorded_interactions,
+        mid_turn_stop,
     })
 }
 
@@ -721,6 +829,8 @@ pub struct PrintOutcome {
     pub response: String,
     pub usage: Usage,
     pub tool_interactions: Vec<ToolInteraction>,
+    /// `Some` when the run stopped early at the mid-turn ceiling.
+    pub mid_turn_stop: Option<MidTurnStop>,
 }
 
 fn format_tool_args_summary(args_json: &serde_json::Value) -> String {

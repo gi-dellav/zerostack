@@ -75,6 +75,9 @@ pub(crate) async fn run_headless_loop(
                     iteration: state.iteration,
                     active: state.active,
                 }),
+                // `--loop` sends empty history each iteration and has no
+                // `Session` to compact (`TODO(loop-history)`).
+                None,
             )
             .await
         {

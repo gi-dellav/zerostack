@@ -671,7 +671,7 @@ pub(crate) async fn start_main_run(
 /// I already did," not as new user instructions. The narrow-tool-calls line is
 /// always present because any mid-turn fire means the configured ceiling was
 /// hit, so the urgency always applies.
-const MID_TURN_CONTINUE_PROMPT: &str = "[Context was compacted to save space; \
+pub(crate) const MID_TURN_CONTINUE_PROMPT: &str = "[Context was compacted to save space; \
 the full prior history is in the system summary above.]\n\nContinue with the \
 user's original task. Do not redo work already completed per the summary; focus \
 on what remains. Context was tight, so prefer narrower follow-up tool calls over \
