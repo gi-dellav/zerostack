@@ -24,9 +24,23 @@ const AGENT_VERSION: &str = "1.0.5";
 
 struct SessionState {
     messages: Vec<Message>,
+    #[cfg(feature = "mcp")]
+    mcp_manager: Option<Arc<crate::extras::mcp::McpClientManager>>,
+    #[cfg(feature = "mcp")]
+    mcp_tool_titles: Arc<HashMap<String, String>>,
 }
 
 impl SessionState {
+    fn new(messages: Vec<Message>) -> Self {
+        Self {
+            messages,
+            #[cfg(feature = "mcp")]
+            mcp_manager: None,
+            #[cfg(feature = "mcp")]
+            mcp_tool_titles: Arc::new(HashMap::new()),
+        }
+    }
+
     /// Return the conversation so far and record `prompt` as this turn's user
     /// message. The snapshot excludes the new prompt because the runner sends
     /// it separately, as a prompt rather than history.
@@ -41,6 +55,153 @@ impl SessionState {
             self.messages.push(Message::assistant(response.to_string()));
         }
     }
+}
+
+#[cfg(any(feature = "mcp", test))]
+pub(crate) fn format_mcp_tool_title(server_name: &str, tool_name: &str) -> String {
+    format!("mcp__{}__{}", server_name.replace('-', "_"), tool_name)
+}
+
+#[cfg(feature = "mcp")]
+pub(crate) fn acp_server_to_mcp_config(
+    server: &McpServer,
+) -> Option<(String, crate::extras::mcp::config::McpServerConfig)> {
+    use crate::extras::mcp::config::McpServerConfig;
+    match server {
+        McpServer::Stdio(stdio) => Some((
+            stdio.name.clone(),
+            McpServerConfig::Command {
+                command: stdio.command.to_string_lossy().to_string(),
+                args: stdio.args.clone(),
+                env: stdio
+                    .env
+                    .iter()
+                    .map(|e| (e.name.clone(), e.value.clone()))
+                    .collect(),
+                connect_timeout_secs: None,
+                tool_timeout_secs: None,
+                connect_retries: None,
+            },
+        )),
+        McpServer::Http(http) => Some((
+            http.name.clone(),
+            McpServerConfig::Url {
+                url: http.url.clone(),
+                headers: http
+                    .headers
+                    .iter()
+                    .map(|h| (h.name.clone(), h.value.clone()))
+                    .collect(),
+                oauth: None,
+                connect_timeout_secs: None,
+                tool_timeout_secs: None,
+                connect_retries: None,
+            },
+        )),
+        McpServer::Sse(sse) => Some((
+            sse.name.clone(),
+            McpServerConfig::Url {
+                url: sse.url.clone(),
+                headers: sse
+                    .headers
+                    .iter()
+                    .map(|h| (h.name.clone(), h.value.clone()))
+                    .collect(),
+                oauth: None,
+                connect_timeout_secs: None,
+                tool_timeout_secs: None,
+                connect_retries: None,
+            },
+        )),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "mcp")]
+pub(crate) fn build_acp_mcp_configs(
+    cfg: &Config,
+    req_servers: &[McpServer],
+) -> HashMap<String, crate::extras::mcp::config::McpServerConfig> {
+    let mut configs = cfg.mcp_servers.clone().unwrap_or_default();
+    for server in req_servers {
+        if let Some((name, server_cfg)) = acp_server_to_mcp_config(server) {
+            configs.insert(name, server_cfg);
+        }
+    }
+    configs
+}
+
+#[cfg(feature = "mcp")]
+pub(crate) fn effective_acp_cli(
+    cli: &Cli,
+    cfg: &Config,
+    mcp_tool_titles: &HashMap<String, String>,
+) -> Cli {
+    let mut out = cli.clone();
+    let resolved = cli.resolve_tools(cfg);
+    if resolved.is_empty() || mcp_tool_titles.is_empty() {
+        return out;
+    }
+    out.tools = resolved;
+    for tool_name in mcp_tool_titles.keys() {
+        if !out.tools.iter().any(|t| t == tool_name) {
+            out.tools.push(tool_name.clone());
+        }
+    }
+    out
+}
+
+#[cfg(feature = "mcp")]
+async fn connect_acp_mcp(
+    cfg: &Config,
+    req_servers: &[McpServer],
+) -> (
+    Option<Arc<crate::extras::mcp::McpClientManager>>,
+    Arc<HashMap<String, String>>,
+) {
+    let configs = build_acp_mcp_configs(cfg, req_servers);
+    if configs.is_empty() {
+        return (None, Arc::new(HashMap::new()));
+    }
+    let manager = match tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        crate::extras::mcp::McpClientManager::connect_all(&configs),
+    )
+    .await
+    {
+        Ok(m) => m,
+        Err(_) => {
+            tracing::warn!("ACP MCP connect timed out after 15s");
+            return (None, Arc::new(HashMap::new()));
+        }
+    };
+    for notice in &manager.notices {
+        tracing::warn!("ACP {}", notice);
+    }
+    let mut titles = HashMap::new();
+    let pairs = futures::future::join_all(manager.handles.iter().map(|shared| {
+        let shared = shared.clone();
+        async move {
+            let handle = shared.read().await;
+            let server_name = handle.server_name.to_string();
+            let tools = handle.list_tools().await.unwrap_or_default();
+            tools
+                .into_iter()
+                .map(|def| {
+                    let tool_name = def.name.to_string();
+                    let title = format_mcp_tool_title(&server_name, &tool_name);
+                    (tool_name, title)
+                })
+                .collect::<Vec<_>>()
+        }
+    }))
+    .await;
+    for pair_list in pairs {
+        for (tool_name, title) in pair_list {
+            titles.insert(tool_name, title);
+        }
+    }
+    (Some(Arc::new(manager)), Arc::new(titles))
 }
 
 struct AcpState {
@@ -202,9 +363,10 @@ async fn handle_new_session(
     let session_id = SessionId::new(uuid::Uuid::new_v4().to_string());
 
     tracing::info!(
-        "ACP new session: {} (cwd: {})",
+        "ACP new session: {} (cwd: {}, mcp_servers: {})",
         session_id,
-        req.cwd.display()
+        req.cwd.display(),
+        req.mcp_servers.len(),
     );
 
     if state.cli.sandbox_setting_conflict(&state.cfg) {
@@ -222,12 +384,21 @@ async fn handle_new_session(
         tracing::warn!("{warning}");
     }
 
-    state.sessions.lock().await.insert(
-        session_id.clone(),
-        SessionState {
-            messages: Vec::new(),
-        },
-    );
+    #[cfg(feature = "mcp")]
+    let (mcp_manager, mcp_tool_titles) = connect_acp_mcp(&state.cfg, &req.mcp_servers).await;
+
+    let session_state = SessionState {
+        messages: Vec::new(),
+        #[cfg(feature = "mcp")]
+        mcp_manager,
+        #[cfg(feature = "mcp")]
+        mcp_tool_titles,
+    };
+    state
+        .sessions
+        .lock()
+        .await
+        .insert(session_id.clone(), session_state);
 
     let resp = NewSessionResponse::new(session_id);
     responder.respond(resp)
@@ -256,22 +427,40 @@ async fn handle_prompt(
     // Snapshot the prior turns for the runner, then record this prompt. The
     // prompt itself travels separately, so it must not also be in `history`
     // (providers reject two consecutive user messages).
-    let history = {
-        let mut sessions = state.sessions.lock().await;
-        match sessions.get_mut(&session_id) {
-            Some(sess) => sess.begin_turn(&prompt_text),
-            None => Vec::new(),
-        }
-    };
+    let mut sessions = state.sessions.lock().await;
+    let sess = sessions
+        .entry(session_id.clone())
+        .or_insert_with(|| SessionState::new(Vec::new()));
+    let history = sess.begin_turn(&prompt_text);
+    #[cfg(feature = "mcp")]
+    let mcp_manager = sess.mcp_manager.clone();
+    #[cfg(feature = "mcp")]
+    let mcp_tool_titles = sess.mcp_tool_titles.clone();
+    drop(sessions);
 
     cx.spawn({
         let cx = cx.clone();
-        async move { run_prompt(&state, &prompt_text, history, session_id, responder, cx).await }
+        async move {
+            run_prompt(
+                &state,
+                &prompt_text,
+                history,
+                session_id,
+                responder,
+                cx,
+                #[cfg(feature = "mcp")]
+                mcp_manager,
+                #[cfg(feature = "mcp")]
+                mcp_tool_titles,
+            )
+            .await
+        }
     })
 }
 
 // --- Prompt Execution ---
 
+#[allow(clippy::too_many_arguments)]
 async fn run_prompt(
     state: &AcpState,
     prompt_text: &str,
@@ -279,6 +468,8 @@ async fn run_prompt(
     session_id: SessionId,
     responder: Responder<PromptResponse>,
     cx: ConnectionTo<Client>,
+    #[cfg(feature = "mcp")] mcp_manager: Option<Arc<crate::extras::mcp::McpClientManager>>,
+    #[cfg(feature = "mcp")] mcp_tool_titles: Arc<HashMap<String, String>>,
 ) -> Result<(), agent_client_protocol::Error> {
     let provider_str = state.cli.resolve_provider(&state.cfg);
     let mut model_str = state.cli.resolve_model(&state.cfg);
@@ -315,10 +506,14 @@ async fn run_prompt(
 
     let temperature = crate::config::resolve_temperature(&state.cli, &state.cfg, &model_str);
     let extra_body = crate::config::resolve_extra_body(&state.cfg, &model_str);
+    #[cfg(feature = "mcp")]
+    let turn_cli = effective_acp_cli(&state.cli, &state.cfg, &mcp_tool_titles);
+    #[cfg(not(feature = "mcp"))]
+    let turn_cli = state.cli.clone();
     let agent = crate::provider::build_agent(
         model,
         crate::agent::builder::AgentBuild {
-            cli: &state.cli,
+            cli: &turn_cli,
             cfg: &state.cfg,
             context: &state.context,
             permission,
@@ -328,7 +523,7 @@ async fn run_prompt(
             temperature,
             extra_body,
             #[cfg(feature = "mcp")]
-            mcp_manager: None,
+            mcp_manager: mcp_manager.as_deref(),
         },
     )
     .await;
@@ -384,7 +579,14 @@ async fn run_prompt(
                 let id = ToolCallId::new(uuid::Uuid::new_v4().to_string());
                 tool_call_ids.insert(event_id, id.clone());
                 let args_str = args.to_string();
-                let tool_call = ToolCall::new(id.clone(), name.to_string())
+                #[cfg(feature = "mcp")]
+                let title = mcp_tool_titles
+                    .get(name.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| name.to_string());
+                #[cfg(not(feature = "mcp"))]
+                let title = name.to_string();
+                let tool_call = ToolCall::new(id.clone(), title)
                     .raw_input(serde_json::from_str(&args_str).ok());
                 let notif = SessionNotification::new(
                     session_id.clone(),
@@ -510,7 +712,12 @@ fn build_acp_permission(state: &AcpState) -> (Option<PermCheck>, Option<AskSende
 
     let mode = resolve_acp_mode(&state.cli, &state.cfg);
     let permission_modes = state.cfg.permission_modes.clone();
-    let checker = PermissionChecker::new(&perm_config, mode, None, permission_modes);
+    #[allow(unused_mut)]
+    let mut checker = PermissionChecker::new(&perm_config, mode, None, permission_modes);
+    #[cfg(feature = "mcp")]
+    if matches!(mode, SecurityMode::Standard | SecurityMode::Yolo) {
+        checker.set_allow_all_mcp_calls(true);
+    }
     let perm: PermCheck = Arc::new(StdMutex::new(checker));
 
     let (ask_tx, mut ask_rx) = tokio::sync::mpsc::channel::<crate::permission::ask::AskRequest>(64);
@@ -562,9 +769,7 @@ mod tests {
 
     #[test]
     fn later_turns_receive_the_earlier_conversation() {
-        let mut session = SessionState {
-            messages: Vec::new(),
-        };
+        let mut session = SessionState::new(Vec::new());
 
         assert!(session.begin_turn("Step 1").is_empty());
         session.record_assistant_response("acknowledged");
@@ -590,9 +795,7 @@ mod tests {
 
     #[test]
     fn empty_assistant_response_is_not_recorded() {
-        let mut session = SessionState {
-            messages: Vec::new(),
-        };
+        let mut session = SessionState::new(Vec::new());
 
         session.begin_turn("hello");
         session.record_assistant_response("");
