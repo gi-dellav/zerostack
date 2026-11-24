@@ -152,4 +152,80 @@ mod tests {
         };
         assert_eq!(resolve_acp_mode(&cli, &cfg), SecurityMode::Yolo);
     }
+
+    #[test]
+    fn test_format_mcp_tool_title() {
+        use crate::extras::acp::format_mcp_tool_title;
+        assert_eq!(
+            format_mcp_tool_title("chat", "send_message"),
+            "mcp__chat__send_message"
+        );
+        assert_eq!(
+            format_mcp_tool_title("codync-memory", "remember"),
+            "mcp__codync_memory__remember"
+        );
+    }
+
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn test_acp_server_to_mcp_config_stdio_and_http() {
+        use std::path::PathBuf;
+
+        use agent_client_protocol::v1::schema::{
+            EnvVariable, HttpHeader, McpServer, McpServerHttp, McpServerStdio,
+        };
+
+        use crate::extras::acp::{acp_server_to_mcp_config, build_acp_mcp_configs};
+        use crate::extras::mcp::config::McpServerConfig;
+
+        let stdio = McpServer::Stdio(
+            McpServerStdio::new("chat", PathBuf::from("/usr/bin/codync-host"))
+                .args(vec!["mcp".to_string(), "chat".to_string()])
+                .env(vec![EnvVariable::new("CODYNC_HOME", "/tmp/codync")]),
+        );
+        let (name, cfg) = acp_server_to_mcp_config(&stdio).expect("stdio config");
+        assert_eq!(name, "chat");
+        match cfg {
+            McpServerConfig::Command {
+                command, args, env, ..
+            } => {
+                assert_eq!(command, "/usr/bin/codync-host");
+                assert_eq!(args, vec!["mcp", "chat"]);
+                assert_eq!(
+                    env.get("CODYNC_HOME").map(String::as_str),
+                    Some("/tmp/codync")
+                );
+            }
+            _ => panic!("expected Command config"),
+        }
+
+        let http = McpServer::Http(
+            McpServerHttp::new("remote", "https://example.com/mcp")
+                .headers(vec![HttpHeader::new("Authorization", "Bearer token")]),
+        );
+        let merged = build_acp_mcp_configs(&Config::default(), &[stdio, http]);
+        assert!(merged.contains_key("chat"));
+        assert!(merged.contains_key("remote"));
+    }
+
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn test_effective_acp_cli_preserves_mcp_tools() {
+        use std::collections::HashMap;
+
+        use crate::extras::acp::effective_acp_cli;
+
+        let mut titles = HashMap::new();
+        titles.insert(
+            "send_message".to_string(),
+            "mcp__chat__send_message".to_string(),
+        );
+        let cli = Cli {
+            tools: vec!["read".to_string()],
+            ..Default::default()
+        };
+        let eff = effective_acp_cli(&cli, &Config::default(), &titles);
+        assert!(eff.tools.contains(&"read".to_string()));
+        assert!(eff.tools.contains(&"send_message".to_string()));
+    }
 }
