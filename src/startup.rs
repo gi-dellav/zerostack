@@ -1,6 +1,7 @@
 use compact_str::CompactString;
 
 use crate::agent::builder::AgentBuild;
+use crate::agent::runner::MidTurnStop;
 use crate::agent::tools;
 use crate::cli::Cli;
 use crate::config::{self, Config};
@@ -977,69 +978,102 @@ impl Startup {
                 });
                 crate::extras::advisor::set_session_messages(msgs);
             }
-            if let Some(ss) = self.status_signals.as_ref() {
-                ss.send_start();
-            }
-            let history = crate::agent::runner::convert_history(&self.session);
-            let response_result = agent
-                .run_print(
-                    &msg,
-                    self.cli.pure_stdout,
-                    &self.cfg.retry,
-                    history,
-                    #[cfg(feature = "hooks")]
-                    None,
-                )
-                .await;
-            if let Some(ss) = self.status_signals.as_ref() {
-                ss.send_stop();
-            }
-            let response_outcome = response_result?;
-            let response = response_outcome.response;
-            let usage = response_outcome.usage;
-            if !self.cli.no_session {
-                let mut session = self.session;
-                session.add_message(MessageRole::User, &msg);
-                for interaction in &response_outcome.tool_interactions {
-                    let call_id = session.add_tool_call(&interaction.name, &interaction.args);
-                    // Between the call and its result, where they happened.
-                    #[cfg(feature = "subagents")]
-                    for subagent_call in &interaction.subagent_calls {
-                        session.add_subagent_tool_call(
-                            Some(call_id),
-                            &subagent_call.name,
-                            &subagent_call.args,
-                        );
-                    }
-                    session.add_tool_result(call_id, &interaction.name, &interaction.output);
+            // Mid-turn compaction (docs/CONFIG.md "Mid-turn compaction"): the
+            // same per-call pressure check the TUI runs (`App`, `CompletionCall`).
+            // `run_print_with_ceiling` stops at the crossing call's boundary;
+            // this loop records the partial turn, compacts, and resumes on the
+            // compacted history. A headless run never gives up on pressure:
+            // when compaction cannot bring the prompt under the ceiling, one
+            // call is let through over it (so every respawn makes progress)
+            // and compaction is tried again once history has grown.
+            let mut ceiling = headless_mid_turn_ceiling(&self.cfg, &self.session);
+            let keep_recent = self.cfg.resolve_keep_recent_tokens();
+            // Respawn budget: past it the run finishes without the ceiling
+            // rather than stopping.
+            let max_respawns = self.cli.resolve_max_agent_turns(&self.cfg);
+            let mut respawns = 0usize;
+            let mut session = self.session;
+            let mut prompt = msg.clone();
+            loop {
+                if let Some(ss) = self.status_signals.as_ref() {
+                    ss.send_start();
                 }
-                session.add_message(MessageRole::Assistant, &response);
-                let input_tokens = usage.input_tokens.unwrap_or(0);
-                let output_tokens = usage.output_tokens.unwrap_or(0);
-                let cached_input_tokens = usage.cached_input_tokens.unwrap_or(0);
-                let cache_creation_input_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
-                session.total_input_tokens =
-                    session.total_input_tokens.saturating_add(input_tokens);
-                session.total_output_tokens =
-                    session.total_output_tokens.saturating_add(output_tokens);
-                session.total_cached_input_tokens = session
-                    .total_cached_input_tokens
-                    .saturating_add(cached_input_tokens);
-                session.total_cache_creation_input_tokens = session
-                    .total_cache_creation_input_tokens
-                    .saturating_add(cache_creation_input_tokens);
-                session.total_cost += crate::pricing::estimate_cost(
-                    crate::pricing::billable_input_tokens(
-                        self.cfg
-                            .is_anthropic_native(&session.provider, &session.model),
-                        input_tokens,
-                        cached_input_tokens,
-                        cache_creation_input_tokens,
-                    ),
-                    output_tokens,
-                    session.input_token_cost,
-                    session.output_token_cost,
-                );
+                let history = crate::agent::runner::convert_history(&session);
+                let response_result = agent
+                    .run_print(
+                        &prompt,
+                        self.cli.pure_stdout,
+                        &self.cfg.retry,
+                        history,
+                        #[cfg(feature = "hooks")]
+                        None,
+                        ceiling,
+                    )
+                    .await;
+                if let Some(ss) = self.status_signals.as_ref() {
+                    ss.send_stop();
+                }
+                let outcome = response_result?;
+                record_print_outcome(&mut session, &self.cfg, &prompt, &outcome);
+                let Some(stop) = outcome.mid_turn_stop else {
+                    break;
+                };
+                respawns += 1;
+                let Some(c) = ceiling.as_mut() else { break };
+                match stop {
+                    MidTurnStop::Compact { prompt_tokens } => {
+                        let pct = prompt_tokens as f64 / session.context_window as f64 * 100.0;
+                        eprintln!("mid-turn context relief, compacting (at {pct:.0}%)...");
+                        match compact_for_mid_turn(&self.client, &mut session, keep_recent).await {
+                            Ok(true) => {
+                                c.awaiting_relief = true;
+                                c.grace_calls = 0;
+                            }
+                            // Nothing to summarize: let the next call through.
+                            Ok(false) => {
+                                c.awaiting_relief = false;
+                                c.grace_calls = 1;
+                            }
+                            Err(e) => {
+                                eprintln!("mid-turn compact error: {e}");
+                                c.awaiting_relief = false;
+                                c.grace_calls = 1;
+                            }
+                        }
+                    }
+                    MidTurnStop::Exhausted { prompt_tokens } => {
+                        let pct = prompt_tokens as f64 / session.context_window as f64 * 100.0;
+                        eprintln!(
+                            "mid-turn: still at {pct:.0}% right after compaction; continuing \
+                             one call over the ceiling, then compacting again"
+                        );
+                        c.awaiting_relief = false;
+                        c.grace_calls = 1;
+                    }
+                }
+                if respawns >= max_respawns {
+                    eprintln!(
+                        "mid-turn: {respawns} compaction restarts; finishing without the ceiling"
+                    );
+                    ceiling = None;
+                }
+                // Re-attach the original task only when compaction summarized
+                // away every copy of it; a kept copy is enough (two would eat
+                // the headroom the compaction just made).
+                let task_kept = session
+                    .messages
+                    .iter()
+                    .any(|m| m.role == MessageRole::User && m.content.contains(msg.as_str()));
+                prompt = if task_kept {
+                    crate::ui::MID_TURN_CONTINUE_PROMPT.to_string()
+                } else {
+                    format!(
+                        "{}\n\n[Original task]\n{msg}",
+                        crate::ui::MID_TURN_CONTINUE_PROMPT
+                    )
+                };
+            }
+            if !self.cli.no_session {
                 session::storage::save_session(&session)?;
                 let _ =
                     session::chat_history::append_entry(&session::chat_history::ChatHistoryEntry {
@@ -1142,4 +1176,129 @@ impl Startup {
 
         Ok(())
     }
+}
+
+/// The mid-turn ceiling for a headless run, or `None` when mid-turn compaction
+/// is off (needs `compact_enabled`, a valid `mid_turn_compact_threshold`, and a
+/// known context window, same gates as the TUI).
+fn headless_mid_turn_ceiling(
+    cfg: &Config,
+    session: &Session,
+) -> Option<crate::agent::runner::MidTurnCeiling> {
+    if !cfg.resolve_compact_enabled() || session.context_window == 0 {
+        return None;
+    }
+    let threshold = cfg.resolve_mid_turn_compact_threshold()?;
+    Some(crate::agent::runner::MidTurnCeiling {
+        context_window: session.context_window,
+        threshold,
+        anthropic_native: cfg.is_anthropic_native(&session.provider, &session.model),
+        awaiting_relief: false,
+        grace_calls: 0,
+    })
+}
+
+/// Folds one `run_print` outcome into the session: the prompt, every
+/// completed tool call/result pair, the assistant text, token totals and cost.
+/// A run stopped at the mid-turn ceiling records its partial text plus a
+/// marker, so the summary sees where the turn paused.
+pub(crate) fn record_print_outcome(
+    session: &mut Session,
+    cfg: &Config,
+    prompt: &str,
+    outcome: &crate::agent::runner::PrintOutcome,
+) {
+    session.add_message(MessageRole::User, prompt);
+    for interaction in &outcome.tool_interactions {
+        let call_id = session.add_tool_call(&interaction.name, &interaction.args);
+        // Between the call and its result, where they happened.
+        #[cfg(feature = "subagents")]
+        for subagent_call in &interaction.subagent_calls {
+            session.add_subagent_tool_call(Some(call_id), &subagent_call.name, &subagent_call.args);
+        }
+        session.add_tool_result(call_id, &interaction.name, &interaction.output);
+    }
+    if outcome.mid_turn_stop.is_some() {
+        let partial = outcome.response.trim();
+        let marker = "[Turn paused here for mid-turn context compaction]";
+        let text = if partial.is_empty() {
+            marker.to_string()
+        } else {
+            format!("{partial}\n\n{marker}")
+        };
+        session.add_message(MessageRole::Assistant, &text);
+    } else {
+        session.add_message(MessageRole::Assistant, &outcome.response);
+    }
+    let usage = &outcome.usage;
+    let input_tokens = usage.input_tokens.unwrap_or(0);
+    let output_tokens = usage.output_tokens.unwrap_or(0);
+    let cached_input_tokens = usage.cached_input_tokens.unwrap_or(0);
+    let cache_creation_input_tokens = usage.cache_creation_input_tokens.unwrap_or(0);
+    session.total_input_tokens = session.total_input_tokens.saturating_add(input_tokens);
+    session.total_output_tokens = session.total_output_tokens.saturating_add(output_tokens);
+    session.total_cached_input_tokens = session
+        .total_cached_input_tokens
+        .saturating_add(cached_input_tokens);
+    session.total_cache_creation_input_tokens = session
+        .total_cache_creation_input_tokens
+        .saturating_add(cache_creation_input_tokens);
+    session.total_cost += crate::pricing::estimate_cost(
+        crate::pricing::billable_input_tokens(
+            cfg.is_anthropic_native(&session.provider, &session.model),
+            input_tokens,
+            cached_input_tokens,
+            cache_creation_input_tokens,
+        ),
+        output_tokens,
+        session.input_token_cost,
+        session.output_token_cost,
+    );
+}
+
+/// Mid-turn relief for a headless run: summarizes everything older than
+/// `keep_recent` tokens, halving that budget until there is something to
+/// summarize. Unlike the between-turn gate there is no budget check, since the
+/// provider just reported the prompt is over the ceiling. Returns `false` only
+/// when the session has no messages to summarize.
+pub(crate) async fn compact_for_mid_turn(
+    client: &AnyClient,
+    session: &mut Session,
+    keep_recent: u64,
+) -> anyhow::Result<bool> {
+    // The provider just said the prompt is over the ceiling, so relief beats
+    // keeping `keep_recent` verbatim: halve the kept budget until something
+    // is old enough to summarize (0 keeps nothing).
+    let mut keep = keep_recent;
+    let cut_idx = loop {
+        let cut = Session::select_compaction_cut(&session.messages, keep);
+        if cut > 0 || keep == 0 {
+            break cut;
+        }
+        keep /= 2;
+    };
+    if cut_idx == 0 {
+        return Ok(false);
+    }
+    let previous_summary = session.compactions.last().map(|c| c.summary.to_string());
+    let summary = client
+        .compress_messages(
+            &session.model,
+            &session.messages[..cut_idx],
+            previous_summary.as_deref(),
+            None,
+        )
+        .await?;
+    let tokens_before: u64 = session.messages[..cut_idx]
+        .iter()
+        .map(|m| m.estimated_tokens)
+        .sum();
+    #[cfg(feature = "memory")]
+    crate::extras::memory::flush_compaction_summary(
+        &crate::extras::memory::Mem::open(),
+        &summary,
+        Some(cut_idx),
+    );
+    session.compress(summary, cut_idx, tokens_before);
+    Ok(true)
 }

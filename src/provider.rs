@@ -902,10 +902,12 @@ impl AnyAgent {
         // `--loop` iteration/active state; see `runner::run_print`. `None`
         // for plain `-p` one-shot runs.
         #[cfg(feature = "hooks")] loop_info: Option<LoopInfo>,
+        // Mid-turn compaction ceiling; `None` keeps the historical behavior.
+        ceiling: Option<runner::MidTurnCeiling>,
     ) -> anyhow::Result<runner::PrintOutcome> {
         match self {
             AnyAgent::OpenRouter(a) => {
-                runner::run_print(
+                runner::run_print_with_ceiling(
                     a,
                     prompt,
                     pure_stdout,
@@ -913,12 +915,13 @@ impl AnyAgent {
                     history,
                     #[cfg(feature = "hooks")]
                     loop_info,
+                    ceiling,
                 )
                 .await
             }
             AnyAgent::OpenAI(a) => match a {
                 OpenAiAgent::Responses(a) => {
-                    runner::run_print(
+                    runner::run_print_with_ceiling(
                         a,
                         prompt,
                         pure_stdout,
@@ -926,11 +929,12 @@ impl AnyAgent {
                         history,
                         #[cfg(feature = "hooks")]
                         loop_info,
+                        ceiling,
                     )
                     .await
                 }
                 OpenAiAgent::Completions(a) => {
-                    runner::run_print(
+                    runner::run_print_with_ceiling(
                         a,
                         prompt,
                         pure_stdout,
@@ -938,12 +942,13 @@ impl AnyAgent {
                         history,
                         #[cfg(feature = "hooks")]
                         loop_info,
+                        ceiling,
                     )
                     .await
                 }
             },
             AnyAgent::Anthropic(a) => {
-                runner::run_print(
+                runner::run_print_with_ceiling(
                     a,
                     prompt,
                     pure_stdout,
@@ -951,11 +956,12 @@ impl AnyAgent {
                     history,
                     #[cfg(feature = "hooks")]
                     loop_info,
+                    ceiling,
                 )
                 .await
             }
             AnyAgent::Gemini(a) => {
-                runner::run_print(
+                runner::run_print_with_ceiling(
                     a,
                     prompt,
                     pure_stdout,
@@ -963,11 +969,12 @@ impl AnyAgent {
                     history,
                     #[cfg(feature = "hooks")]
                     loop_info,
+                    ceiling,
                 )
                 .await
             }
             AnyAgent::Ollama(a) => {
-                runner::run_print(
+                runner::run_print_with_ceiling(
                     a,
                     prompt,
                     pure_stdout,
@@ -975,12 +982,13 @@ impl AnyAgent {
                     history,
                     #[cfg(feature = "hooks")]
                     loop_info,
+                    ceiling,
                 )
                 .await
             }
             #[cfg(test)]
             AnyAgent::Mock(a) => {
-                runner::run_print(
+                runner::run_print_with_ceiling(
                     a,
                     prompt,
                     pure_stdout,
@@ -988,6 +996,7 @@ impl AnyAgent {
                     history,
                     #[cfg(feature = "hooks")]
                     loop_info,
+                    ceiling,
                 )
                 .await
             }
