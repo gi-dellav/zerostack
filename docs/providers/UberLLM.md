@@ -1,17 +1,17 @@
 ---
-description: "Use UberLLM models with zerostack through an OpenAI-compatible custom provider."
+description: "Use MartLLM models with zerostack through an OpenAI-compatible custom provider."
 ---
 
-# UberLLM
+# MartLLM
 
-[UberLLM](https://uberllm.dev) is an OpenAI-compatible LLM gateway. One prepaid
+[MartLLM](https://martllm.com) is an OpenAI-compatible LLM gateway. One prepaid
 API key gives access to chat models from several labs (DeepSeek, Anthropic,
 OpenAI, Google, Qwen and others). Use zerostack's custom provider configuration
 to connect to its Chat Completions endpoint.
 
 ## Credentials
 
-Create an API key at https://uberllm.dev/signup, then set it in your shell
+Create an API key at https://martllm.com/signup, then set it in your shell
 instead of storing it in the config:
 
 ```bash
@@ -26,7 +26,7 @@ for config locations and project-local overrides.
 ```toml
 [custom_providers.uberllm]
 provider_type = "openai"
-base_url = "https://api.uberllm.dev/v1"
+base_url = "https://api.martllm.com/v1"
 api_key_env = "UBERLLM_API_KEY"
 api_style = "completions"
 model = "deepseek/deepseek-v4.1-flash"
@@ -54,12 +54,12 @@ Model IDs use the `vendor/model` form. The chat model listing is public, so no
 key is needed to browse it:
 
 ```bash
-curl https://api.uberllm.dev/v1/models
+curl https://api.martllm.com/v1/models
 ```
 
 Use a returned ID unchanged with `--model`, for example
 `deepseek/deepseek-v4.1-flash` or `anthropic/claude-sonnet-4.6`. Current
-per-model prices are listed at https://uberllm.dev/models.
+per-model prices are listed at https://martllm.com/models.
 
 The listing reports OpenRouter-style `context_length` and `pricing` fields, so
 zerostack reads the context window and token pricing live; see
@@ -77,4 +77,4 @@ model = "anthropic/claude-sonnet-4.6"
 
 Select it with `zerostack --quick-model uberllm-sonnet`.
 
-Docs: https://uberllm.dev/docs
+Docs: https://martllm.com/docs
